@@ -1,0 +1,57 @@
+# Sabit sözlükler: açılır listeler ve doğrulama bunlardan beslenir.
+# id değerleri kodda ve geçmiş verilerde kullanılır; değiştirmeyin, yeni satır ekleyin.
+processes:
+  - {id: autoclave_prepreg, label: "Autoclave prepreg"}
+  - {id: ooa_prepreg, label: "OOA prepreg"}
+  - {id: infuzyon, label: "Vakum infüzyon"}
+  - {id: rtm, label: "RTM / Light RTM"}
+  - {id: pres, label: "Pres kalıplama"}
+  - {id: filament_sarim, label: "Filament sarım"}
+  - {id: el_yatirma, label: "El yatırma (ıslak)"}
+tool_material_classes:
+  - {id: tooling_board, label: "Tooling board (doğrudan işlenmiş)"}
+  - {id: gfrp, label: "GFRP kompozit kalıp"}
+  - {id: cfrp, label: "CFRP kompozit kalıp (tooling prepreg)"}
+  - {id: invar, label: "Invar"}
+  - {id: aluminyum, label: "Alüminyum"}
+  - {id: celik, label: "Çelik"}
+  - {id: diger, label: "Diğer"}
+master_model_materials:
+  - {id: yok, label: "Master model yok"}
+  - {id: tooling_board, label: "Tooling board"}
+  - {id: epoksi_pasta, label: "Altyapı + epoksi pasta"}
+  - {id: mdf, label: "MDF / ahşap"}
+  - {id: diger, label: "Diğer"}
+tool_types:
+  - {id: erkek, label: "Erkek (male)"}
+  - {id: disi, label: "Dişi (female)"}
+  - {id: eslesik, label: "Eşleşik (matched)"}
+undercut_solutions:
+  - {id: yok, label: "Ters açı yok"}
+  - {id: maca, label: "Gevşek parça (maça)"}
+  - {id: bolunmus_kalip, label: "Bölünmüş kalıp"}
+  - {id: mandrel_konik, label: "Konik çekilebilir mandrel"}
+  - {id: mandrel_bolunmus, label: "Bölünmüş mandrel"}
+  - {id: bladder, label: "Bladder"}
+  - {id: cozunur_mandrel, label: "Çözünür mandrel"}
+operations:
+  - {id: kesim, label: "Ply kesimi"}
+  - {id: serim, label: "Serim (layup)"}
+  - {id: debulk, label: "Debulk"}
+  - {id: torbalama, label: "Torbalama"}
+  - {id: kur, label: "Kür"}
+  - {id: kaliptan_cikarma, label: "Kalıptan çıkarma"}
+  - {id: trim, label: "Trim / delik delme"}
+  - {id: el_isciligi, label: "Çapak alma / el işçiliği"}
+  - {id: ndt, label: "NDT"}
+  - {id: olcum, label: "Ölçüm"}
+  - {id: boya, label: "Boya"}
+  - {id: montaj, label: "Montaj"}
+  - {id: diger, label: "Diğer"}
+complexity:
+  - {id: dusuk, label: "Düşük"}
+  - {id: orta, label: "Orta"}
+  - {id: yuksek, label: "Yüksek"}
+yes_no:
+  - {id: E, label: "Evet"}
+  - {id: H, label: "Hayır"}

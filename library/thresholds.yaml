@@ -8,10 +8,19 @@ tessellation:
   max_angular_deflection_deg: {value: 0.5, unit: deg, source: user, desc: "Tessellation açısal sapma üst sınırı"}
 costing:
   nesting_scrap_ratio: {value: null, unit: ratio, desc: "Varsayılan nesting firesi (fire alanı / net ply alanı)"}
-  learning_curve_ratio: {value: null, unit: ratio, desc: "Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_1 × n^log2(LC)"}
-  overhead_ratio: {value: null, unit: ratio, desc: "Genel gider oranı (direkt maliyet üzerine)"}
-  margin_ratio: {value: null, unit: ratio, desc: "Kâr marjı"}
+  learning_curve_ratio: {value: null, unit: ratio, desc: "Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_ref × (n/ref)^log2(LC)"}
+  # Proses şablonundaki standart sürelerin hangi parça sırasına ait olduğu (1 = ilk parça süresi, T_1).
+  learning_reference_unit: {value: 1, unit: part, source: user, desc: "Standart sürelerin referans parça sırası"}
+  overhead_ratio: {value: null, unit: ratio, desc: "Genel gider oranı (overhead_basis üzerine)"}
+  # direct_cost: malzeme + sarf + işçilik + makine + autoclave üzerine; labor: yalnız işçilik üzerine.
+  overhead_basis: direct_cost
+  margin_ratio: {value: null, unit: ratio, desc: "Kâr oranı (margin_basis'e göre)"}
+  # markup: fiyat = maliyet × (1 + oran); margin: fiyat = maliyet / (1 - oran).
+  margin_basis: markup
   consumable_waste_ratio: {value: null, unit: ratio, desc: "Sarf malzeme kesim/bindirme payı"}
+  autoclave_spacing: {value: null, unit: mm, desc: "Autoclave yerleşiminde kalıp çevresine bırakılan boşluk (her kenar)"}
+acceptance:
+  cost_tolerance: {value: 0.15, unit: ratio, source: user, desc: "Faz 1 kabul: fiili maliyete göre izin verilen sapma"}
 complexity_factors:
   dusuk: {value: 1.0, unit: ratio, source: default, desc: "Düşük karmaşıklık süre çarpanı (referans)"}
   orta: {value: null, unit: ratio, desc: "Orta karmaşıklık süre çarpanı"}

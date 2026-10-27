@@ -1,0 +1,362 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+id: autoclave_prepreg
+name: Autoclave prepreg
+version: 1
+parameters:
+  debulk_interval_plies:
+    value: 4
+    unit: ply
+    desc: Kaç ply'da bir ara debulk yapılır
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+cure_cycles:
+- id: cure_120
+  name: 120 °C kür çevrimi
+  cure_temp:
+    value: 120
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı
+  pressure:
+    value: 6
+    unit: bar
+    desc: Autoclave basıncı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cycle_time:
+    value: 6
+    unit: h
+    desc: Toplam çevrim süresi (ısıtma + bekleme + soğutma)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: cure_180
+  name: 180 °C kür çevrimi
+  cure_temp:
+    value: 180
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı
+  pressure:
+    value: 7
+    unit: bar
+    desc: Autoclave basıncı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cycle_time:
+    value: 9
+    unit: h
+    desc: Toplam çevrim süresi (ısıtma + bekleme + soğutma)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+operations:
+- seq: 10
+  id: kesim
+  name: Ply kesimi ve kitleme
+  work_center: KESIM_MASASI
+  learning: false
+  setup:
+    value: 20
+    unit: min/batch
+    desc: Nesting yükleme, rulo hazırlama, masa hazırlığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: ply_area_total_m2
+    rate:
+      value: 1.2
+      unit: min/m2
+      desc: Kesim süresi, ply alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: ply_count
+    rate:
+      value: 0.5
+      unit: min/ply
+      desc: Etiketleme ve kitleme, ply başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 20
+  id: serim
+  name: Serim (layup)
+  work_center: TEMIZ_ODA
+  apply_complexity: true
+  setup:
+    value: 30
+    unit: min/batch
+    desc: Kalıp temizliği ve ayırıcı uygulaması
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: ply_area_total_m2
+    rate:
+      value: 12
+      unit: min/m2
+      desc: Serim süresi, ply alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: ply_count
+    rate:
+      value: 1.5
+      unit: min/ply
+      desc: Ply konumlandırma (laser projeksiyon/şablon), ply başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  consumables:
+  - material: KALIP_AYIRICI
+    driver: tool_area_m2
+    qty:
+      value: 0.03
+      unit: L/m2
+      desc: Kalıp ayırıcı sarfiyatı, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 30
+  id: debulk
+  name: Ara debulk
+  work_center: TEMIZ_ODA
+  times:
+  - driver: debulk_count
+    rate:
+      value: 20
+      unit: min/debulk
+      desc: Debulk başına süre (torba kurma + vakum bekleme + söküm)
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 40
+  id: torbalama
+  name: Kür torbalaması
+  work_center: TEMIZ_ODA
+  apply_complexity: true
+  times:
+  - driver: tool_area_m2
+    rate:
+      value: 15
+      unit: min/m2
+      desc: Torbalama süresi, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: tool_perimeter_m
+    rate:
+      value: 3
+      unit: min/m
+      desc: Sızdırmazlık bandı ve kenar hazırlığı, çevre başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  consumables:
+  - material: PEEL_PLY
+    driver: part_area_m2
+    qty:
+      value: 1.1
+      unit: m2/m2
+      desc: Peel ply kullanımı, parça alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: AYIRICI_FILM
+    driver: tool_area_m2
+    qty:
+      value: 1.2
+      unit: m2/m2
+      desc: Ayırıcı film kullanımı, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: BREATHER
+    driver: tool_area_m2
+    qty:
+      value: 1.3
+      unit: m2/m2
+      desc: Breather kullanımı, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: VAKUM_TORBA
+    driver: tool_area_m2
+    qty:
+      value: 1.6
+      unit: m2/m2
+      desc: Vakum torba filmi (pile payı dahil), kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: SIZDIRMAZLIK_BANDI
+    driver: tool_perimeter_m
+    qty:
+      value: 1.05
+      unit: m/m
+      desc: Sızdırmazlık bandı, çevre başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 50
+  id: kur
+  name: Autoclave kürü
+  work_center: AUTOCLAVE_YUKLEME
+  learning: false
+  autoclave_cure: true
+  setup:
+    value: 45
+    unit: min/batch
+    desc: Yükleme, termokupl/vakum bağlantısı, boşaltma
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: per_part
+    rate:
+      value: 10
+      unit: min/part
+      desc: Parça başına bağlantı ve kontrol
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 60
+  id: kaliptan_cikarma
+  name: Kalıptan çıkarma ve kalıp temizliği
+  work_center: KALIPTAN_CIKARMA
+  times:
+  - driver: part_area_m2
+    rate:
+      value: 8
+      unit: min/m2
+      desc: Sarf söküm ve kalıptan ayırma, parça alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: tool_area_m2
+    rate:
+      value: 6
+      unit: min/m2
+      desc: Kalıp temizliği, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 70
+  id: trim
+  name: CNC trim ve delik delme
+  work_center: CNC_TRIM
+  learning: false
+  setup:
+    value: 40
+    unit: min/batch
+    desc: Fikstür bağlama, sıfırlama, program yükleme
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: part_perimeter_m
+    rate:
+      value: 2.5
+      unit: min/m
+      desc: Trim süresi, kenar uzunluğu başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: hole_count
+    rate:
+      value: 1.5
+      unit: min/hole
+      desc: Delik başına süre
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: per_part
+    rate:
+      value: 5
+      unit: min/part
+      desc: Parça bağlama/sökme
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 80
+  id: el_isciligi
+  name: Çapak alma, kenar zımpara, rötuş
+  work_center: EL_ISCILIGI
+  times:
+  - driver: part_perimeter_m
+    rate:
+      value: 6
+      unit: min/m
+      desc: Kenar işçiliği, kenar uzunluğu başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 90
+  id: ndt
+  name: Ultrasonik muayene
+  work_center: NDT_UT
+  learning: false
+  setup:
+    value: 30
+    unit: min/batch
+    desc: Cihaz kalibrasyonu, referans blok
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: part_area_m2
+    rate:
+      value: 20
+      unit: min/m2
+      desc: Tarama süresi, parça alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: per_part
+    rate:
+      value: 15
+      unit: min/part
+      desc: Değerlendirme ve raporlama
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 100
+  id: olcum
+  name: Boyutsal ölçüm
+  work_center: OLCUM
+  learning: false
+  setup:
+    value: 30
+    unit: min/batch
+    desc: Program ve fikstür hazırlığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: per_part
+    rate:
+      value: 20
+      unit: min/part
+      desc: Parça başına ölçüm
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: hole_count
+    rate:
+      value: 0.5
+      unit: min/hole
+      desc: Delik konum ölçümü, delik başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 110
+  id: boya
+  name: Astar ve boya
+  work_center: BOYA
+  optional: true
+  setup:
+    value: 30
+    unit: min/batch
+    desc: Kabin ve tabanca hazırlığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: part_area_m2
+    rate:
+      value: 25
+      unit: min/m2
+      desc: Yüzey hazırlama + maskeleme + boyama, alan başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  consumables:
+  - material: BOYA_ASTAR
+    driver: part_area_m2
+    qty:
+      value: 0.15
+      unit: L/m2
+      desc: Boya sistemi sarfiyatı, alan başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 120
+  id: montaj
+  name: Montaj (bağlantı elemanı, insert vb.)
+  work_center: MONTAJ
+  optional: true
+  times:
+  - driver: per_part
+    rate:
+      value: 30
+      unit: min/part
+      desc: Parça başına montaj süresi (komple için Faz 5'te ayrıntılanacak)
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil

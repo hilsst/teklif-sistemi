@@ -1,0 +1,552 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+prepregs:
+- id: PP_CF_UD_120
+  name: 'Karbon UD prepreg, 120 °C kür sınıfı (TODO: ticari ad)'
+  fiber: carbon
+  form: ud
+  resin: epoxy
+  cure_temp:
+    value: 120
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı sınıfı
+  areal_weight:
+    value: 150
+    unit: g/m2
+    desc: Lif alan ağırlığı (FAW)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cured_ply_thickness:
+    value: 0.15
+    unit: mm
+    desc: Kürlenmiş ply kalınlığı (CPT)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  roll_width:
+    value: 1250
+    unit: mm
+    desc: Rulo eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  out_life:
+    value: 720
+    unit: h
+    desc: Oda sıcaklığında çalışma ömrü
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 55
+    currency: EUR
+    per: m2
+    desc: Prepreg birim fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: PP_CF_WOVEN_120
+  name: 'Karbon dokuma prepreg, 120 °C kür sınıfı (TODO: ticari ad)'
+  fiber: carbon
+  form: woven
+  resin: epoxy
+  cure_temp:
+    value: 120
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı sınıfı
+  areal_weight:
+    value: 200
+    unit: g/m2
+    desc: Lif alan ağırlığı (FAW)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cured_ply_thickness:
+    value: 0.22
+    unit: mm
+    desc: Kürlenmiş ply kalınlığı (CPT)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  roll_width:
+    value: 1250
+    unit: mm
+    desc: Rulo eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  out_life:
+    value: 720
+    unit: h
+    desc: Oda sıcaklığında çalışma ömrü
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 65
+    currency: EUR
+    per: m2
+    desc: Prepreg birim fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: PP_CF_UD_180
+  name: 'Karbon UD prepreg, 180 °C kür sınıfı (TODO: ticari ad)'
+  fiber: carbon
+  form: ud
+  resin: epoxy
+  cure_temp:
+    value: 180
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı sınıfı
+  areal_weight:
+    value: 150
+    unit: g/m2
+    desc: Lif alan ağırlığı (FAW)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cured_ply_thickness:
+    value: 0.15
+    unit: mm
+    desc: Kürlenmiş ply kalınlığı (CPT)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  roll_width:
+    value: 1250
+    unit: mm
+    desc: Rulo eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  out_life:
+    value: 720
+    unit: h
+    desc: Oda sıcaklığında çalışma ömrü
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 75
+    currency: EUR
+    per: m2
+    desc: Prepreg birim fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: PP_CF_WOVEN_180
+  name: 'Karbon dokuma prepreg, 180 °C kür sınıfı (TODO: ticari ad)'
+  fiber: carbon
+  form: woven
+  resin: epoxy
+  cure_temp:
+    value: 180
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı sınıfı
+  areal_weight:
+    value: 200
+    unit: g/m2
+    desc: Lif alan ağırlığı (FAW)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cured_ply_thickness:
+    value: 0.22
+    unit: mm
+    desc: Kürlenmiş ply kalınlığı (CPT)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  roll_width:
+    value: 1250
+    unit: mm
+    desc: Rulo eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  out_life:
+    value: 720
+    unit: h
+    desc: Oda sıcaklığında çalışma ömrü
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 85
+    currency: EUR
+    per: m2
+    desc: Prepreg birim fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: PP_GF_WOVEN_120
+  name: 'Cam dokuma prepreg, 120 °C kür sınıfı (TODO: ticari ad)'
+  fiber: glass
+  form: woven
+  resin: epoxy
+  cure_temp:
+    value: 120
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı sınıfı
+  areal_weight:
+    value: 300
+    unit: g/m2
+    desc: Lif alan ağırlığı (FAW)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cured_ply_thickness:
+    value: 0.25
+    unit: mm
+    desc: Kürlenmiş ply kalınlığı (CPT)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  roll_width:
+    value: 1250
+    unit: mm
+    desc: Rulo eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  out_life:
+    value: 720
+    unit: h
+    desc: Oda sıcaklığında çalışma ömrü
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 18
+    currency: EUR
+    per: m2
+    desc: Prepreg birim fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+consumables:
+- id: VAKUM_TORBA
+  name: Vakum torba filmi
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 2.5
+    currency: EUR
+    per: m2
+    desc: Vakum torba filmi fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: BREATHER
+  name: Breather / bleeder
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 2.0
+    currency: EUR
+    per: m2
+    desc: Breather fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: AYIRICI_FILM
+  name: Ayırıcı film (delikli/deliksiz)
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 3.0
+    currency: EUR
+    per: m2
+    desc: Ayırıcı film fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: PEEL_PLY
+  name: Peel ply
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 2.5
+    currency: EUR
+    per: m2
+    desc: Peel ply fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: SIZDIRMAZLIK_BANDI
+  name: Sızdırmazlık bandı (tacky tape)
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 1.2
+    currency: EUR
+    per: m
+    desc: Sızdırmazlık bandı fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: KALIP_AYIRICI
+  name: Kalıp ayırıcı (sıvı)
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 60
+    currency: EUR
+    per: L
+    desc: Kalıp ayırıcı fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: BOYA_ASTAR
+  name: Astar + boya sistemi
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 45
+    currency: EUR
+    per: L
+    desc: Boya sistemi fiyatı (karışım)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+tooling_materials:
+- id: TB_120
+  name: 'Tooling board, 120 °C sınıfı (TODO: ticari ad)'
+  tool_class: tooling_board
+  max_service_temp:
+    value: 135
+    unit: degC
+    desc: Maksimum servis sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cte:
+    value: 50
+    unit: 1e-6/K
+    desc: Isıl genleşme katsayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  density:
+    value: 700
+    unit: kg/m3
+    desc: Yoğunluk
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  tool_life:
+    value: 300
+    unit: cycle
+    desc: Beklenen kalıp ömrü (kür çevrimi)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 3500
+    currency: EUR
+    per: m3
+    desc: Blok fiyatı (hacim başına)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: TB_180
+  name: 'Tooling board, 180 °C sınıfı (TODO: ticari ad)'
+  tool_class: tooling_board
+  max_service_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum servis sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cte:
+    value: 35
+    unit: 1e-6/K
+    desc: Isıl genleşme katsayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  density:
+    value: 750
+    unit: kg/m3
+    desc: Yoğunluk
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  tool_life:
+    value: 300
+    unit: cycle
+    desc: Beklenen kalıp ömrü (kür çevrimi)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 6000
+    currency: EUR
+    per: m3
+    desc: Blok fiyatı (hacim başına)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: CFRP_TOOLING_PREPREG
+  name: 'CFRP tooling prepreg (TODO: ticari ad)'
+  tool_class: cfrp
+  max_service_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum servis sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cte:
+    value: 3
+    unit: 1e-6/K
+    desc: Kalıp laminatı CTE (yarı-izotropik)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  density:
+    value: 1550
+    unit: kg/m3
+    desc: Yoğunluk
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  tool_life:
+    value: 300
+    unit: cycle
+    desc: Beklenen kalıp ömrü (kür çevrimi)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 120
+    currency: EUR
+    per: m2
+    desc: Tooling prepreg fiyatı (ply alanı başına)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: GFRP_TOOLING
+  name: 'GFRP kalıp laminatı (TODO: sistem)'
+  tool_class: gfrp
+  max_service_temp:
+    value: 150
+    unit: degC
+    desc: Maksimum servis sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cte:
+    value: 14
+    unit: 1e-6/K
+    desc: Kalıp laminatı CTE
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  density:
+    value: 1800
+    unit: kg/m3
+    desc: Yoğunluk
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  tool_life:
+    value: 300
+    unit: cycle
+    desc: Beklenen kalıp ömrü (kür çevrimi)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 30
+    currency: EUR
+    per: m2
+    desc: Kalıp laminatı fiyatı (ply alanı başına)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: INVAR36
+  name: Invar 36
+  tool_class: invar
+  max_service_temp:
+    value: 250
+    unit: degC
+    desc: Maksimum servis sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cte:
+    value: 1.5
+    unit: 1e-6/K
+    source: default
+    desc: Isıl genleşme katsayısı
+    note: Literatür tipik; doğrulayın
+  density:
+    value: 8100
+    unit: kg/m3
+    source: default
+    desc: Yoğunluk
+    note: Literatür tipik
+  tool_life:
+    value: 300
+    unit: cycle
+    desc: Beklenen kalıp ömrü (kür çevrimi)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 35
+    currency: EUR
+    per: kg
+    desc: Plaka/blok fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: AL_PLAKA
+  name: 'Alüminyum plaka (TODO: alaşım)'
+  tool_class: aluminyum
+  max_service_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum servis sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cte:
+    value: 23.4
+    unit: 1e-6/K
+    source: default
+    desc: Isıl genleşme katsayısı
+    note: Literatür tipik; doğrulayın
+  density:
+    value: 2700
+    unit: kg/m3
+    source: default
+    desc: Yoğunluk
+    note: Literatür tipik
+  tool_life:
+    value: 300
+    unit: cycle
+    desc: Beklenen kalıp ömrü (kür çevrimi)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 6
+    currency: EUR
+    per: kg
+    desc: Plaka fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: CELIK
+  name: 'Kalıp çeliği (TODO: kalite)'
+  tool_class: celik
+  max_service_temp:
+    value: 300
+    unit: degC
+    desc: Maksimum servis sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cte:
+    value: 12.0
+    unit: 1e-6/K
+    source: default
+    desc: Isıl genleşme katsayısı
+    note: Literatür tipik; doğrulayın
+  density:
+    value: 7850
+    unit: kg/m3
+    source: default
+    desc: Yoğunluk
+    note: Literatür tipik
+  tool_life:
+    value: 300
+    unit: cycle
+    desc: Beklenen kalıp ömrü (kür çevrimi)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 3
+    currency: EUR
+    per: kg
+    desc: Plaka/blok fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil

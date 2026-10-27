@@ -114,3 +114,16 @@ def test_cli_commands(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Non
     assert out.read_text(encoding="utf-8").startswith("# Firma verisi")
     assert main(["check-upload", "kalip_gecmis", str(tmp_path / "kalip_gecmis.xlsx")]) == 0
     assert "0 satır okundu" in capsys.readouterr().out
+
+
+def test_optional_column_may_be_missing(templates: dict[str, Path], lib: Library) -> None:
+    path = templates["iscilik_gecmis"]
+    _fill(path, LABOR_ROW)
+    wb = load_workbook(path)
+    ws = wb[DATA_SHEET]
+    keys = [c.key for c in LABOR_HISTORY.columns]
+    ws.delete_cols(keys.index("notlar") + 1)
+    wb.save(path)
+    result = read_workbook(path, LABOR_HISTORY, lib)
+    assert result.ok, result.issues
+    assert result.rows[0]["notlar"] is None

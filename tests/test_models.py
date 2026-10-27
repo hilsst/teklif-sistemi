@@ -14,7 +14,7 @@ def test_product_cost_line_computes_and_traces_inputs() -> None:
             "area": Param(value=2.5, unit="m2", source=Source.CAD),
             "price": Price(value=80.0, currency="EUR", per="m2"),
         },
-        currency="EUR",
+        unit="EUR",
     )
     assert line.result == pytest.approx(200.0)
     assert line.formula == "area × price"
@@ -28,7 +28,7 @@ def test_todo_value_never_produces_a_number() -> None:
         "prepreg",
         "Prepreg cost",
         {"area": Param(value=2.5, unit="m2"), "price": Price(currency="EUR", per="m2")},
-        currency="EUR",
+        unit="EUR",
         paths={"price": "materials.yaml:prepregs[X].price"},
     )
     assert line.result is None
