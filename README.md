@@ -4,13 +4,22 @@ Autoclave/prepreg kompozit parça ve kalıp teklif sistemi (kurum içi, tek kull
 CAD/teknik resimden kalıp ihtiyacı, ters açı çözümü, kalıp cinsi, master model, proses rotası
 ve kalem kalem izlenebilir maliyet çıkarır. Durum: **Faz 1** (maliyet motoru, geometri elle girilir).
 
-## Kurulum
+## Windows'ta kurulum ve çalıştırma
+
+1. uv'yi kurun (PowerShell): `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+2. Repoyu indirin (GitHub Desktop veya `git clone https://github.com/hilsst/teklif-sistemi`).
+3. Klasördeki **`baslat.bat`** dosyasına çift tıklayın. İlk çalıştırmada Python 3.12 ve
+   paketler kurulur, ardından arayüz tarayıcıda açılır (http://localhost:8501).
+
+PDF çıktısı saf Python'dur (fpdf2 + gömülü DejaVu yazı tipi); Windows'ta ek kurulum gerekmez.
+CI testleri hem Ubuntu hem Windows üzerinde koşar.
+
+## Kurulum (geliştirici)
 
 ```bash
 # uv: https://docs.astral.sh/uv/
 uv python install 3.12
-uv sync --all-extras    # .venv + arayüz (streamlit) + PDF (weasyprint)
-# Windows'ta PDF için WeasyPrint ayrıca GTK runtime ister; PDF gerekmiyorsa: uv sync --extra app
+uv sync --all-extras    # .venv + arayüz (streamlit)
 uv run pytest           # testler
 uv run ruff check . && uv run mypy
 ```
@@ -90,6 +99,18 @@ tests/
   sarf miktarı `<fiyat birimi>/<sürücü birimi>` olmalıdır. Uyumsuzluk yüklemede hata verir.
 - Para birimleri: her fiyat kendi para birimini taşır; `currency.yaml` içindeki kurla teklif
   para birimine çevrilir. Kur girilmemişse çevrim hata verir, tahmin yapılmaz.
+
+## Kütüphaneyi arayüzden düzenleme
+
+Arayüzdeki **Kütüphane** sekmesinde:
+- **Kâr ve genel gider:** kâr formülü (`markup`: fiyat = maliyet × (1 + oran) /
+  `margin`: fiyat = maliyet / (1 − oran)), genel gider tabanı ve oranlar.
+- **Tüm kütüphane değerleri:** eksik (TODO) veya tüm değerler tablo olarak; değer ve para birimi
+  doğrudan girilebilir.
+
+Her kayıt gerekçe ister, kütüphane yeniden doğrulanır (hatalıysa hiçbir dosya değişmez), YAML
+yorumları korunur ve değişiklik `library/changelog.csv` dosyasına (zaman, yol, eski, yeni,
+gerekçe) eklenir. YAML dosyalarını doğrudan düzenlemek de mümkündür.
 
 ## Süre modeli (proses şablonu)
 

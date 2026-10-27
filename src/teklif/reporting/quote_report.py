@@ -1,4 +1,4 @@
-"""Quote output: Excel breakdown (openpyxl) and PDF (WeasyPrint, optional extra).
+"""Quote output: Excel breakdown (openpyxl) and PDF (fpdf2, bundled DejaVu font).
 
 Both show every line with its formula, inputs (value, unit, source), computed result,
 override and reason, and manual_review flags.
@@ -6,10 +6,10 @@ override and reason, and manual_review flags.
 
 from __future__ import annotations
 
-import html
 from dataclasses import dataclass
 from pathlib import Path
 
+from fpdf import FPDF, FontFace
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
@@ -162,66 +162,87 @@ def write_excel(result: QuoteResult, path: Path | str) -> Path:
     return out
 
 
-def render_html(result: QuoteResult) -> str:
+FONT_DIR = Path(__file__).resolve().parent / "fonts"
+_GREY = (221, 221, 221)
+_REVIEW_RGB = (252, 228, 214)
+_OVERRIDE_RGB = (255, 242, 204)
+
+
+def _pdf_doc() -> FPDF:
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(12, 12, 12)
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.add_font("DejaVu", "", str(FONT_DIR / "DejaVuSans.ttf"))
+    pdf.add_font("DejaVu", "B", str(FONT_DIR / "DejaVuSans-Bold.ttf"))
+    pdf.add_page()
+    return pdf
+
+
+def pdf_bytes(result: QuoteResult) -> bytes:
+    """Render the quote as PDF with fpdf2 (pure Python, works on Windows as is)."""
     inp = result.input
-    e = html.escape
-    summary = "".join(
-        f"<tr class='{'review' if r.review else ''}'><td>{e(r.label)}</td>"
-        f"<td class='num'>{fmt(r.value)}</td><td>{e(r.unit)}</td></tr>"
-        for r in summary_rows(result)
+    pdf = _pdf_doc()
+    pdf.set_font("DejaVu", "B", 15)
+    pdf.cell(0, 9, f"Teklif {inp.quote_no}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("DejaVu", "", 8.5)
+    pdf.multi_cell(
+        0,
+        4.5,
+        f"Parça: {inp.part_no} {inp.part_name} · Müşteri: {inp.customer} · "
+        f"Proses: {inp.process} · Adet: {inp.quantity} · Parti: {inp.batch_size} · "
+        f"Para birimi: {result.currency}",
+        new_x="LMARGIN",
+        new_y="NEXT",
     )
-    lines = []
-    for ln in result.lines:
-        cls = "review" if ln.flags else "override" if ln.override else ""
-        over = (
-            f"<br><b>Ezme:</b> {fmt(ln.override.value)} ({e(ln.override.reason)})"
-            if ln.override
-            else ""
+    if result.manual_review:
+        pdf.set_text_color(170, 0, 0)
+        pdf.set_font("DejaVu", "B", 9)
+        pdf.cell(
+            0,
+            6,
+            "Bu teklifte manuel inceleme gerektiren kalemler var.",
+            new_x="LMARGIN",
+            new_y="NEXT",
         )
-        flags = f"<br><b>İnceleme:</b> {e(flags_text(ln))}" if ln.flags else ""
-        lines.append(
-            f"<tr class='{cls}'><td>{e(ln.key)}<br><small>{e(ln.description)}</small></td>"
-            f"<td><code>{e(ln.formula)}</code><br><small>{e(inputs_text(ln))}</small>"
-            f"{over}{flags}</td>"
-            f"<td class='num'>{fmt(ln.final)}</td><td>{e(ln.unit)}</td></tr>"
-        )
-    review_note = (
-        "<p class='warn'>Bu teklifte manuel inceleme gerektiren kalemler var.</p>"
-        if result.manual_review
-        else ""
-    )
-    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
-@page {{ size: A4; margin: 14mm; }}
-body {{ font-family: "DejaVu Sans", Arial, sans-serif; font-size: 9pt; }}
-h1 {{ font-size: 15pt; margin: 0 0 4mm; }}
-table {{ border-collapse: collapse; width: 100%; margin-bottom: 6mm; }}
-td, th {{ border: 0.5pt solid #999; padding: 2pt 4pt; vertical-align: top; }}
-th {{ background: #ddd; text-align: left; }}
-tr {{ page-break-inside: avoid; }}
-.num {{ text-align: right; white-space: nowrap; }}
-.review {{ background: #fce4d6; }} .override {{ background: #fff2cc; }}
-.warn {{ color: #a00; font-weight: bold; }} small {{ color: #444; }}
-</style></head><body>
-<h1>Teklif {e(inp.quote_no)}</h1>
-<p>Parça: {e(inp.part_no)} {e(inp.part_name)} · Müşteri: {e(inp.customer)} ·
-Proses: {e(inp.process)} · Adet: {inp.quantity} · Parti: {inp.batch_size} ·
-Para birimi: {e(result.currency)}</p>
-{review_note}
-<table><tr><th>Kalem</th><th>Tutar</th><th>Birim</th></tr>{summary}</table>
-<h2>Kalem kalem kırılım</h2>
-<table><tr><th>Kalem</th><th>Formül ve girdiler [kaynak]</th><th>Sonuç</th><th>Birim</th></tr>
-{"".join(lines)}</table>
-</body></html>"""
+        pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+
+    pdf.set_font("DejaVu", "", 8.5)
+    with pdf.table(
+        col_widths=(110, 50, 26),
+        text_align=("LEFT", "RIGHT", "LEFT"),
+        headings_style=FontFace(emphasis="BOLD", fill_color=_GREY),
+        line_height=5,
+    ) as table:
+        table.row(["Kalem", "Tutar", "Birim"])
+        for r in summary_rows(result):
+            style = FontFace(fill_color=_REVIEW_RGB) if r.review else None
+            table.row([r.label, fmt(r.value), r.unit], style=style)
+
+    pdf.ln(4)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 8, "Kalem kalem kırılım", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("DejaVu", "", 7)
+    with pdf.table(
+        col_widths=(44, 106, 22, 14),
+        text_align=("LEFT", "LEFT", "RIGHT", "LEFT"),
+        headings_style=FontFace(emphasis="BOLD", fill_color=_GREY),
+        line_height=3.4,
+    ) as table:
+        table.row(["Kalem", "Formül ve girdiler [kaynak]", "Sonuç", "Birim"])
+        for ln in result.lines:
+            detail = f"{ln.formula}\n{inputs_text(ln)}"
+            if ln.override:
+                detail += f"\nEzme: {fmt(ln.override.value)} ({ln.override.reason})"
+            if ln.flags:
+                detail += f"\nİnceleme: {flags_text(ln)}"
+            fill = _REVIEW_RGB if ln.flags else _OVERRIDE_RGB if ln.override else None
+            style = FontFace(fill_color=fill) if fill else None
+            table.row([f"{ln.key}\n{ln.description}", detail, fmt(ln.final), ln.unit], style=style)
+    return bytes(pdf.output())
 
 
 def write_pdf(result: QuoteResult, path: Path | str) -> Path:
-    try:
-        from weasyprint import HTML  # type: ignore[import-untyped]
-    except ImportError as exc:  # pragma: no cover - depends on the environment
-        raise RuntimeError(
-            "PDF output needs the 'pdf' extra: uv sync --extra pdf "
-            "(on Windows WeasyPrint also needs the GTK runtime)."
-        ) from exc
     out = Path(path)
-    HTML(string=render_html(result)).write_pdf(out)
+    out.write_bytes(pdf_bytes(result))
     return out

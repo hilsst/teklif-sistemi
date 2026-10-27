@@ -18,12 +18,13 @@ from teklif.common.models import Override, Price
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
 from teklif.library import Library, LibraryError, list_todos, load_library
+from teklif.library.editor import CHOICES, Change, current_choice, editable_values, set_values
 from teklif.library.loader import DEFAULT_LIBRARY_DIR
 from teklif.reporting.quote_report import (
     CATEGORY_LABELS,
     flags_text,
     inputs_text,
-    render_html,
+    pdf_bytes,
     summary_rows,
     write_excel,
 )
@@ -64,15 +65,6 @@ def excel_bytes(result: QuoteResult) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         path = write_excel(result, Path(tmp) / "teklif.xlsx")
         return path.read_bytes()
-
-
-def pdf_bytes(result: QuoteResult) -> bytes | None:
-    try:
-        from weasyprint import HTML  # type: ignore[import-untyped]
-    except ImportError:
-        return None
-    data: bytes = HTML(string=render_html(result)).write_pdf()
-    return data
 
 
 def _example() -> dict[str, Any]:
@@ -302,11 +294,7 @@ def _show_result(result: QuoteResult, lib: Library, store: Store) -> None:
         row = store.save_quote(result, lib)
         st.success(f"Kaydedildi: {row.quote_no} rev {row.revision}")
     d2.download_button("Excel indir", excel_bytes(result), f"{result.input.quote_no}.xlsx")
-    pdf = pdf_bytes(result)
-    if pdf is None:
-        d3.caption("PDF için: uv sync --extra pdf")
-    else:
-        d3.download_button("PDF indir", pdf, f"{result.input.quote_no}.pdf")
+    d3.download_button("PDF indir", pdf_bytes(result), f"{result.input.quote_no}.pdf")
 
 
 def _saved_tab(store: Store, lib: Library) -> None:
@@ -377,6 +365,118 @@ def _saved_tab(store: Store, lib: Library) -> None:
         )
 
 
+CHOICE_LABELS = {
+    "markup": "markup: fiyat = maliyet × (1 + oran)",
+    "margin": "margin: fiyat = maliyet / (1 − oran)",
+    "direct_cost": "direkt maliyet üzerine",
+    "labor": "yalnız işçilik üzerine",
+}
+
+
+def _library_tab(lib: Library, lib_dir: str) -> None:
+    st.subheader("Kâr ve genel gider")
+    st.caption(
+        "Değişiklikler thresholds.yaml dosyasına yazılır, changelog.csv'ye gerekçesiyle kaydedilir."
+    )
+    costing = lib.thresholds.costing
+    c1, c2 = st.columns(2)
+    picks: dict[str, str] = {}
+    for col, (file, path) in zip((c1, c2), CHOICES, strict=True):
+        options = list(CHOICES[(file, path)])
+        cur = current_choice(lib, file, path)
+        picks[path] = col.selectbox(
+            path.split(".")[-1],
+            options,
+            index=options.index(cur),
+            format_func=lambda o: CHOICE_LABELS.get(o, o),
+            key=f"ch_{path}",
+        )
+    margin = c1.number_input(
+        "margin_ratio (oran)",
+        0.0,
+        0.95,
+        value=float(costing.margin_ratio.value or 0.0),
+        step=0.01,
+        key="margin_ratio",
+    )
+    overhead = c2.number_input(
+        "overhead_ratio (oran)",
+        0.0,
+        5.0,
+        value=float(costing.overhead_ratio.value or 0.0),
+        step=0.01,
+        key="overhead_ratio",
+    )
+    reason = st.text_input("Gerekçe", key="settings_reason")
+    if st.button("Ayarları kaydet"):
+        changes = [Change("thresholds.yaml", p, v) for p, v in picks.items()]
+        changes += [
+            Change("thresholds.yaml", "costing.margin_ratio", margin),
+            Change("thresholds.yaml", "costing.overhead_ratio", overhead),
+        ]
+        _save(lib_dir, changes, reason)
+
+    st.subheader("Tüm kütüphane değerleri")
+    only_todo = st.toggle("Yalnız eksik (TODO) değerler", value=True)
+    rows = [v for v in editable_values(lib) if not only_todo or v.value is None]
+    base = pd.DataFrame(
+        [
+            {
+                "dosya": v.file,
+                "yol": v.path,
+                "açıklama": v.desc,
+                "birim": v.unit,
+                "para birimi": v.currency,
+                "değer": v.value,
+            }
+            for v in rows
+        ],
+        columns=["dosya", "yol", "açıklama", "birim", "para birimi", "değer"],
+    )
+    if base.empty:
+        st.info("Eksik değer yok." if only_todo else "Kütüphanede değer yok.")
+        return
+    edited = st.data_editor(
+        base,
+        hide_index=True,
+        disabled=["dosya", "yol", "açıklama", "birim"],
+        column_config={
+            "para birimi": st.column_config.SelectboxColumn(options=list(lib.currency.rates)),
+            "değer": st.column_config.NumberColumn(format="%.4f"),
+        },
+        key="lib_editor",
+        height=420,
+    )
+    reason_all = st.text_input("Gerekçe (ör. 2026 fiyat listesi)", key="values_reason")
+    if st.button("Değerleri kaydet"):
+        changes = []
+        for (_, old), (_, new) in zip(base.iterrows(), edited.iterrows(), strict=True):
+            val = None if pd.isna(new["değer"]) else float(new["değer"])
+            ccy = new["para birimi"] if isinstance(new["para birimi"], str) else None
+            old_val = None if pd.isna(old["değer"]) else float(old["değer"])
+            if val != old_val or ccy != (
+                old["para birimi"] if isinstance(old["para birimi"], str) else None
+            ):
+                changes.append(Change(str(new["dosya"]), str(new["yol"]), val, ccy))
+        if changes:
+            _save(lib_dir, changes, reason_all)
+        else:
+            st.info("Değişiklik yok.")
+
+
+def _save(lib_dir: str, changes: list[Change], reason: str) -> None:
+    if not reason.strip():
+        st.warning("Gerekçe zorunlu.")
+        return
+    try:
+        set_values(lib_dir, changes, reason)
+    except (LibraryError, KeyError, ValueError) as exc:
+        st.error(f"Kaydedilmedi, kütüphane değişmedi: {exc}")
+        return
+    st.success(f"{len(changes)} değer kaydedildi.")
+    st.rerun()
+
+
 def main() -> None:
     st.set_page_config(page_title="Teklif sistemi", layout="wide")
     st.title("Kompozit parça teklifi")
@@ -391,7 +491,7 @@ def main() -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = Store(db_path)
 
-    new_tab, saved_tab = st.tabs(["Yeni teklif", "Kayıtlı teklifler"])
+    new_tab, saved_tab, lib_tab = st.tabs(["Yeni teklif", "Kayıtlı teklifler", "Kütüphane"])
     with new_tab:
         base = _example() if st.toggle("Örnek parçayla doldur", value=True) else {}
         inp = _input_form(lib, base)
@@ -404,6 +504,8 @@ def main() -> None:
                 _show_result(result, lib, store)
     with saved_tab:
         _saved_tab(store, lib)
+    with lib_tab:
+        _library_tab(lib, lib_dir)
 
 
 if __name__ == "__main__":
