@@ -1,0 +1,150 @@
+# Malzeme kütüphanesi. value: null olan her alan firma verisi bekler (TODO).
+# Fiyatlar: {value, currency, per}. per = fiyatın birimi (m2, m, L, kg, m3, adet).
+# Aşağıdaki kayıtlar yer tutucu sınıflardır; ticari ürün adlarıyla değiştirin veya çoğaltın.
+
+prepregs:
+  - id: PP_CF_UD_120
+    name: "Karbon UD prepreg, 120 °C kür sınıfı (TODO: ticari ad)"
+    fiber: carbon
+    form: ud
+    resin: epoxy
+    cure_temp: {value: 120, unit: degC, source: user, desc: "Kür sıcaklığı sınıfı"}
+    areal_weight: {value: null, unit: g/m2, desc: "Lif alan ağırlığı (FAW)"}
+    cured_ply_thickness: {value: null, unit: mm, desc: "Kürlenmiş ply kalınlığı (CPT)"}
+    roll_width: {value: null, unit: mm, desc: "Rulo eni"}
+    out_life: {value: null, unit: h, desc: "Oda sıcaklığında çalışma ömrü"}
+    price: {value: null, currency: EUR, per: m2, desc: "Prepreg birim fiyatı"}
+  - id: PP_CF_WOVEN_120
+    name: "Karbon dokuma prepreg, 120 °C kür sınıfı (TODO: ticari ad)"
+    fiber: carbon
+    form: woven
+    resin: epoxy
+    cure_temp: {value: 120, unit: degC, source: user, desc: "Kür sıcaklığı sınıfı"}
+    areal_weight: {value: null, unit: g/m2, desc: "Lif alan ağırlığı (FAW)"}
+    cured_ply_thickness: {value: null, unit: mm, desc: "Kürlenmiş ply kalınlığı (CPT)"}
+    roll_width: {value: null, unit: mm, desc: "Rulo eni"}
+    out_life: {value: null, unit: h, desc: "Oda sıcaklığında çalışma ömrü"}
+    price: {value: null, currency: EUR, per: m2, desc: "Prepreg birim fiyatı"}
+  - id: PP_CF_UD_180
+    name: "Karbon UD prepreg, 180 °C kür sınıfı (TODO: ticari ad)"
+    fiber: carbon
+    form: ud
+    resin: epoxy
+    cure_temp: {value: 180, unit: degC, source: user, desc: "Kür sıcaklığı sınıfı"}
+    areal_weight: {value: null, unit: g/m2, desc: "Lif alan ağırlığı (FAW)"}
+    cured_ply_thickness: {value: null, unit: mm, desc: "Kürlenmiş ply kalınlığı (CPT)"}
+    roll_width: {value: null, unit: mm, desc: "Rulo eni"}
+    out_life: {value: null, unit: h, desc: "Oda sıcaklığında çalışma ömrü"}
+    price: {value: null, currency: EUR, per: m2, desc: "Prepreg birim fiyatı"}
+  - id: PP_CF_WOVEN_180
+    name: "Karbon dokuma prepreg, 180 °C kür sınıfı (TODO: ticari ad)"
+    fiber: carbon
+    form: woven
+    resin: epoxy
+    cure_temp: {value: 180, unit: degC, source: user, desc: "Kür sıcaklığı sınıfı"}
+    areal_weight: {value: null, unit: g/m2, desc: "Lif alan ağırlığı (FAW)"}
+    cured_ply_thickness: {value: null, unit: mm, desc: "Kürlenmiş ply kalınlığı (CPT)"}
+    roll_width: {value: null, unit: mm, desc: "Rulo eni"}
+    out_life: {value: null, unit: h, desc: "Oda sıcaklığında çalışma ömrü"}
+    price: {value: null, currency: EUR, per: m2, desc: "Prepreg birim fiyatı"}
+  - id: PP_GF_WOVEN_120
+    name: "Cam dokuma prepreg, 120 °C kür sınıfı (TODO: ticari ad)"
+    fiber: glass
+    form: woven
+    resin: epoxy
+    cure_temp: {value: 120, unit: degC, source: user, desc: "Kür sıcaklığı sınıfı"}
+    areal_weight: {value: null, unit: g/m2, desc: "Lif alan ağırlığı (FAW)"}
+    cured_ply_thickness: {value: null, unit: mm, desc: "Kürlenmiş ply kalınlığı (CPT)"}
+    roll_width: {value: null, unit: mm, desc: "Rulo eni"}
+    out_life: {value: null, unit: h, desc: "Oda sıcaklığında çalışma ömrü"}
+    price: {value: null, currency: EUR, per: m2, desc: "Prepreg birim fiyatı"}
+
+consumables:
+  - id: VAKUM_TORBA
+    name: "Vakum torba filmi"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: m2, desc: "Vakum torba filmi fiyatı"}
+  - id: BREATHER
+    name: "Breather / bleeder"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: m2, desc: "Breather fiyatı"}
+  - id: AYIRICI_FILM
+    name: "Ayırıcı film (delikli/deliksiz)"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: m2, desc: "Ayırıcı film fiyatı"}
+  - id: PEEL_PLY
+    name: "Peel ply"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: m2, desc: "Peel ply fiyatı"}
+  - id: SIZDIRMAZLIK_BANDI
+    name: "Sızdırmazlık bandı (tacky tape)"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: m, desc: "Sızdırmazlık bandı fiyatı"}
+  - id: KALIP_AYIRICI
+    name: "Kalıp ayırıcı (sıvı)"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: L, desc: "Kalıp ayırıcı fiyatı"}
+  - id: BOYA_ASTAR
+    name: "Astar + boya sistemi"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: L, desc: "Boya sistemi fiyatı (karışım)"}
+
+# Kalıp ve master model malzemeleri.
+# CTE: source=default olan değerler literatür tipik değeridir; tedarikçi verisiyle doğrulayın.
+tooling_materials:
+  - id: TB_120
+    name: "Tooling board, 120 °C sınıfı (TODO: ticari ad)"
+    tool_class: tooling_board
+    max_service_temp: {value: null, unit: degC, desc: "Maksimum servis sıcaklığı"}
+    cte: {value: null, unit: 1e-6/K, desc: "Isıl genleşme katsayısı"}
+    density: {value: null, unit: kg/m3, desc: "Yoğunluk"}
+    tool_life: {value: null, unit: cycle, desc: "Beklenen kalıp ömrü (kür çevrimi)"}
+    price: {value: null, currency: EUR, per: m3, desc: "Blok fiyatı (hacim başına)"}
+  - id: TB_180
+    name: "Tooling board, 180 °C sınıfı (TODO: ticari ad)"
+    tool_class: tooling_board
+    max_service_temp: {value: null, unit: degC, desc: "Maksimum servis sıcaklığı"}
+    cte: {value: null, unit: 1e-6/K, desc: "Isıl genleşme katsayısı"}
+    density: {value: null, unit: kg/m3, desc: "Yoğunluk"}
+    tool_life: {value: null, unit: cycle, desc: "Beklenen kalıp ömrü (kür çevrimi)"}
+    price: {value: null, currency: EUR, per: m3, desc: "Blok fiyatı (hacim başına)"}
+  - id: CFRP_TOOLING_PREPREG
+    name: "CFRP tooling prepreg (TODO: ticari ad)"
+    tool_class: cfrp
+    max_service_temp: {value: null, unit: degC, desc: "Maksimum servis sıcaklığı"}
+    cte: {value: null, unit: 1e-6/K, desc: "Kalıp laminatı CTE (yarı-izotropik)"}
+    density: {value: null, unit: kg/m3, desc: "Yoğunluk"}
+    tool_life: {value: null, unit: cycle, desc: "Beklenen kalıp ömrü (kür çevrimi)"}
+    price: {value: null, currency: EUR, per: m2, desc: "Tooling prepreg fiyatı (ply alanı başına)"}
+  - id: GFRP_TOOLING
+    name: "GFRP kalıp laminatı (TODO: sistem)"
+    tool_class: gfrp
+    max_service_temp: {value: null, unit: degC, desc: "Maksimum servis sıcaklığı"}
+    cte: {value: null, unit: 1e-6/K, desc: "Kalıp laminatı CTE"}
+    density: {value: null, unit: kg/m3, desc: "Yoğunluk"}
+    tool_life: {value: null, unit: cycle, desc: "Beklenen kalıp ömrü (kür çevrimi)"}
+    price: {value: null, currency: EUR, per: m2, desc: "Kalıp laminatı fiyatı (ply alanı başına)"}
+  - id: INVAR36
+    name: "Invar 36"
+    tool_class: invar
+    max_service_temp: {value: null, unit: degC, desc: "Maksimum servis sıcaklığı"}
+    cte: {value: 1.5, unit: 1e-6/K, source: default, desc: "Isıl genleşme katsayısı", note: "Literatür tipik; doğrulayın"}
+    density: {value: 8100, unit: kg/m3, source: default, desc: "Yoğunluk", note: "Literatür tipik"}
+    tool_life: {value: null, unit: cycle, desc: "Beklenen kalıp ömrü (kür çevrimi)"}
+    price: {value: null, currency: EUR, per: kg, desc: "Plaka/blok fiyatı"}
+  - id: AL_PLAKA
+    name: "Alüminyum plaka (TODO: alaşım)"
+    tool_class: aluminyum
+    max_service_temp: {value: null, unit: degC, desc: "Maksimum servis sıcaklığı"}
+    cte: {value: 23.4, unit: 1e-6/K, source: default, desc: "Isıl genleşme katsayısı", note: "Literatür tipik; doğrulayın"}
+    density: {value: 2700, unit: kg/m3, source: default, desc: "Yoğunluk", note: "Literatür tipik"}
+    tool_life: {value: null, unit: cycle, desc: "Beklenen kalıp ömrü (kür çevrimi)"}
+    price: {value: null, currency: EUR, per: kg, desc: "Plaka fiyatı"}
+  - id: CELIK
+    name: "Kalıp çeliği (TODO: kalite)"
+    tool_class: celik
+    max_service_temp: {value: null, unit: degC, desc: "Maksimum servis sıcaklığı"}
+    cte: {value: 12.0, unit: 1e-6/K, source: default, desc: "Isıl genleşme katsayısı", note: "Literatür tipik; doğrulayın"}
+    density: {value: 7850, unit: kg/m3, source: default, desc: "Yoğunluk", note: "Literatür tipik"}
+    tool_life: {value: null, unit: cycle, desc: "Beklenen kalıp ömrü (kür çevrimi)"}
+    price: {value: null, currency: EUR, per: kg, desc: "Plaka/blok fiyatı"}
