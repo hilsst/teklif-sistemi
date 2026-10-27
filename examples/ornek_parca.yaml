@@ -1,0 +1,31 @@
+# Örnek teklif girdisi (Faz 1: geometri elle girilir). Değerler örnektir.
+quote_no: T-2026-001
+part_no: P-1001
+part_name: "Örnek kapak paneli"
+customer: "Örnek müşteri"
+process: autoclave_prepreg
+material: PP_CF_WOVEN_120        # varsayılan prepreg (materials.yaml id)
+cure_cycle: cure_120             # proses şablonundaki kür çevrimi
+autoclave: AC1
+complexity: orta                 # dusuk / orta / yuksek
+plies:
+  - {name: "Dış dokuma", area_m2: 1.20, count: 2}
+  - {name: "UD çekirdek", material: PP_CF_UD_120, area_m2: 1.10, count: 8}
+geometry:
+  part_area_m2: 1.00
+  part_perimeter_m: 4.2
+  hole_count: 12
+  tool_area_m2: 1.80
+  tool_perimeter_m: 5.6
+  tool_footprint_x_mm: 1600
+  tool_footprint_y_mm: 1100
+quantity: 20
+batch_size: 5
+first_unit_no: 1
+include_optional: []             # örn. [boya]
+tooling_nre: {value: 18000, currency: EUR, per: pcs}
+amortize_nre: false
+overrides: {}
+# Bir satırı gerekçeyle ezmek için:
+# overrides:
+#   labor.serim: {value: 95.0, reason: "Ustabaşı tahmini, karmaşık köşe detayları"}

@@ -84,7 +84,9 @@ def read_workbook(path: Path | str, spec: Workbook, lib: Library) -> ImportResul
                 index[col.key] = headers.index(candidate)
                 break
         else:
-            result.issues.append(ImportIssue(1, col.key, "kolon bulunamadı"))
+            # Optional columns may be missing (e.g. a file made from an older template).
+            if col.required:
+                result.issues.append(ImportIssue(1, col.key, "kolon bulunamadı"))
     if result.issues:
         return result
 
@@ -98,8 +100,8 @@ def read_workbook(path: Path | str, spec: Workbook, lib: Library) -> ImportResul
             continue
         record: dict[str, Value] = {}
         for col in spec.columns:
-            i = index[col.key]
-            raw = values[i] if i < len(values) else None
+            i = index.get(col.key, -1)
+            raw = values[i] if 0 <= i < len(values) else None
             if raw is None or (isinstance(raw, str) and not raw.strip()):
                 if col.required:
                     result.issues.append(ImportIssue(row_no, col.key, "zorunlu alan boş"))

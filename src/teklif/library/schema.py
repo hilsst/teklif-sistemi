@@ -141,9 +141,17 @@ class TessellationThresholds(_Strict):
 class CostingDefaults(_Strict):
     nesting_scrap_ratio: Param
     learning_curve_ratio: Param
+    learning_reference_unit: Param
     overhead_ratio: Param
+    overhead_basis: Literal["direct_cost", "labor"]
     margin_ratio: Param
+    margin_basis: Literal["markup", "margin"]
     consumable_waste_ratio: Param
+    autoclave_spacing: Param
+
+
+class AcceptanceThresholds(_Strict):
+    cost_tolerance: Param
 
 
 class Thresholds(_Strict):
@@ -151,6 +159,7 @@ class Thresholds(_Strict):
     undercut: UndercutThresholds
     tessellation: TessellationThresholds
     costing: CostingDefaults
+    acceptance: AcceptanceThresholds
     complexity_factors: dict[str, Param]
 
 
@@ -200,6 +209,7 @@ class Operation(_Strict):
     optional: bool = False
     apply_complexity: bool = False
     autoclave_cure: bool = False
+    learning: bool = True
     setup: Param | None = None
     times: list[TimeTerm] = Field(default_factory=list)
     consumables: list[ConsumableUse] = Field(default_factory=list)

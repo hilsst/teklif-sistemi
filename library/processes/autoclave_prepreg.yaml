@@ -2,7 +2,9 @@
 #
 # Süre modeli (her operasyon, parça başına standart dakika):
 #   t_std = setup / parti_adedi + Σ (rate_i × driver_i)            [× karmaşıklık çarpanı, apply_complexity: true ise]
-#   t_ödenen = t_std / iş_merkezi.efficiency                        (öğrenme eğrisi Faz 1'de costing katmanında)
+#   t_ödenen = t_std / iş_merkezi.efficiency
+#   Öğrenme eğrisi yalnız run süresine (setup hariç) ve learning: true olan operasyonlara uygulanır.
+#   Süreler geçen süredir (dk); işçilik = süre × iş merkezi operatör sayısı, makine = süre.
 #
 # Sürücüler (driver) ve birimleri — rate birimi "min/<sürücü birimi>" olmalıdır:
 #   per_part          part    parça başına sabit
@@ -42,6 +44,7 @@ operations:
     id: kesim
     name: "Ply kesimi ve kitleme"
     work_center: KESIM_MASASI
+    learning: false
     setup: {value: null, unit: min/batch, desc: "Nesting yükleme, rulo hazırlama, masa hazırlığı"}
     times:
       - driver: ply_area_total_m2
@@ -104,6 +107,7 @@ operations:
     id: kur
     name: "Autoclave kürü"
     work_center: AUTOCLAVE_YUKLEME
+    learning: false
     autoclave_cure: true
     setup: {value: null, unit: min/batch, desc: "Yükleme, termokupl/vakum bağlantısı, boşaltma"}
     times:
@@ -124,6 +128,7 @@ operations:
     id: trim
     name: "CNC trim ve delik delme"
     work_center: CNC_TRIM
+    learning: false
     setup: {value: null, unit: min/batch, desc: "Fikstür bağlama, sıfırlama, program yükleme"}
     times:
       - driver: part_perimeter_m
@@ -145,6 +150,7 @@ operations:
     id: ndt
     name: "Ultrasonik muayene"
     work_center: NDT_UT
+    learning: false
     setup: {value: null, unit: min/batch, desc: "Cihaz kalibrasyonu, referans blok"}
     times:
       - driver: part_area_m2
@@ -156,6 +162,7 @@ operations:
     id: olcum
     name: "Boyutsal ölçüm"
     work_center: OLCUM
+    learning: false
     setup: {value: null, unit: min/batch, desc: "Program ve fikstür hazırlığı"}
     times:
       - driver: per_part

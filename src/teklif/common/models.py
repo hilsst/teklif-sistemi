@@ -8,6 +8,8 @@ using such a value never produces a silent number, it produces a ``ReviewFlag``.
 
 from __future__ import annotations
 
+import math
+from collections.abc import Callable, Mapping, Sequence
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +23,7 @@ class Source(StrEnum):
     LIBRARY = "library"
     USER = "user"
     DEFAULT = "default"
+    DERIVED = "derived"
     TODO = "todo"
 
 
@@ -94,14 +97,19 @@ class Override(BaseModel):
 
 
 class CostLine(BaseModel):
-    """A single traceable cost item: formula, inputs, sources and result."""
+    """A single traceable item: formula, inputs, sources and result.
+
+    ``unit`` is a currency code for money lines (``EUR``) or a unit for quantity
+    lines such as operation times (``min``).
+    """
 
     key: str
     description: str
     formula: str
     inputs: list[CostInput]
     result: float | None
-    currency: str
+    unit: str
+    category: str = ""
     flags: list[ReviewFlag] = Field(default_factory=list)
     override: Override | None = None
 
@@ -115,7 +123,15 @@ class CostLine(BaseModel):
         return self.override.value if self.override is not None else self.result
 
 
-def to_input(name: str, value: Param | Price, path: str | None = None) -> CostInput:
+LibValue = Param | Price
+
+
+def derived(value: float | None, unit: str, desc: str | None = None) -> Param:
+    """A value computed from other values (e.g. a driver total), as a ``Param``."""
+    return Param(value=value, unit=unit, source=Source.DERIVED, desc=desc)
+
+
+def to_input(name: str, value: LibValue, path: str | None = None) -> CostInput:
     """Convert a library value into a ``CostInput`` for display and audit."""
     source = Source.TODO if value.is_todo else value.source
     return CostInput(name=name, value=value.value, unit=value.unit, source=source, path=path)
@@ -129,33 +145,102 @@ def missing_value_flag(name: str, path: str | None = None) -> ReviewFlag:
     )
 
 
-def product_cost_line(
+def formula_line(
     key: str,
     description: str,
-    factors: dict[str, Param | Price],
-    currency: str,
-    paths: dict[str, str] | None = None,
+    formula: str,
+    inputs: Mapping[str, LibValue],
+    compute: Callable[[Mapping[str, float]], float],
+    unit: str,
+    category: str = "",
+    paths: Mapping[str, str] | None = None,
+    flags: Sequence[ReviewFlag] = (),
 ) -> CostLine:
-    """Pure formula ``result = product(factors)``.
+    """Evaluate ``compute`` on the input values and record everything.
 
-    Any TODO factor makes the result ``None`` and adds a ``missing_value`` flag, so
+    Any TODO input makes the result ``None`` and adds a ``missing_value`` flag, so
     an unfilled company value can never leak a fabricated number into a quote.
+    ``flags`` are extra review flags raised by the caller (e.g. a failed check).
     """
     paths = paths or {}
-    inputs = [to_input(name, v, paths.get(name)) for name, v in factors.items()]
-    flags = [missing_value_flag(i.name, i.path) for i in inputs if i.value is None]
+    cost_inputs = [to_input(name, v, paths.get(name)) for name, v in inputs.items()]
+    all_flags = list(flags)
+    for i in cost_inputs:
+        if i.value is None:
+            all_flags.append(
+                ReviewFlag(code="missing_upstream", reason=f"'{i.name}' could not be computed")
+                if i.source is Source.DERIVED
+                else missing_value_flag(i.name, i.path)
+            )
     result: float | None = None
-    if not flags:
-        result = 1.0
-        for i in inputs:
-            assert i.value is not None
-            result *= i.value
+    if all(i.value is not None for i in cost_inputs):
+        values = {i.name: i.value for i in cost_inputs if i.value is not None}
+        try:
+            result = compute(values)
+        except (ZeroDivisionError, ValueError) as exc:
+            all_flags.append(ReviewFlag(code="invalid_input", reason=f"{formula}: {exc}"))
+        else:
+            if not math.isfinite(result):
+                all_flags.append(ReviewFlag(code="invalid_input", reason=f"{formula}: {result}"))
+                result = None
     return CostLine(
         key=key,
         description=description,
-        formula=" × ".join(factors),
+        formula=formula,
+        inputs=cost_inputs,
+        result=result,
+        unit=unit,
+        category=category,
+        flags=all_flags,
+    )
+
+
+def product_cost_line(
+    key: str,
+    description: str,
+    factors: Mapping[str, LibValue],
+    unit: str,
+    paths: Mapping[str, str] | None = None,
+    category: str = "",
+) -> CostLine:
+    """Pure formula ``result = product(factors)``."""
+    return formula_line(
+        key,
+        description,
+        " × ".join(factors),
+        factors,
+        lambda v: math.prod(v.values()),
+        unit,
+        category,
+        paths,
+    )
+
+
+def sum_line(
+    key: str, description: str, lines: Sequence[CostLine], unit: str, category: str = ""
+) -> CostLine:
+    """Sum of other lines' final values (overrides respected).
+
+    If any part is missing the sum is ``None`` with a ``missing_upstream`` flag; the
+    upstream lines keep their own flags, so the reason stays visible there.
+    """
+    inputs = [
+        CostInput(name=ln.key, value=ln.final, unit=ln.unit, source=Source.DERIVED) for ln in lines
+    ]
+    missing = [i.name for i in inputs if i.value is None]
+    flags = []
+    result: float | None = None
+    if missing:
+        flags.append(ReviewFlag(code="missing_upstream", reason="Missing: " + ", ".join(missing)))
+    else:
+        result = math.fsum(i.value for i in inputs if i.value is not None)
+    return CostLine(
+        key=key,
+        description=description,
+        formula="Σ " + (", ".join(ln.key for ln in lines) if lines else "∅"),
         inputs=inputs,
         result=result,
-        currency=currency,
+        unit=unit,
+        category=category,
         flags=flags,
     )

@@ -6,7 +6,7 @@ Bu liste `teklif todo` komutuyla kütüphanedeki boş (`value: null`) alanlardan
 
 Birim gösterimi: `min` = dakika, `h` = saat, `m2` = m², `degC` = °C, `ratio` = oran (0–1), `1e-6/K` = 10⁻⁶/K, `min/batch` = parti başına dakika, `EUR/m2` = m² başına EUR. Para birimi her kalemde ayrı seçilebilir (EUR, TRY, USD); farklı birim kullanırsanız belirtmeniz yeterli.
 
-Toplam açık kalem: **173**
+Toplam açık kalem: **174**
 
 ## Kurlar — `currency.yaml` (2)
 
@@ -155,17 +155,18 @@ Toplam açık kalem: **173**
 | 8 | `autoclaves[AC1].hourly_rate` | Çevrim saat maliyeti | `EUR/h` |
 | 9 | `autoclaves[AC1].load_efficiency` | Taban alanının tipik doluluk oranı (0-1) | `ratio` |
 
-## Genel katsayılar — `thresholds.yaml` (7)
+## Genel katsayılar — `thresholds.yaml` (8)
 
 | # | Anahtar | Açıklama | Birim |
 |---|---|---|---|
 | 1 | `costing.nesting_scrap_ratio` | Varsayılan nesting firesi (fire alanı / net ply alanı) | `ratio` |
-| 2 | `costing.learning_curve_ratio` | Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_1 × n^log2(LC) | `ratio` |
-| 3 | `costing.overhead_ratio` | Genel gider oranı (direkt maliyet üzerine) | `ratio` |
-| 4 | `costing.margin_ratio` | Kâr marjı | `ratio` |
+| 2 | `costing.learning_curve_ratio` | Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_ref × (n/ref)^log2(LC) | `ratio` |
+| 3 | `costing.overhead_ratio` | Genel gider oranı (overhead_basis üzerine) | `ratio` |
+| 4 | `costing.margin_ratio` | Kâr oranı (margin_basis'e göre) | `ratio` |
 | 5 | `costing.consumable_waste_ratio` | Sarf malzeme kesim/bindirme payı | `ratio` |
-| 6 | `complexity_factors.orta` | Orta karmaşıklık süre çarpanı | `ratio` |
-| 7 | `complexity_factors.yuksek` | Yüksek karmaşıklık süre çarpanı | `ratio` |
+| 6 | `costing.autoclave_spacing` | Autoclave yerleşiminde kalıp çevresine bırakılan boşluk (her kenar) | `mm` |
+| 7 | `complexity_factors.orta` | Orta karmaşıklık süre çarpanı | `ratio` |
+| 8 | `complexity_factors.yuksek` | Yüksek karmaşıklık süre çarpanı | `ratio` |
 
 ## Standart süreler ve sarf kullanımı (processes/autoclave_prepreg.yaml) — `processes/autoclave_prepreg.yaml` (39)
 

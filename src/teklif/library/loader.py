@@ -7,6 +7,7 @@ cross-file checks (references, units, currencies). Any problem raises
 
 from __future__ import annotations
 
+import hashlib
 import os
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -209,6 +210,8 @@ def validate_references(lib: Library) -> list[str]:
                 issues.append(f"{where}: {op.id}: unknown work_center '{op.work_center}'")
             if op.setup is not None and op.setup.unit != "min/batch":
                 issues.append(f"{where}: {op.id}: setup unit must be 'min/batch'")
+            for dup in _duplicates([t.driver for t in op.times]):
+                issues.append(f"{where}: {op.id}: duplicate time driver '{dup}'")
             for t in op.times:
                 expected = f"min/{DRIVER_UNITS[t.driver]}"
                 if t.rate.unit != expected:
@@ -244,3 +247,12 @@ def list_todos(lib: Library) -> list[TodoItem]:
             if v.is_todo:
                 out.append(TodoItem(file=fname, path=path, unit=v.unit, desc=v.desc))
     return out
+
+
+def library_hash(lib: Library) -> str:
+    """SHA-256 over every YAML file, so a stored quote records which library it used."""
+    digest = hashlib.sha256()
+    for path in sorted(lib.root.rglob("*.yaml")):
+        digest.update(path.relative_to(lib.root).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
