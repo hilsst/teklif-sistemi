@@ -1,0 +1,83 @@
+# teklif-sistemi
+
+Autoclave/prepreg kompozit parça ve kalıp teklif sistemi (kurum içi, tek kullanıcı, yerel).
+CAD/teknik resimden kalıp ihtiyacı, ters açı çözümü, kalıp cinsi, master model, proses rotası
+ve kalem kalem izlenebilir maliyet çıkarır. Durum: **Faz 0** (veri ve şablonlar).
+
+## Kurulum
+
+```bash
+# uv: https://docs.astral.sh/uv/
+uv python install 3.12
+uv sync                 # .venv oluşturur, bağımlılıkları kurar
+uv run pytest           # testler
+uv run ruff check . && uv run mypy
+```
+
+## Komutlar
+
+```bash
+uv run teklif validate                         # kütüphaneyi doğrula
+uv run teklif todo --out docs/firma_veri_ihtiyaci.md   # eksik firma verisi listesi
+uv run teklif templates --out templates        # boş yükleme Excel'leri
+uv run teklif check-upload iscilik_gecmis dolu_dosya.xlsx   # doldurulmuş dosyayı denetle
+```
+
+Farklı bir kütüphane klasörü için `--library <klasör>` veya `TEKLIF_LIBRARY` ortam değişkeni.
+
+## Klasör yapısı
+
+```
+library/                 Düzenlenebilir kütüphane (YAML) — koda gömülü sayı yok
+  currency.yaml          Para birimleri ve kurlar (temel: EUR, karma para birimi destekli)
+  enums.yaml             Sözlükler: proses, kalıp cinsi, operasyon, ters açı çözümü...
+  materials.yaml         Prepreg, sarf, kalıp/master model malzemeleri
+  work_centers.yaml      İş merkezleri, işçilik ve makine saat ücretleri, verim
+  autoclaves.yaml        Autoclave ölçüleri, sınırları, saat maliyeti
+  thresholds.yaml        Karar eşikleri (draft, maça oranı, tessellation) ve katsayılar
+  processes/             Proses şablonları (operasyon, süre sürücüleri, sarf kullanımı)
+src/teklif/
+  common/                Param, Price, CostLine, ReviewFlag (izlenebilirlik), birim, kur
+  library/               YAML şemaları, yükleyici, çapraz doğrulama, TODO raporu
+  storage/               Yükleme formatları (kolon tanımları) ve Excel içe aktarıcı
+  reporting/             Boş Excel şablon üretici
+  ingest, drawing_reader, geometry, draft, tooling_rules, routing, costing, app
+                         Sonraki fazlar için boş paketler
+templates/               Üretilmiş boş Excel'ler (kalip_gecmis, iscilik_gecmis, referans_teklifler)
+docs/                    Firma verisi ihtiyaç listesi
+tests/
+```
+
+## Kütüphane kuralları
+
+- Her sayı `{value, unit, source, desc, note}` yapısındadır; fiyatlar `{value, currency, per}`.
+- `value: null` = firma verisi bekleniyor (TODO). Hesapta kullanılırsa sonuç üretilmez,
+  kalem `manual_review` (`missing_value`) bayrağı alır.
+- `source`: `user` (sizin verdiğiniz), `library`, `default` (literatür/varsayılan, doğrulanmalı),
+  `cad`, `drawing`, `todo`.
+- Birimler kontrollü bir sözlükten gelir (`min/m2`, `EUR/h`, `degC`...). Yazım hatası yükleme
+  sırasında yakalanır.
+- Proses şablonunda rate birimi sürücüyle uyumlu olmalıdır (`ply_area_total_m2` → `min/m2`);
+  sarf miktarı `<fiyat birimi>/<sürücü birimi>` olmalıdır. Uyumsuzluk yüklemede hata verir.
+- Para birimleri: her fiyat kendi para birimini taşır; `currency.yaml` içindeki kurla teklif
+  para birimine çevrilir. Kur girilmemişse çevrim hata verir, tahmin yapılmaz.
+
+## Süre modeli (proses şablonu)
+
+```
+t_std (dk/parça) = setup / parti_adedi + Σ rate_i × sürücü_i     [× karmaşıklık çarpanı]
+t_ödenen        = t_std / iş_merkezi.efficiency
+T_n             = T_1 × n^log2(LC)                               (Faz 1, costing)
+```
+
+## Yükleme şablonları
+
+| Dosya | Satır anlamı |
+|---|---|
+| `kalip_gecmis.xlsx` | Tamamlanmış bir kalıp (master model, maça dahil) |
+| `iscilik_gecmis.xlsx` | Bir iş emrindeki bir operasyon (parti toplamı) |
+| `referans_teklifler.xlsx` | Bir teklif ve gerçekleşen maliyeti (30–50 iş) |
+
+Her dosyada `Veri` (turuncu başlık zorunlu), `Aciklama` (kolon, birim, geçerli değerler) ve
+`Listeler` (açılır liste kaynakları, kütüphaneden üretilir) sayfaları vardır. Kütüphaneye yeni
+iş merkezi veya proses eklenince `teklif templates` ile şablonları yeniden üretin.

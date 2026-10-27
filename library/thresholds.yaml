@@ -1,0 +1,18 @@
+# Karar eşikleri ve genel katsayılar. source: user = proje talimatındaki varsayılan eşik.
+draft:
+  min_ok_deg: {value: 2.0, unit: deg, source: user, desc: "Bu açı ve üstü: tek parça kalıp"}
+  warn_min_deg: {value: 0.0, unit: deg, source: user, desc: "0 ile min_ok arası: uyarı; altı: ters açı"}
+undercut:
+  core_max_area_ratio: {value: 0.10, unit: ratio, source: user, desc: "Ters açı bölgesi alanı / kalıp alanı bu orandan küçükse maça"}
+tessellation:
+  max_angular_deflection_deg: {value: 0.5, unit: deg, source: user, desc: "Tessellation açısal sapma üst sınırı"}
+costing:
+  nesting_scrap_ratio: {value: null, unit: ratio, desc: "Varsayılan nesting firesi (fire alanı / net ply alanı)"}
+  learning_curve_ratio: {value: null, unit: ratio, desc: "Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_1 × n^log2(LC)"}
+  overhead_ratio: {value: null, unit: ratio, desc: "Genel gider oranı (direkt maliyet üzerine)"}
+  margin_ratio: {value: null, unit: ratio, desc: "Kâr marjı"}
+  consumable_waste_ratio: {value: null, unit: ratio, desc: "Sarf malzeme kesim/bindirme payı"}
+complexity_factors:
+  dusuk: {value: 1.0, unit: ratio, source: default, desc: "Düşük karmaşıklık süre çarpanı (referans)"}
+  orta: {value: null, unit: ratio, desc: "Orta karmaşıklık süre çarpanı"}
+  yuksek: {value: null, unit: ratio, desc: "Yüksek karmaşıklık süre çarpanı"}

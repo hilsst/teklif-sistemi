@@ -1,0 +1,78 @@
+# İş merkezleri ve saat ücretleri. value: null = firma verisi bekleniyor (TODO).
+# labor_rate: operatör başına işçilik saat ücreti (genel gider hariç).
+# machine_rate: makine/tesis saat ücreti (amortisman, enerji, bakım); makine yoksa 0 girin.
+# efficiency: standart sürenin fiili süreye oranı (0-1). Ödenen süre = standart süre / verim.
+# Para birimi her kayıtta ayrı tutulur (EUR, TRY...); karma kullanılabilir.
+work_centers:
+  - id: KESIM_MASASI
+    name: "Otomatik ply kesim masası"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: TEMIZ_ODA
+    name: "Temiz oda: serim, debulk, torbalama"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: AUTOCLAVE_YUKLEME
+    name: "Autoclave yükleme/boşaltma ve kür takibi"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: KALIPTAN_CIKARMA
+    name: "Kalıptan çıkarma ve kalıp temizliği"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: CNC_TRIM
+    name: "CNC trim ve delik delme"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: EL_ISCILIGI
+    name: "El ile trim, zımpara, rötuş"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: NDT_UT
+    name: "Ultrasonik muayene (NDT)"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: OLCUM
+    name: "Ölçüm (CMM / tarama / mastar)"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: BOYA
+    name: "Boya kabini"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: MONTAJ
+    name: "Montaj"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: KALIP_CNC
+    name: "Kalıp / master model CNC işleme"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: KALIP_ATOLYE
+    name: "Kalıp atölyesi: laminasyon, yüzey hazırlama, altyapı"
+    labor_rate: {value: null, currency: EUR, per: h, desc: "İşçilik saat ücreti (kişi başı)"}
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}

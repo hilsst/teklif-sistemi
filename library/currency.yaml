@@ -1,0 +1,11 @@
+# Para birimleri ve kurlar.
+# rates.<KOD>.value = 1 birim temel para birimi (base_currency) kaç <KOD> eder.
+# Örn. base EUR ise TRY.value = 1 EUR kaç TL. Temel para biriminin değeri her zaman 1'dir.
+# Kütüphanedeki her fiyat kendi para birimini taşır; teklif quote_currency'ye çevrilir.
+base_currency: EUR
+quote_currency: EUR
+rate_date: null  # TODO: kurların geçerli olduğu tarih (YYYY-AA-GG)
+rates:
+  EUR: {value: 1.0, unit: EUR/EUR, source: default, desc: "Temel para birimi"}
+  TRY: {value: null, unit: TRY/EUR, desc: "1 EUR kaç TL", note: TODO}
+  USD: {value: null, unit: USD/EUR, desc: "1 EUR kaç USD", note: TODO}

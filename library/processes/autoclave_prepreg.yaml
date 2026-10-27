@@ -1,0 +1,187 @@
+# Proses şablonu: Autoclave prepreg (tek parça, kompozit kalıp üzerinde).
+#
+# Süre modeli (her operasyon, parça başına standart dakika):
+#   t_std = setup / parti_adedi + Σ (rate_i × driver_i)            [× karmaşıklık çarpanı, apply_complexity: true ise]
+#   t_ödenen = t_std / iş_merkezi.efficiency                        (öğrenme eğrisi Faz 1'de costing katmanında)
+#
+# Sürücüler (driver) ve birimleri — rate birimi "min/<sürücü birimi>" olmalıdır:
+#   per_part          part    parça başına sabit
+#   ply_area_total_m2 m2      tüm ply'ların düz desen alanları toplamı (fire hariç)
+#   ply_count         ply     ply sayısı
+#   part_area_m2      m2      parça yüzey alanı (tek yüz)
+#   part_perimeter_m  m       trim kenarı uzunluğu
+#   hole_count        hole    delik sayısı
+#   tool_area_m2      m2      kalıp torbalama alanı (flanş + run-off dahil)
+#   tool_perimeter_m  m       kalıp torbalama çevresi (sızdırmazlık bandı hattı)
+#   debulk_count      debulk  ceil(ply_count / debulk_interval_plies)
+#
+# Sarf kullanımı: qty birimi "<malzeme fiyat birimi>/<sürücü birimi>" (örn. m2/m2: alan başına kullanım).
+# value: null olan her değer firma verisi bekler (TODO). Kullanıldığında sonuç manual_review olur.
+
+id: autoclave_prepreg
+name: "Autoclave prepreg"
+version: 1
+
+parameters:
+  debulk_interval_plies: {value: null, unit: ply, desc: "Kaç ply'da bir ara debulk yapılır"}
+
+cure_cycles:
+  - id: cure_120
+    name: "120 °C kür çevrimi"
+    cure_temp: {value: 120, unit: degC, source: user, desc: "Kür sıcaklığı"}
+    pressure: {value: null, unit: bar, desc: "Autoclave basıncı"}
+    cycle_time: {value: null, unit: h, desc: "Toplam çevrim süresi (ısıtma + bekleme + soğutma)"}
+  - id: cure_180
+    name: "180 °C kür çevrimi"
+    cure_temp: {value: 180, unit: degC, source: user, desc: "Kür sıcaklığı"}
+    pressure: {value: null, unit: bar, desc: "Autoclave basıncı"}
+    cycle_time: {value: null, unit: h, desc: "Toplam çevrim süresi (ısıtma + bekleme + soğutma)"}
+
+operations:
+  - seq: 10
+    id: kesim
+    name: "Ply kesimi ve kitleme"
+    work_center: KESIM_MASASI
+    setup: {value: null, unit: min/batch, desc: "Nesting yükleme, rulo hazırlama, masa hazırlığı"}
+    times:
+      - driver: ply_area_total_m2
+        rate: {value: null, unit: min/m2, desc: "Kesim süresi, ply alanı başına"}
+      - driver: ply_count
+        rate: {value: null, unit: min/ply, desc: "Etiketleme ve kitleme, ply başına"}
+
+  - seq: 20
+    id: serim
+    name: "Serim (layup)"
+    work_center: TEMIZ_ODA
+    apply_complexity: true
+    setup: {value: null, unit: min/batch, desc: "Kalıp temizliği ve ayırıcı uygulaması"}
+    times:
+      - driver: ply_area_total_m2
+        rate: {value: null, unit: min/m2, desc: "Serim süresi, ply alanı başına"}
+      - driver: ply_count
+        rate: {value: null, unit: min/ply, desc: "Ply konumlandırma (laser projeksiyon/şablon), ply başına"}
+    consumables:
+      - material: KALIP_AYIRICI
+        driver: tool_area_m2
+        qty: {value: null, unit: L/m2, desc: "Kalıp ayırıcı sarfiyatı, kalıp alanı başına"}
+
+  - seq: 30
+    id: debulk
+    name: "Ara debulk"
+    work_center: TEMIZ_ODA
+    times:
+      - driver: debulk_count
+        rate: {value: null, unit: min/debulk, desc: "Debulk başına süre (torba kurma + vakum bekleme + söküm)"}
+
+  - seq: 40
+    id: torbalama
+    name: "Kür torbalaması"
+    work_center: TEMIZ_ODA
+    apply_complexity: true
+    times:
+      - driver: tool_area_m2
+        rate: {value: null, unit: min/m2, desc: "Torbalama süresi, kalıp alanı başına"}
+      - driver: tool_perimeter_m
+        rate: {value: null, unit: min/m, desc: "Sızdırmazlık bandı ve kenar hazırlığı, çevre başına"}
+    consumables:
+      - material: PEEL_PLY
+        driver: part_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Peel ply kullanımı, parça alanı başına"}
+      - material: AYIRICI_FILM
+        driver: tool_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Ayırıcı film kullanımı, kalıp alanı başına"}
+      - material: BREATHER
+        driver: tool_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Breather kullanımı, kalıp alanı başına"}
+      - material: VAKUM_TORBA
+        driver: tool_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Vakum torba filmi (pile payı dahil), kalıp alanı başına"}
+      - material: SIZDIRMAZLIK_BANDI
+        driver: tool_perimeter_m
+        qty: {value: null, unit: m/m, desc: "Sızdırmazlık bandı, çevre başına"}
+
+  - seq: 50
+    id: kur
+    name: "Autoclave kürü"
+    work_center: AUTOCLAVE_YUKLEME
+    autoclave_cure: true
+    setup: {value: null, unit: min/batch, desc: "Yükleme, termokupl/vakum bağlantısı, boşaltma"}
+    times:
+      - driver: per_part
+        rate: {value: null, unit: min/part, desc: "Parça başına bağlantı ve kontrol"}
+
+  - seq: 60
+    id: kaliptan_cikarma
+    name: "Kalıptan çıkarma ve kalıp temizliği"
+    work_center: KALIPTAN_CIKARMA
+    times:
+      - driver: part_area_m2
+        rate: {value: null, unit: min/m2, desc: "Sarf söküm ve kalıptan ayırma, parça alanı başına"}
+      - driver: tool_area_m2
+        rate: {value: null, unit: min/m2, desc: "Kalıp temizliği, kalıp alanı başına"}
+
+  - seq: 70
+    id: trim
+    name: "CNC trim ve delik delme"
+    work_center: CNC_TRIM
+    setup: {value: null, unit: min/batch, desc: "Fikstür bağlama, sıfırlama, program yükleme"}
+    times:
+      - driver: part_perimeter_m
+        rate: {value: null, unit: min/m, desc: "Trim süresi, kenar uzunluğu başına"}
+      - driver: hole_count
+        rate: {value: null, unit: min/hole, desc: "Delik başına süre"}
+      - driver: per_part
+        rate: {value: null, unit: min/part, desc: "Parça bağlama/sökme"}
+
+  - seq: 80
+    id: el_isciligi
+    name: "Çapak alma, kenar zımpara, rötuş"
+    work_center: EL_ISCILIGI
+    times:
+      - driver: part_perimeter_m
+        rate: {value: null, unit: min/m, desc: "Kenar işçiliği, kenar uzunluğu başına"}
+
+  - seq: 90
+    id: ndt
+    name: "Ultrasonik muayene"
+    work_center: NDT_UT
+    setup: {value: null, unit: min/batch, desc: "Cihaz kalibrasyonu, referans blok"}
+    times:
+      - driver: part_area_m2
+        rate: {value: null, unit: min/m2, desc: "Tarama süresi, parça alanı başına"}
+      - driver: per_part
+        rate: {value: null, unit: min/part, desc: "Değerlendirme ve raporlama"}
+
+  - seq: 100
+    id: olcum
+    name: "Boyutsal ölçüm"
+    work_center: OLCUM
+    setup: {value: null, unit: min/batch, desc: "Program ve fikstür hazırlığı"}
+    times:
+      - driver: per_part
+        rate: {value: null, unit: min/part, desc: "Parça başına ölçüm"}
+      - driver: hole_count
+        rate: {value: null, unit: min/hole, desc: "Delik konum ölçümü, delik başına"}
+
+  - seq: 110
+    id: boya
+    name: "Astar ve boya"
+    work_center: BOYA
+    optional: true
+    setup: {value: null, unit: min/batch, desc: "Kabin ve tabanca hazırlığı"}
+    times:
+      - driver: part_area_m2
+        rate: {value: null, unit: min/m2, desc: "Yüzey hazırlama + maskeleme + boyama, alan başına"}
+    consumables:
+      - material: BOYA_ASTAR
+        driver: part_area_m2
+        qty: {value: null, unit: L/m2, desc: "Boya sistemi sarfiyatı, alan başına"}
+
+  - seq: 120
+    id: montaj
+    name: "Montaj (bağlantı elemanı, insert vb.)"
+    work_center: MONTAJ
+    optional: true
+    times:
+      - driver: per_part
+        rate: {value: null, unit: min/part, desc: "Parça başına montaj süresi (komple için Faz 5'te ayrıntılanacak)"}

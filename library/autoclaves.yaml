@@ -1,0 +1,15 @@
+# Autoclave kütüphanesi. Ölçüler mm; çalışma alanı = kullanılabilir iç ölçü.
+# hourly_rate kür çevrimi boyunca autoclave'in saat maliyetidir (enerji, gaz, amortisman, bakım).
+# Bir çevrimdeki maliyet, parçalara kapladıkları taban alanı payına göre dağıtılır.
+autoclaves:
+  - id: AC1
+    name: "Autoclave 1 (TODO: ad/model)"
+    inner_diameter: {value: null, unit: mm, desc: "Kullanılabilir iç çap"}
+    usable_length: {value: null, unit: mm, desc: "Kullanılabilir boy"}
+    usable_width: {value: null, unit: mm, desc: "Yükleme arabası / raf kullanılabilir eni"}
+    max_temp: {value: null, unit: degC, desc: "Maksimum sıcaklık"}
+    max_pressure: {value: null, unit: bar, desc: "Maksimum basınç"}
+    vacuum_ports: {value: null, unit: pcs, desc: "Vakum port sayısı"}
+    thermocouples: {value: null, unit: pcs, desc: "Termokupl kanal sayısı"}
+    hourly_rate: {value: null, currency: EUR, per: h, desc: "Çevrim saat maliyeti"}
+    load_efficiency: {value: null, unit: ratio, desc: "Taban alanının tipik doluluk oranı (0-1)"}
