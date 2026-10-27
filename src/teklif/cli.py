@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     qt = sub.add_parser("quote", help="Compute a quote from a YAML input file")
     qt.add_argument("input", type=Path)
     qt.add_argument("--xlsx", type=Path, help="Write the Excel breakdown")
-    qt.add_argument("--pdf", type=Path, help="Write the PDF quote (needs the 'pdf' extra)")
+    qt.add_argument("--pdf", type=Path, help="Write the PDF quote")
     qt.add_argument("--db", type=Path, help="Save the quote to this SQLite file")
     rg = sub.add_parser("regress", help="Compare the reference set with actual cost")
     rg.add_argument("file", type=Path)

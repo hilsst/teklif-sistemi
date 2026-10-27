@@ -11,9 +11,9 @@ from teklif.common.models import Override
 from teklif.costing.engine import compute_quote
 from teklif.costing.inputs import QuoteInput
 from teklif.costing.regression import run_regression
-from teklif.library import Library
+from teklif.library import Library, load_library
 from teklif.reporting.excel_templates import DATA_SHEET, write_templates
-from teklif.reporting.quote_report import render_html, write_excel, write_pdf
+from teklif.reporting.quote_report import write_excel, write_pdf
 from teklif.storage.db import Store
 from teklif.storage.history_import import Value
 from teklif.storage.history_schema import REFERENCE_QUOTES
@@ -54,11 +54,9 @@ def test_excel_and_pdf_reports(
     rows = list(wb["Kirilim"].iter_rows(min_row=2, values_only=True))
     assert len(rows) == len(result.lines)
     assert rows[0][0] == "learning.factor"
-    html = render_html(result)
-    assert "Kalem kalem kırılım" in html and "time.serim" in html
-    pytest.importorskip("weasyprint")
-    pdf = write_pdf(result, tmp_path / "q.pdf")
-    assert pdf.read_bytes().startswith(b"%PDF")
+    pdf = write_pdf(result, tmp_path / "q.pdf").read_bytes()
+    assert pdf.startswith(b"%PDF")
+    assert len(pdf) > 10_000
 
 
 def _reference_file(tmp_path: Path, lib: Library, rows: list[dict[str, Value]]) -> Path:
@@ -177,3 +175,19 @@ def test_streamlit_app_smoke(
     at.button[labels.index("Teklifi kaydet")].click().run()
     assert not at.exception
     assert [s.value for s in at.success] == ["Kaydedildi: T-2026-001 rev 1"]
+
+
+def test_streamlit_library_tab_switches_margin(lib_copy: Path) -> None:
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    app = Path(__file__).resolve().parents[1] / "src/teklif/app/streamlit_app.py"
+    at = AppTest.from_file(str(app), default_timeout=60)
+    at.run()
+    at.sidebar.text_input[0].set_value(str(lib_copy)).run()
+    at.selectbox(key="ch_costing.margin_basis").set_value("margin").run()
+    at.text_input(key="settings_reason").set_value("test").run()
+    labels = [b.label for b in at.button]
+    at.button[labels.index("Ayarları kaydet")].click().run()
+    assert not at.exception
+    assert load_library(lib_copy).thresholds.costing.margin_basis == "margin"
