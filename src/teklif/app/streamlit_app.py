@@ -34,6 +34,11 @@ EXAMPLE = REPO / "examples" / "ornek_parca.yaml"
 DEFAULT_DB = Path(os.environ.get("TEKLIF_DB", REPO / "data" / "teklif.sqlite"))
 
 
+NUMBER_COLUMNS = {
+    c: st.column_config.NumberColumn(format="%.2f") for c in ("hesaplanan", "ezilen", "sonuç")
+}
+
+
 def breakdown_frame(result: QuoteResult) -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -268,8 +273,9 @@ def _show_result(result: QuoteResult, lib: Library, store: Store) -> None:
             ]
         ),
         hide_index=True,
+        column_config={"tutar": st.column_config.NumberColumn(format="%.2f")},
     )
-    st.dataframe(breakdown_frame(result), hide_index=True, height=480)
+    st.dataframe(breakdown_frame(result), hide_index=True, height=480, column_config=NUMBER_COLUMNS)
 
     st.markdown("**Ezme** (her ezme gerekçesiyle kaydedilir)")
     keys = [ln.key for ln in result.lines]
@@ -335,7 +341,7 @@ def _saved_tab(store: Store, lib: Library) -> None:
     )
     row = store.get(qid)
     result = row.result()
-    st.dataframe(breakdown_frame(result), hide_index=True, height=360)
+    st.dataframe(breakdown_frame(result), hide_index=True, height=360, column_config=NUMBER_COLUMNS)
     ovs = store.overrides(qid)
     if ovs:
         st.markdown("**Ezme kaydı**")

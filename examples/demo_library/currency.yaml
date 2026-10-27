@@ -1,0 +1,22 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+base_currency: EUR
+quote_currency: EUR
+rate_date: null
+rates:
+  EUR:
+    value: 1.0
+    unit: EUR/EUR
+    source: default
+    desc: Temel para birimi
+  TRY:
+    value: 45.0
+    unit: TRY/EUR
+    desc: 1 EUR kaç TL
+    note: DEMO / dummy değer - gerçek firma verisi değil
+    source: default
+  USD:
+    value: 1.08
+    unit: USD/EUR
+    desc: 1 EUR kaç USD
+    note: DEMO / dummy değer - gerçek firma verisi değil
+    source: default

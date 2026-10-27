@@ -1,0 +1,92 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+draft:
+  min_ok_deg:
+    value: 2.0
+    unit: deg
+    source: user
+    desc: 'Bu açı ve üstü: tek parça kalıp'
+  warn_min_deg:
+    value: 0.0
+    unit: deg
+    source: user
+    desc: '0 ile min_ok arası: uyarı; altı: ters açı'
+undercut:
+  core_max_area_ratio:
+    value: 0.1
+    unit: ratio
+    source: user
+    desc: Ters açı bölgesi alanı / kalıp alanı bu orandan küçükse maça
+tessellation:
+  max_angular_deflection_deg:
+    value: 0.5
+    unit: deg
+    source: user
+    desc: Tessellation açısal sapma üst sınırı
+costing:
+  nesting_scrap_ratio:
+    value: 0.35
+    unit: ratio
+    desc: Varsayılan nesting firesi (fire alanı / net ply alanı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  learning_curve_ratio:
+    value: 0.88
+    unit: ratio
+    desc: Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_ref × (n/ref)^log2(LC)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  learning_reference_unit:
+    value: 1
+    unit: part
+    source: user
+    desc: Standart sürelerin referans parça sırası
+  overhead_ratio:
+    value: 0.3
+    unit: ratio
+    desc: Genel gider oranı (overhead_basis üzerine)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  overhead_basis: direct_cost
+  margin_ratio:
+    value: 0.15
+    unit: ratio
+    desc: Kâr oranı (margin_basis'e göre)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  margin_basis: markup
+  consumable_waste_ratio:
+    value: 0.15
+    unit: ratio
+    desc: Sarf malzeme kesim/bindirme payı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  autoclave_spacing:
+    value: 150
+    unit: mm
+    desc: Autoclave yerleşiminde kalıp çevresine bırakılan boşluk (her kenar)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+acceptance:
+  cost_tolerance:
+    value: 0.15
+    unit: ratio
+    source: user
+    desc: 'Faz 1 kabul: fiili maliyete göre izin verilen sapma'
+complexity_factors:
+  dusuk:
+    value: 1.0
+    unit: ratio
+    source: default
+    desc: Düşük karmaşıklık süre çarpanı (referans)
+  orta:
+    value: 1.25
+    unit: ratio
+    desc: Orta karmaşıklık süre çarpanı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  yuksek:
+    value: 1.6
+    unit: ratio
+    desc: Yüksek karmaşıklık süre çarpanı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil

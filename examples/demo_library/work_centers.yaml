@@ -1,0 +1,338 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+work_centers:
+- id: KESIM_MASASI
+  name: Otomatik ply kesim masası
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 30
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: TEMIZ_ODA
+  name: 'Temiz oda: serim, debulk, torbalama'
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 8
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 2
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: AUTOCLAVE_YUKLEME
+  name: Autoclave yükleme/boşaltma ve kür takibi
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 0
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: KALIPTAN_CIKARMA
+  name: Kalıptan çıkarma ve kalıp temizliği
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 0
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: CNC_TRIM
+  name: CNC trim ve delik delme
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 45
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: EL_ISCILIGI
+  name: El ile trim, zımpara, rötuş
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 0
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: NDT_UT
+  name: Ultrasonik muayene (NDT)
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 40
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: OLCUM
+  name: Ölçüm (CMM / tarama / mastar)
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 35
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: BOYA
+  name: Boya kabini
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 15
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: MONTAJ
+  name: Montaj
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 0
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: KALIP_CNC
+  name: Kalıp / master model CNC işleme
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 60
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: KALIP_ATOLYE
+  name: 'Kalıp atölyesi: laminasyon, yüzey hazırlama, altyapı'
+  labor_rate:
+    value: 25
+    currency: EUR
+    per: h
+    desc: İşçilik saat ücreti (kişi başı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  machine_rate:
+    value: 5
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil

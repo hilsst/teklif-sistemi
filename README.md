@@ -37,6 +37,18 @@ ve toplamlar hesaplanmaz (`—`), her biri kütüphane yoluyla birlikte `manual_
 Veritabanı varsayılan olarak `data/teklif.sqlite` (`TEKLIF_DB` ile değiştirilebilir); her kayıt yeni
 bir revizyondur ve kullanılan kütüphanenin SHA-256 özetini saklar.
 
+### Demo (dummy veri)
+
+`examples/demo_library` gerçek kütüphanenin, TODO alanları **uydurma** değerlerle doldurulmuş
+kopyasıdır (`scripts/make_demo_library.py`). Yalnızca sistemi denemek içindir; gerçek teklifte
+kullanmayın.
+
+```bash
+uv run teklif --library examples/demo_library app
+uv run teklif --library examples/demo_library quote examples/ornek_parca.yaml --pdf demo.pdf
+uv run teklif --library examples/demo_library regress examples/demo_referans_teklifler.xlsx
+```
+
 Farklı bir kütüphane klasörü için `--library <klasör>` veya `TEKLIF_LIBRARY` ortam değişkeni.
 
 ## Klasör yapısı

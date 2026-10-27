@@ -1,0 +1,59 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+autoclaves:
+- id: AC1
+  name: 'Autoclave 1 (TODO: ad/model)'
+  inner_diameter:
+    value: 3000
+    unit: mm
+    desc: Kullanılabilir iç çap
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  usable_length:
+    value: 8000
+    unit: mm
+    desc: Kullanılabilir boy
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  usable_width:
+    value: 2400
+    unit: mm
+    desc: Yükleme arabası / raf kullanılabilir eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum sıcaklık
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  max_pressure:
+    value: 7
+    unit: bar
+    desc: Maksimum basınç
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  vacuum_ports:
+    value: 20
+    unit: pcs
+    desc: Vakum port sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  thermocouples:
+    value: 24
+    unit: pcs
+    desc: Termokupl kanal sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  hourly_rate:
+    value: 180
+    currency: EUR
+    per: h
+    desc: Çevrim saat maliyeti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  load_efficiency:
+    value: 0.55
+    unit: ratio
+    desc: Taban alanının tipik doluluk oranı (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
