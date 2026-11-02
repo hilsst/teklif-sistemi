@@ -1,7 +1,8 @@
 ---
 name: search
 description: "Maps the repo: directory layout, key modules, entry points, where things live. Use before editing in unfamiliar code."
-tools: Read, Glob, Grep
+tools: Read, Glob, Grep, WebFetch, WebSearch
+disallowedTools: Write, Edit, Bash
 model: claude-haiku-5-5
 ---
 

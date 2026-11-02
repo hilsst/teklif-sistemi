@@ -1,7 +1,8 @@
 ---
 name: docs
 description: Pulls API reference and library documentation for a named function, class or endpoint.
-tools: WebFetch, WebSearch, Read
+tools: Read, Glob, Grep, WebFetch, WebSearch
+disallowedTools: Write, Edit, Bash
 model: claude-haiku-5-5
 ---
 
