@@ -11,12 +11,13 @@ modelled at an angle it is larger than the oriented envelope, so it carries a re
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from teklif.common.models import Source
 
-EXTRACTOR_VERSION = "step_props-1"
+EXTRACTOR_VERSION = "step_props-2"
 MM2_PER_M2 = 1_000_000.0
 MM3_PER_M3 = 1_000_000_000.0
 
@@ -54,18 +55,12 @@ def ocp_available() -> bool:
     return True
 
 
-def extract_step_props(path: Path | str) -> StepProps:
-    """Measure envelope, volume and surface area of a STEP file."""
+def load_step_shape(path: Path | str) -> tuple[Any, list[str]]:
+    """Read a STEP file; return the OCCT shape and the file's length units."""
     try:
-        from OCP.Bnd import Bnd_Box
-        from OCP.BRepBndLib import BRepBndLib
-        from OCP.BRepGProp import BRepGProp
         from OCP.collections import Sequence_TCollection_AsciiString
-        from OCP.GProp import GProp_GProps
         from OCP.IFSelect import IFSelect_RetDone
         from OCP.STEPControl import STEPControl_Reader
-        from OCP.TopAbs import TopAbs_SOLID
-        from OCP.TopExp import TopExp_Explorer
     except ImportError as exc:
         raise StepUnavailableError("OCP (cadquery-ocp) is not installed") from exc
 
@@ -79,6 +74,22 @@ def extract_step_props(path: Path | str) -> StepProps:
     shape = reader.OneShape()
     if shape.IsNull():
         raise StepUnavailableError("STEP file contains no shape")
+    return shape, units
+
+
+def extract_step_props(path: Path | str) -> StepProps:
+    """Measure envelope, volume and surface area of a STEP file."""
+    try:
+        from OCP.Bnd import Bnd_Box
+        from OCP.BRepBndLib import BRepBndLib
+        from OCP.BRepGProp import BRepGProp
+        from OCP.GProp import GProp_GProps
+        from OCP.TopAbs import TopAbs_SOLID
+        from OCP.TopExp import TopExp_Explorer
+    except ImportError as exc:
+        raise StepUnavailableError("OCP (cadquery-ocp) is not installed") from exc
+
+    shape, units = load_step_shape(path)
 
     solids = 0
     explorer = TopExp_Explorer(shape, TopAbs_SOLID)
