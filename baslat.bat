@@ -8,7 +8,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-uv sync --extra app
+uv sync --extra app --extra cad
 if errorlevel 1 (
   pause
   exit /b 1
