@@ -17,7 +17,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from teklif.common.models import Param, Price
+from teklif.common.models import Param, Price, Source
 from teklif.common.units import is_known_unit
 from teklif.library.schema import (
     DRIVER_UNITS,
@@ -199,6 +199,8 @@ def validate_references(lib: Library) -> list[str]:
         if tm.tool_class not in tool_classes:
             issues.append(f"materials.yaml: {tm.id}: unknown tool_class '{tm.tool_class}'")
 
+    for dup in _duplicates([c.id for c in lib.work_centers.wage_classes]):
+        issues.append(f"work_centers.yaml: duplicate wage class '{dup}'")
     wc_ids = [w.id for w in lib.work_centers.work_centers]
     for dup in _duplicates(wc_ids):
         issues.append(f"work_centers.yaml: duplicate id '{dup}'")
@@ -262,7 +264,7 @@ def list_todos(lib: Library) -> list[TodoItem]:
     out: list[TodoItem] = []
     for fname, model in lib.files().items():
         for path, v in iter_values(model):
-            if v.is_todo:
+            if v.is_todo and v.source != Source.DERIVED:
                 out.append(TodoItem(file=fname, path=path, unit=v.unit, desc=v.desc))
     return out
 

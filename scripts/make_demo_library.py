@@ -74,7 +74,13 @@ DEMO: dict[str, dict[str, float]] = {
         "tooling_materials[CELIK].price": 3,
     },
     "work_centers.yaml": {
-        "work_centers[*].labor_rate": 25,
+        "engineer_rate": 50,
+        "work_centers[AUTOCLAVE_YUKLEME].labor_rate": 25,
+        "work_centers[KALIPTAN_CIKARMA].labor_rate": 25,
+        "work_centers[NDT_UT].labor_rate": 30,
+        "work_centers[OLCUM].labor_rate": 30,
+        "work_centers[KALIP_ATOLYE].labor_rate": 25,
+        "work_centers[ISLAK_SERIM].machine_rate": 0,
         "work_centers[*].operators": 1,
         "work_centers[*].efficiency": 0.85,
         "work_centers[KESIM_MASASI].machine_rate": 30,
@@ -200,6 +206,11 @@ def main() -> int:
                     target["value"] = value
                     target["source"] = "default"
                     target["note"] = NOTE
+        if file == "work_centers.yaml":
+            # Demo only: the real operator multiplier default (1.0) would change the demo numbers.
+            for wage_class in data["wage_classes"]:
+                if wage_class["id"] == "operator":
+                    wage_class["multiplier"].update(value=0.5, note=NOTE)
         missing += [f"{file}:{p}" for p in _remaining(data)]
         header = f"# {NOTE}. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.\n"
         path.write_text(

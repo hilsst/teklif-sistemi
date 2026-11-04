@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 app = ["streamlit>=1.38", "pandas>=2.2"]
+cad = ["cadquery-ocp>=7.7"]
 
 [project.scripts]
 teklif = "teklif.cli:main"
@@ -52,6 +53,10 @@ strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["OCP", "OCP.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

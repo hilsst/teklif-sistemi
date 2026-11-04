@@ -29,6 +29,7 @@ FILL_BY_KEY: dict[str, float] = {
     "autoclave_spacing": 100.0,
     "cycle_time": 6.0,
     "labor_rate": 40.0,
+    "engineer_rate": 80.0,
     "machine_rate": 20.0,
     "hourly_rate": 150.0,
     "operators": 1.0,
