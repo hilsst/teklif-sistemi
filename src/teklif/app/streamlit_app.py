@@ -14,6 +14,7 @@ import pandas as pd
 import streamlit as st
 import yaml
 
+from teklif.app import data_entry
 from teklif.common.models import Override, Price
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
@@ -696,8 +697,8 @@ def main() -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = Store(db_path)
 
-    new_tab, set_tab, saved_tab, lib_tab = st.tabs(
-        ["Yeni teklif", "Çok kalemli teklif", "Kayıtlı teklifler", "Kütüphane"]
+    new_tab, set_tab, saved_tab, lib_tab, data_tab = st.tabs(
+        ["Yeni teklif", "Çok kalemli teklif", "Kayıtlı teklifler", "Kütüphane", "Veri girişi"]
     )
     with new_tab:
         base = _example() if st.toggle("Örnek parçayla doldur", value=True) else {}
@@ -715,6 +716,8 @@ def main() -> None:
         _saved_tab(store, lib)
     with lib_tab:
         _library_tab(lib, lib_dir)
+    with data_tab:
+        data_entry.render(lib, lib_dir, db_path.with_name("katalog.sqlite"))
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ def test_autoclave_prepreg_template_covers_route(lib: Library) -> None:
 
 def test_todos_list_unfilled_values_only(lib: Library) -> None:
     todos = {(t.file, t.path) for t in list_todos(lib)}
-    assert ("work_centers.yaml", "work_centers[TEMIZ_ODA].labor_rate") in todos
+    assert ("work_centers.yaml", "work_centers[AUTOCLAVE_YUKLEME].labor_rate") in todos
     assert ("currency.yaml", "rates.TRY") in todos
     assert ("currency.yaml", "rates.EUR") not in todos
     assert ("thresholds.yaml", "draft.min_ok_deg") not in todos
@@ -124,3 +124,50 @@ def test_unit_vocabulary() -> None:
     assert is_known_unit("TRY/EUR", frozenset({"TRY", "EUR"}))
     assert not is_known_unit("min/")
     assert not is_known_unit("dakika")
+
+
+def test_labor_rate_is_derived_from_wage_class(filled_lib: Library) -> None:
+    wcs = {w.id: w for w in filled_lib.work_centers.work_centers}
+    assert filled_lib.work_centers.engineer_rate is not None
+    eng = filled_lib.work_centers.engineer_rate.value
+    assert eng is not None
+    assert wcs["TEMIZ_ODA"].labor.value == pytest.approx(eng * 0.5)
+    assert wcs["ISLAK_SERIM"].labor.value == pytest.approx(eng * 0.2)
+    assert wcs["CNC_TRIM"].labor.value == pytest.approx(eng * 1.0)
+    assert wcs["TEMIZ_ODA"].labor.source.value == "derived"
+    # a center without wage class keeps its own rate
+    assert wcs["AUTOCLAVE_YUKLEME"].labor.source.value != "derived"
+
+
+def test_derived_labor_rates_are_not_todos(lib: Library) -> None:
+    paths = {t.path for t in list_todos(lib)}
+    assert "engineer_rate" in paths
+    assert not any(p.endswith("TEMIZ_ODA].labor_rate") for p in paths)
+
+
+def test_wage_class_multiplier_must_be_positive(lib_copy: Path) -> None:
+    import yaml
+
+    path = lib_copy / "work_centers.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["wage_classes"][0]["multiplier"]["value"] = 0
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    with pytest.raises(LibraryError):
+        load_library(lib_copy)
+
+
+def test_library_without_wage_classes_still_loads(lib_copy: Path) -> None:
+    import yaml
+
+    path = lib_copy / "work_centers.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data.pop("engineer_rate")
+    data.pop("wage_classes")
+    for wc in data["work_centers"]:
+        if "wage_class" in wc:
+            wc.pop("wage_class")
+            wc["labor_rate"] = {"value": 30.0, "currency": "EUR", "per": "h"}
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    old = load_library(lib_copy)
+    assert old.work_centers.engineer_rate is None
+    assert all(w.labor.value in (30.0, None) for w in old.work_centers.work_centers)

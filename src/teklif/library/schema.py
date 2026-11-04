@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from teklif.common.models import Param, Price
+from teklif.common.models import Param, Price, Source
 
 
 class _Strict(BaseModel):
@@ -91,17 +92,72 @@ class Materials(_Strict):
 # --- work_centers.yaml / autoclaves.yaml -------------------------------------------
 
 
+class WageClass(_Strict):
+    id: str
+    name: str
+    multiplier: Param
+
+    @model_validator(mode="after")
+    def _multiplier_positive(self) -> WageClass:
+        v = self.multiplier.value
+        if v is not None and not (math.isfinite(v) and v > 0):
+            raise ValueError(f"wage class {self.id}: multiplier must be a number > 0")
+        return self
+
+
 class WorkCenter(_Strict):
     id: str
     name: str
-    labor_rate: Price
+    wage_class: str | None = None
+    labor_rate: Price | None = None
     machine_rate: Price
     operators: Param
     efficiency: Param
 
+    @property
+    def labor(self) -> Price:
+        """The effective labor rate (derived from the wage class when one is set)."""
+        assert self.labor_rate is not None
+        return self.labor_rate
+
 
 class WorkCenters(_Strict):
+    """Work centers with wage classes.
+
+    A center with a ``wage_class`` gets ``labor_rate = engineer_rate x multiplier`` (source
+    ``derived``); a center without one must give ``labor_rate`` itself.
+    """
+
+    engineer_rate: Price | None = None
+    wage_classes: list[WageClass] = Field(default_factory=list)
     work_centers: list[WorkCenter]
+
+    @model_validator(mode="after")
+    def _derive_labor_rates(self) -> WorkCenters:
+        classes = {c.id: c for c in self.wage_classes}
+        for wc in self.work_centers:
+            if wc.wage_class is None:
+                if wc.labor_rate is None:
+                    raise ValueError(f"{wc.id}: labor_rate or wage_class required")
+                continue
+            if wc.wage_class not in classes:
+                raise ValueError(f"{wc.id}: unknown wage_class '{wc.wage_class}'")
+            if wc.labor_rate is not None:
+                raise ValueError(f"{wc.id}: labor_rate is derived from wage_class, remove it")
+            if self.engineer_rate is None:
+                raise ValueError(f"{wc.id}: wage_class needs engineer_rate")
+            cls = classes[wc.wage_class]
+            mult = cls.multiplier.value
+            base = self.engineer_rate.value
+            wc.labor_rate = Price(
+                value=None if mult is None or base is None else base * mult,
+                currency=self.engineer_rate.currency,
+                per=self.engineer_rate.per,
+                source=Source.DERIVED,
+                desc=f"İşçilik saat ücreti (türetilmiş: mühendis ücreti × {cls.id})",
+                note=f"engineer_rate × wage_classes[{cls.id}].multiplier",
+            )
+        return self
 
 
 class Autoclave(_Strict):

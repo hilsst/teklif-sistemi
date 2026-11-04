@@ -232,7 +232,7 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
         wc = work_centers[op.work_center]
         tl = out.add(_time_line(op, wc, tfile, inp, drivers, cf, cf_path, learning))
         time_lines.append(tl)
-        labor_lines.append(out.add(_labor_line(op, wc, tl, fx(wc.labor_rate.currency))))
+        labor_lines.append(out.add(_labor_line(op, wc, tl, fx(wc.labor.currency))))
         if wc.machine_rate.value != 0:
             machine_lines.append(out.add(_machine_line(op, wc, tl, fx(wc.machine_rate.currency))))
     out.add(sum_line("time.total", "Toplam süre (parça başı)", time_lines, "min", "time"))
@@ -504,7 +504,13 @@ def _labor_line(
         {
             "time": _from_line(time),
             "operators": (wc.operators, _p("work_centers.yaml", f"{wpath}.operators")),
-            "labor_rate": (wc.labor_rate, _p("work_centers.yaml", f"{wpath}.labor_rate")),
+            "labor_rate": (
+                wc.labor,
+                _p(
+                    "work_centers.yaml",
+                    "engineer_rate" if wc.wage_class else f"{wpath}.labor_rate",
+                ),
+            ),
             "fx": fx,
         },
         lambda v: f.labor_cost(v["time"], v["operators"], v["labor_rate"], v["fx"]),

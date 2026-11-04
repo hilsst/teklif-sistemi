@@ -6,7 +6,7 @@ Bu liste `teklif todo` komutuyla kütüphanedeki boş (`value: null`) alanlardan
 
 Birim gösterimi: `min` = dakika, `h` = saat, `m2` = m², `degC` = °C, `ratio` = oran (0–1), `1e-6/K` = 10⁻⁶/K, `min/batch` = parti başına dakika, `EUR/m2` = m² başına EUR. Para birimi her kalemde ayrı seçilebilir (EUR, TRY, USD); farklı birim kullanırsanız belirtmeniz yeterli.
 
-Toplam açık kalem: **174**
+Toplam açık kalem: **171**
 
 ## Kurlar — `currency.yaml` (2)
 
@@ -88,58 +88,55 @@ Toplam açık kalem: **174**
 | 67 | `tooling_materials[CELIK].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
 | 68 | `tooling_materials[CELIK].price` | Plaka/blok fiyatı | `EUR/kg` |
 
-## İş merkezleri ve saat ücretleri — `work_centers.yaml` (48)
+## İş merkezleri ve saat ücretleri — `work_centers.yaml` (45)
 
 | # | Anahtar | Açıklama | Birim |
 |---|---|---|---|
-| 1 | `work_centers[KESIM_MASASI].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
+| 1 | `engineer_rate` | Mühendis saat ücreti (ücret sınıflarının tabanı) | `EUR/h` |
 | 2 | `work_centers[KESIM_MASASI].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
 | 3 | `work_centers[KESIM_MASASI].operators` | Tipik operatör sayısı | `person` |
 | 4 | `work_centers[KESIM_MASASI].efficiency` | Verim (0-1) | `ratio` |
-| 5 | `work_centers[TEMIZ_ODA].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 6 | `work_centers[TEMIZ_ODA].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 7 | `work_centers[TEMIZ_ODA].operators` | Tipik operatör sayısı | `person` |
-| 8 | `work_centers[TEMIZ_ODA].efficiency` | Verim (0-1) | `ratio` |
-| 9 | `work_centers[AUTOCLAVE_YUKLEME].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 10 | `work_centers[AUTOCLAVE_YUKLEME].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 11 | `work_centers[AUTOCLAVE_YUKLEME].operators` | Tipik operatör sayısı | `person` |
-| 12 | `work_centers[AUTOCLAVE_YUKLEME].efficiency` | Verim (0-1) | `ratio` |
-| 13 | `work_centers[KALIPTAN_CIKARMA].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 14 | `work_centers[KALIPTAN_CIKARMA].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 15 | `work_centers[KALIPTAN_CIKARMA].operators` | Tipik operatör sayısı | `person` |
-| 16 | `work_centers[KALIPTAN_CIKARMA].efficiency` | Verim (0-1) | `ratio` |
-| 17 | `work_centers[CNC_TRIM].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 18 | `work_centers[CNC_TRIM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 19 | `work_centers[CNC_TRIM].operators` | Tipik operatör sayısı | `person` |
-| 20 | `work_centers[CNC_TRIM].efficiency` | Verim (0-1) | `ratio` |
-| 21 | `work_centers[EL_ISCILIGI].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 22 | `work_centers[EL_ISCILIGI].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 23 | `work_centers[EL_ISCILIGI].operators` | Tipik operatör sayısı | `person` |
-| 24 | `work_centers[EL_ISCILIGI].efficiency` | Verim (0-1) | `ratio` |
-| 25 | `work_centers[NDT_UT].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 26 | `work_centers[NDT_UT].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 27 | `work_centers[NDT_UT].operators` | Tipik operatör sayısı | `person` |
-| 28 | `work_centers[NDT_UT].efficiency` | Verim (0-1) | `ratio` |
-| 29 | `work_centers[OLCUM].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 30 | `work_centers[OLCUM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 31 | `work_centers[OLCUM].operators` | Tipik operatör sayısı | `person` |
-| 32 | `work_centers[OLCUM].efficiency` | Verim (0-1) | `ratio` |
-| 33 | `work_centers[BOYA].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 34 | `work_centers[BOYA].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 35 | `work_centers[BOYA].operators` | Tipik operatör sayısı | `person` |
-| 36 | `work_centers[BOYA].efficiency` | Verim (0-1) | `ratio` |
-| 37 | `work_centers[MONTAJ].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 38 | `work_centers[MONTAJ].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 39 | `work_centers[MONTAJ].operators` | Tipik operatör sayısı | `person` |
-| 40 | `work_centers[MONTAJ].efficiency` | Verim (0-1) | `ratio` |
-| 41 | `work_centers[KALIP_CNC].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 42 | `work_centers[KALIP_CNC].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 43 | `work_centers[KALIP_CNC].operators` | Tipik operatör sayısı | `person` |
-| 44 | `work_centers[KALIP_CNC].efficiency` | Verim (0-1) | `ratio` |
-| 45 | `work_centers[KALIP_ATOLYE].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
-| 46 | `work_centers[KALIP_ATOLYE].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
-| 47 | `work_centers[KALIP_ATOLYE].operators` | Tipik operatör sayısı | `person` |
-| 48 | `work_centers[KALIP_ATOLYE].efficiency` | Verim (0-1) | `ratio` |
+| 5 | `work_centers[TEMIZ_ODA].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 6 | `work_centers[TEMIZ_ODA].operators` | Tipik operatör sayısı | `person` |
+| 7 | `work_centers[TEMIZ_ODA].efficiency` | Verim (0-1) | `ratio` |
+| 8 | `work_centers[AUTOCLAVE_YUKLEME].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
+| 9 | `work_centers[AUTOCLAVE_YUKLEME].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 10 | `work_centers[AUTOCLAVE_YUKLEME].operators` | Tipik operatör sayısı | `person` |
+| 11 | `work_centers[AUTOCLAVE_YUKLEME].efficiency` | Verim (0-1) | `ratio` |
+| 12 | `work_centers[KALIPTAN_CIKARMA].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
+| 13 | `work_centers[KALIPTAN_CIKARMA].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 14 | `work_centers[KALIPTAN_CIKARMA].operators` | Tipik operatör sayısı | `person` |
+| 15 | `work_centers[KALIPTAN_CIKARMA].efficiency` | Verim (0-1) | `ratio` |
+| 16 | `work_centers[CNC_TRIM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 17 | `work_centers[CNC_TRIM].operators` | Tipik operatör sayısı | `person` |
+| 18 | `work_centers[CNC_TRIM].efficiency` | Verim (0-1) | `ratio` |
+| 19 | `work_centers[EL_ISCILIGI].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 20 | `work_centers[EL_ISCILIGI].operators` | Tipik operatör sayısı | `person` |
+| 21 | `work_centers[EL_ISCILIGI].efficiency` | Verim (0-1) | `ratio` |
+| 22 | `work_centers[NDT_UT].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
+| 23 | `work_centers[NDT_UT].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 24 | `work_centers[NDT_UT].operators` | Tipik operatör sayısı | `person` |
+| 25 | `work_centers[NDT_UT].efficiency` | Verim (0-1) | `ratio` |
+| 26 | `work_centers[OLCUM].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
+| 27 | `work_centers[OLCUM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 28 | `work_centers[OLCUM].operators` | Tipik operatör sayısı | `person` |
+| 29 | `work_centers[OLCUM].efficiency` | Verim (0-1) | `ratio` |
+| 30 | `work_centers[BOYA].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 31 | `work_centers[BOYA].operators` | Tipik operatör sayısı | `person` |
+| 32 | `work_centers[BOYA].efficiency` | Verim (0-1) | `ratio` |
+| 33 | `work_centers[MONTAJ].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 34 | `work_centers[MONTAJ].operators` | Tipik operatör sayısı | `person` |
+| 35 | `work_centers[MONTAJ].efficiency` | Verim (0-1) | `ratio` |
+| 36 | `work_centers[KALIP_CNC].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 37 | `work_centers[KALIP_CNC].operators` | Tipik operatör sayısı | `person` |
+| 38 | `work_centers[KALIP_CNC].efficiency` | Verim (0-1) | `ratio` |
+| 39 | `work_centers[KALIP_ATOLYE].labor_rate` | İşçilik saat ücreti (kişi başı) | `EUR/h` |
+| 40 | `work_centers[KALIP_ATOLYE].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 41 | `work_centers[KALIP_ATOLYE].operators` | Tipik operatör sayısı | `person` |
+| 42 | `work_centers[KALIP_ATOLYE].efficiency` | Verim (0-1) | `ratio` |
+| 43 | `work_centers[ISLAK_SERIM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 44 | `work_centers[ISLAK_SERIM].operators` | Tipik operatör sayısı | `person` |
+| 45 | `work_centers[ISLAK_SERIM].efficiency` | Verim (0-1) | `ratio` |
 
 ## Autoclave ölçü ve maliyetleri — `autoclaves.yaml` (9)
 

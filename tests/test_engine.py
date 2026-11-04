@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from teklif.common.models import Override, Price, Source
 from teklif.costing.engine import QuoteInputError, compute_quote
@@ -22,7 +23,7 @@ def test_todo_library_never_produces_money(lib: Library, example_input: QuoteInp
     assert r.manual_review
     paths = {fl.path for _, fl in r.review_items if fl.code == "missing_value"}
     assert "materials.yaml:prepregs[PP_CF_WOVEN_120].price" in paths
-    assert "work_centers.yaml:work_centers[TEMIZ_ODA].labor_rate" in paths
+    assert "work_centers.yaml:work_centers[AUTOCLAVE_YUKLEME].labor_rate" in paths
     # Geometry-only values are still computed and traced.
     share = r.get("autoclave.share")
     assert share.inputs[0].source is Source.USER
@@ -109,19 +110,19 @@ def test_mixed_currency(filled_lib_dir: Path, tmp_path: Path, example_input: Quo
     dst = tmp_path / "lib"
     shutil.copytree(filled_lib_dir, dst)
     wc = dst / "work_centers.yaml"
-    text = wc.read_text(encoding="utf-8")
-    # First work center (KESIM_MASASI) labor rate in TRY: 1600 TRY/h at 40 TRY/EUR = 40 EUR/h
-    text = text.replace("value: 40.0\n    currency: EUR", "value: 1600.0\n    currency: TRY", 1)
-    wc.write_text(text, encoding="utf-8")
+    data = yaml.safe_load(wc.read_text(encoding="utf-8"))
+    # engineer rate in TRY: 3200 TRY/h at 40 TRY/EUR = 80 EUR/h; KESIM_MASASI is an operator
+    data["engineer_rate"].update(value=3200.0, currency="TRY")
+    wc.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     lib = load_library(dst)
-    assert lib.work_centers.work_centers[0].labor_rate.currency == "TRY"
+    assert lib.work_centers.work_centers[0].labor.currency == "TRY"
     r = compute_quote(example_input, lib)
     line = r.get("labor.kesim")
     fx = next(i for i in line.inputs if i.name == "fx")
     assert fx.value == pytest.approx(1 / 40)
     assert fx.unit == "EUR/TRY"
     t = r.value("time.kesim") or 0
-    assert line.result == pytest.approx(t / 60 * 1600 / 40)
+    assert line.result == pytest.approx(t / 60 * 3200 / 40)
 
 
 def test_amortized_nre(filled_lib: Library, example_input: QuoteInput) -> None:

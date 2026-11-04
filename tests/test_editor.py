@@ -37,17 +37,17 @@ def test_fill_todo_price_in_other_currency(lib_copy: Path) -> None:
     lib = set_values(
         lib_copy,
         [
-            Change("work_centers.yaml", "work_centers[TEMIZ_ODA].labor_rate", 1100, "TRY"),
+            Change("work_centers.yaml", "work_centers[AUTOCLAVE_YUKLEME].labor_rate", 1100, "TRY"),
             Change(
                 "processes/autoclave_prepreg.yaml", "operations[kesim].times[ply_count].rate", 0.5
             ),
         ],
         "2026 ücret tablosu",
     )
-    wc = next(w for w in lib.work_centers.work_centers if w.id == "TEMIZ_ODA")
-    assert (wc.labor_rate.value, wc.labor_rate.currency) == (1100, "TRY")
+    wc = next(w for w in lib.work_centers.work_centers if w.id == "AUTOCLAVE_YUKLEME")
+    assert (wc.labor.value, wc.labor.currency) == (1100, "TRY")
     todos = {(t.file, t.path) for t in list_todos(lib)}
-    assert ("work_centers.yaml", "work_centers[TEMIZ_ODA].labor_rate") not in todos
+    assert ("work_centers.yaml", "work_centers[AUTOCLAVE_YUKLEME].labor_rate") not in todos
 
 
 @pytest.mark.parametrize(
@@ -56,7 +56,7 @@ def test_fill_todo_price_in_other_currency(lib_copy: Path) -> None:
         (Change("thresholds.yaml", "costing.margin_basis", "yuzde"), ValueError),
         (Change("thresholds.yaml", "costing.yok", 1.0), KeyError),
         (
-            Change("work_centers.yaml", "work_centers[TEMIZ_ODA].labor_rate", 30, "GBP"),
+            Change("work_centers.yaml", "work_centers[AUTOCLAVE_YUKLEME].labor_rate", 30, "GBP"),
             LibraryError,
         ),
     ],
@@ -80,5 +80,5 @@ def test_editable_values_cover_library(lib_copy: Path) -> None:
     lib = load_library(lib_copy)
     values = editable_values(lib)
     assert sum(v.value is None for v in values) == len(list_todos(lib))
-    price = next(v for v in values if v.path == "work_centers[TEMIZ_ODA].labor_rate")
+    price = next(v for v in values if v.path == "work_centers[AUTOCLAVE_YUKLEME].labor_rate")
     assert (price.unit, price.currency) == ("h", "EUR")

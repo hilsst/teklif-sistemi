@@ -196,3 +196,27 @@ def test_streamlit_library_tab_switches_margin(lib_copy: Path) -> None:
     at.button[labels.index("Ayarları kaydet")].click().run()
     assert not at.exception
     assert load_library(lib_copy).thresholds.costing.margin_basis == "margin"
+
+
+def test_streamlit_wage_tab_saves_engineer_rate(lib_copy: Path) -> None:
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    app = Path(__file__).resolve().parents[1] / "src/teklif/app/streamlit_app.py"
+    at = AppTest.from_file(str(app), default_timeout=60)
+    at.run()
+    at.sidebar.text_input[0].set_value(str(lib_copy)).run()
+    labels = [b.label for b in at.button]
+    # no reason yet: nothing is written
+    at.button[labels.index("Ücretleri kaydet")].click().run()
+    assert load_library(lib_copy).work_centers.engineer_rate.value is None  # type: ignore[union-attr]
+    at.number_input(key="engineer_rate_input").set_value(100.0).run()
+    at.text_input(key="wage_reason").set_value("2026 ücret listesi").run()
+    labels = [b.label for b in at.button]
+    at.button[labels.index("Ücretleri kaydet")].click().run()
+    assert not at.exception
+    lib = load_library(lib_copy)
+    assert lib.work_centers.engineer_rate is not None
+    assert lib.work_centers.engineer_rate.value == 100.0
+    rates = {w.id: w.labor.value for w in lib.work_centers.work_centers}
+    assert rates["TEMIZ_ODA"] == 50.0 and rates["ISLAK_SERIM"] == 20.0

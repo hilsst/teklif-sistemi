@@ -1,14 +1,59 @@
 # DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+engineer_rate:
+  value: 50
+  currency: EUR
+  per: h
+  desc: Mühendis saat ücreti (ücret sınıflarının tabanı)
+  source: default
+  note: DEMO / dummy değer - gerçek firma verisi değil
+wage_classes:
+- id: islak_serim
+  name: Islak serim (en düşük ücret)
+  multiplier:
+    value: 0.2
+    unit: ratio
+    source: user
+    desc: Mühendis ücretine oranı (varsayılan %20, Kemal)
+- id: prepreg_serim
+  name: Prepreg serim
+  multiplier:
+    value: 0.5
+    unit: ratio
+    source: user
+    desc: Mühendis ücretine oranı (yarım)
+- id: trim
+  name: Trim
+  multiplier:
+    value: 0.5
+    unit: ratio
+    source: user
+    desc: Mühendis ücretine oranı (yarım)
+- id: montaj
+  name: Montaj
+  multiplier:
+    value: 0.5
+    unit: ratio
+    source: user
+    desc: Mühendis ücretine oranı (yarım)
+- id: boya
+  name: Boya
+  multiplier:
+    value: 0.5
+    unit: ratio
+    source: user
+    desc: Mühendis ücretine oranı (yarım)
+- id: operator
+  name: Operatör (CNC, su jeti, şerit sarım)
+  multiplier:
+    value: 0.5
+    unit: ratio
+    source: user
+    desc: Mühendis ücretine oranı (varsayılan 1,00, Kemal)
+    note: DEMO / dummy değer - gerçek firma verisi değil
 work_centers:
 - id: KESIM_MASASI
   name: Otomatik ply kesim masası
-  labor_rate:
-    value: 25
-    currency: EUR
-    per: h
-    desc: İşçilik saat ücreti (kişi başı)
-    source: default
-    note: DEMO / dummy değer - gerçek firma verisi değil
+  wage_class: operator
   machine_rate:
     value: 30
     currency: EUR
@@ -30,13 +75,7 @@ work_centers:
     note: DEMO / dummy değer - gerçek firma verisi değil
 - id: TEMIZ_ODA
   name: 'Temiz oda: serim, debulk, torbalama'
-  labor_rate:
-    value: 25
-    currency: EUR
-    per: h
-    desc: İşçilik saat ücreti (kişi başı)
-    source: default
-    note: DEMO / dummy değer - gerçek firma verisi değil
+  wage_class: prepreg_serim
   machine_rate:
     value: 8
     currency: EUR
@@ -114,13 +153,7 @@ work_centers:
     note: DEMO / dummy değer - gerçek firma verisi değil
 - id: CNC_TRIM
   name: CNC trim ve delik delme
-  labor_rate:
-    value: 25
-    currency: EUR
-    per: h
-    desc: İşçilik saat ücreti (kişi başı)
-    source: default
-    note: DEMO / dummy değer - gerçek firma verisi değil
+  wage_class: operator
   machine_rate:
     value: 45
     currency: EUR
@@ -142,13 +175,7 @@ work_centers:
     note: DEMO / dummy değer - gerçek firma verisi değil
 - id: EL_ISCILIGI
   name: El ile trim, zımpara, rötuş
-  labor_rate:
-    value: 25
-    currency: EUR
-    per: h
-    desc: İşçilik saat ücreti (kişi başı)
-    source: default
-    note: DEMO / dummy değer - gerçek firma verisi değil
+  wage_class: trim
   machine_rate:
     value: 0
     currency: EUR
@@ -171,7 +198,7 @@ work_centers:
 - id: NDT_UT
   name: Ultrasonik muayene (NDT)
   labor_rate:
-    value: 25
+    value: 30
     currency: EUR
     per: h
     desc: İşçilik saat ücreti (kişi başı)
@@ -199,7 +226,7 @@ work_centers:
 - id: OLCUM
   name: Ölçüm (CMM / tarama / mastar)
   labor_rate:
-    value: 25
+    value: 30
     currency: EUR
     per: h
     desc: İşçilik saat ücreti (kişi başı)
@@ -226,13 +253,7 @@ work_centers:
     note: DEMO / dummy değer - gerçek firma verisi değil
 - id: BOYA
   name: Boya kabini
-  labor_rate:
-    value: 25
-    currency: EUR
-    per: h
-    desc: İşçilik saat ücreti (kişi başı)
-    source: default
-    note: DEMO / dummy değer - gerçek firma verisi değil
+  wage_class: boya
   machine_rate:
     value: 15
     currency: EUR
@@ -254,13 +275,7 @@ work_centers:
     note: DEMO / dummy değer - gerçek firma verisi değil
 - id: MONTAJ
   name: Montaj
-  labor_rate:
-    value: 25
-    currency: EUR
-    per: h
-    desc: İşçilik saat ücreti (kişi başı)
-    source: default
-    note: DEMO / dummy değer - gerçek firma verisi değil
+  wage_class: montaj
   machine_rate:
     value: 0
     currency: EUR
@@ -282,13 +297,7 @@ work_centers:
     note: DEMO / dummy değer - gerçek firma verisi değil
 - id: KALIP_CNC
   name: Kalıp / master model CNC işleme
-  labor_rate:
-    value: 25
-    currency: EUR
-    per: h
-    desc: İşçilik saat ücreti (kişi başı)
-    source: default
-    note: DEMO / dummy değer - gerçek firma verisi değil
+  wage_class: operator
   machine_rate:
     value: 60
     currency: EUR
@@ -319,6 +328,28 @@ work_centers:
     note: DEMO / dummy değer - gerçek firma verisi değil
   machine_rate:
     value: 5
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: ISLAK_SERIM
+  name: Islak serim (wet layup)
+  wage_class: islak_serim
+  machine_rate:
+    value: 0
     currency: EUR
     per: h
     desc: Makine/tesis saat ücreti

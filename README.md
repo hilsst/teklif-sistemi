@@ -180,6 +180,28 @@ Kontroller (`manual_review`): kalıp autoclave'a sığmıyor, çevrim autoclave 
 prepreg kür sıcaklığı çevrimle uyuşmuyor, NRE girilmemiş ve kalıp mevcut işaretlenmemiş.
 Her kalem arayüzde gerekçe yazılarak ezilebilir; ezme sonraki tüm toplamlara yansır ve kaydedilir.
 
+## Veri girişi (STEP, fiyat, işçilik)
+
+Arayüzdeki **Veri girişi** sekmesi firma verisini Excel yerine formlarla toplar. Veriler
+`data/katalog.sqlite` içine yazılır (tablolar: `cad_files`, `master_models`, `tools`,
+`tool_parts`, `parts`, `part_plies`, `part_operations`, `cost_records`, `param_values`).
+
+- **Saat ücretleri:** Mühendis saat ücreti ve ücret sınıfı çarpanları (`library/work_centers.yaml`).
+  İş merkezi ücreti = mühendis ücreti × sınıf çarpanı (kütüphanede türetilir). Varsayılanlar:
+  islak serim 0,20; prepreg serim, trim, montaj, boya 0,50; operatör (CNC, su jeti, şerit sarım) 1,00.
+  Sınıfı olmayan iş merkezleri ücretini kendisi taşır. Değişiklikler gerekçeyle `changelog.csv`'ye yazılır.
+- **STEP yükle:** Dosya içerik özetiyle saklanır (aynı dosya iki kez yüklenmez). OCP kuruluysa
+  (`uv sync --extra cad`) zarf, hacim ve yüzey alanı ölçülür (`cad` kaynağı); parça kartında tek yüz alanı
+  ve ortalama kalınlık türetilir (`derived`, inceleme bayraklı). OCP yoksa her değer elle girilir.
+- **Master model / Kalıp:** Maliyet firmaya maliyetidir; toplam zorunlu, malzeme payı isteğe bağlı,
+  kalan "diğer" olarak türetilir. Bir kalıp birden çok parçaya bağlanabilir.
+- **Parça:** Ply tablosu, operasyon süreleri (`gerçekleşen` veya `tahmin`). Tahminler kalibrasyona alınmaz.
+- **İzlenebilirlik:** Her değer kaynağıyla saklanır. CAD/türetilmiş bir değeri ezmek gerekçe ister;
+  geçmiş korunur. STEP yeniden ölçülse bile kullanıcının girdiği değerin üzerine yazılmaz.
+
+Henüz yok: delik sayısı ve trim çevresinin STEP'ten çıkarımı (Faz 2), parça kartından tek tıkla teklif açma,
+Excel geçmiş yüklemesinin yeni tablolara bağlanması, teklif başına ücret çarpanı ezmesi.
+
 ## Yükleme şablonları
 
 | Dosya | Satır anlamı |

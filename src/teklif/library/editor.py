@@ -17,7 +17,7 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
-from teklif.common.models import Price
+from teklif.common.models import Price, Source
 from teklif.library.loader import Library, LibraryError, iter_values, load_library
 
 CHANGELOG = "changelog.csv"
@@ -53,6 +53,8 @@ def editable_values(lib: Library) -> list[EditableValue]:
         if fname == "enums.yaml":
             continue
         for path, v in iter_values(model):
+            if v.source == Source.DERIVED:
+                continue  # computed at load, edit its inputs instead
             out.append(
                 EditableValue(
                     file=fname,
