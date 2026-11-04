@@ -442,6 +442,20 @@ def _tool_tab(cat: Catalog, lib: Library) -> None:
 # --- part card -------------------------------------------------------------------------
 
 
+def _tool_estimate_caption(cat: Catalog, part_id: int) -> None:
+    from teklif.tooling_rules.cost_estimate import estimate_tool_cost
+
+    area = cat.params("part", part_id).get("part_area_m2")
+    if area is None or area.value is None or not area.value > 0:
+        return
+    est = estimate_tool_cost(area.value)
+    text = (
+        f"Kaba kalıp maliyeti tahmini: {est.value:,.0f} {est.currency} "
+        f"({est.low:,.0f}-{est.high:,.0f}). {est.note}"
+    )
+    (st.caption if est.in_range else st.warning)(text)
+
+
 def _part_tab(cat: Catalog, lib: Library) -> None:
     from sqlalchemy import select
     from sqlalchemy.orm import Session
@@ -490,6 +504,7 @@ def _part_tab(cat: Catalog, lib: Library) -> None:
         return
     part = st.selectbox("Parça", parts, format_func=lambda p: f"{p.part_no} rev {p.rev}")
     _values_editor(cat, "part", part.id)
+    _tool_estimate_caption(cat, part.id)
     _plies_editor(cat, part)
     _ops_editor(cat, lib, part)
     _open_quote(cat, lib, part)
