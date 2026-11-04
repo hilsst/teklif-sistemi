@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from teklif.common.models import Override, Price, Source
 
@@ -58,3 +58,9 @@ class QuoteInput(_Strict):
     amortize_nre: bool = False
     quote_currency: str | None = None
     overrides: dict[str, Override] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _master_needs_new_tooling(self) -> QuoteInput:
+        if self.master_nre is not None and self.tooling_exists:
+            raise ValueError("master_nre is set but tooling_exists is true; remove one of them")
+        return self

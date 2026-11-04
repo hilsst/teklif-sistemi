@@ -322,6 +322,19 @@ def set_total_rows(result: QuoteSetResult) -> list[SummaryRow]:
     ]
 
 
+_BAD_SHEET_CHARS = set("/\\?*[]:")
+
+
+def _sheet_title(part_no: str, index: int, used: set[str]) -> str:
+    """Excel-safe, unique sheet title (<= 31 chars, no / \\ ? * [ ] :)."""
+    clean = "".join("-" if c in _BAD_SHEET_CHARS else c for c in part_no).strip("' ")
+    title = f"K{index:02d} {clean}"[:31]
+    while title in used:  # cannot happen with the index prefix, kept as a guard
+        title = title[:-1] + "_"
+    used.add(title)
+    return title
+
+
 def write_set_excel(result: QuoteSetResult, path: Path | str) -> Path:
     inp = result.input
     wb = Workbook()
@@ -353,8 +366,9 @@ def write_set_excel(result: QuoteSetResult, path: Path | str) -> Path:
     ws.column_dimensions["B"].width = 16
     ws.column_dimensions["D"].width = 16
     _breakdown_sheet(wb, "Kirilim (teklif)", result.lines)
-    for r in result.parts:
-        _breakdown_sheet(wb, f"Kirilim {r.input.part_no}"[:31], r.lines)
+    used = {"Ozet", "Kirilim (teklif)"}
+    for i, r in enumerate(result.parts, start=1):
+        _breakdown_sheet(wb, _sheet_title(r.input.part_no, i, used), r.lines)
     out = Path(path)
     wb.save(out)
     return out

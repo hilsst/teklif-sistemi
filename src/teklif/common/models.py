@@ -12,7 +12,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Source(StrEnum):
@@ -95,6 +95,16 @@ class Override(BaseModel):
     reason: str
     user: str | None = None
 
+    @field_validator("reason")
+    @classmethod
+    def _reason_required(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("An override needs a non-empty reason")
+        return v.strip()
+
+
+DECIDED_BY_OVERRIDE = frozenset({"missing_value", "missing_upstream", "nre_missing"})
+
 
 class CostLine(BaseModel):
     """A single traceable item: formula, inputs, sources and result.
@@ -119,8 +129,14 @@ class CostLine(BaseModel):
 
     @property
     def open_flags(self) -> list[ReviewFlag]:
-        """Flags still needing a decision: a line the user overrode (with a reason) is decided."""
-        return [] if self.override is not None else self.flags
+        """Flags still needing a decision.
+
+        An override (with a reason) decides a *missing value* flag. Other flags (does not fit,
+        over temperature, invalid input...) describe a real problem and stay open.
+        """
+        if self.override is None:
+            return self.flags
+        return [fl for fl in self.flags if fl.code not in DECIDED_BY_OVERRIDE]
 
     @property
     def final(self) -> float | None:

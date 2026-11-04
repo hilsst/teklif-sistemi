@@ -197,7 +197,8 @@ def compute_quote_set(inp: QuoteSetInput, lib: Library) -> QuoteSetResult:
             ccy,
         )
     )
-    use_min = (lib.thresholds.costing.min_order_value.value or 0) > 0
+    minimum = lib.thresholds.costing.min_order_value.value
+    use_min = minimum is None or minimum > 0  # null = TODO, never silently "off"
     raw = out.add(
         _line(
             "set.order_raw" if use_min else "set.order_total",

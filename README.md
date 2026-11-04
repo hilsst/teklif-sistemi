@@ -66,18 +66,21 @@ uv run teklif quote examples/ornek_parca.yaml --db data/teklif.sqlite --final   
   Σ parça sipariş toplamları + Σ NRE; her toplam kalem kalem izlenebilir (`set.*` satırları).
   Kümedeki parçalar `teklif no`yu üstten alır; NRE yedirme (`amortize_nre`) yalnız tek parçalı
   tekliflerde vardır, kümede NRE ayrı satırdır.
-- **Master model ayrı satır:** tek parçalı teklifte `master_nre` verilirse `tooling_nre` yalnız
+- **Master model ayrı satır:** tek parçalı teklifte `master_nre` verilirse (`tooling_exists: true` ile birlikte hatadır) `tooling_nre` yalnız
   kalıptır; `nre.tooling`, `nre.master`, `nre.total` satırları oluşur. Verilmezse eski davranış.
-- **Minimum sipariş tutarı:** `thresholds.yaml` → `costing.min_order_value` (0 = kapalı). Sipariş
+- **Minimum sipariş tutarı:** `thresholds.yaml` → `costing.min_order_value` (0 = kapalı; `null` = TODO, teklifi taslak yapar). Sipariş
   toplamı altında kalırsa fark `price.min_order_topup` satırı olarak eklenir; birim fiyat değişmez.
   Çok kalemli teklifte tek kez, teklif toplamına uygulanır. **TODO: gerçek değeri girin.**
 - **Adet taraması:** adet başına tam yeniden hesap (öğrenme eğrisi, kurulum bölüşümü, NRE dahil).
-  Parti adedi sipariş adedini aşamaz (sınırlanır). Ezmeler olduğu gibi kalır. Varsayılan adetler
+  Parti adedi sipariş adedini aşamaz (sınırlanır). Sipariş düzeyindeki ezmeler (`price.order_*`) adetle
+  değişeceği için atlanır, diğer ezmeler sabit tutulur; ikisi de satırda/CSV'de belirtilir. Varsayılan adetler
   `costing.sweep_quantities`.
 - **Taslak / kesin:** açık `manual_review` bayrağı varken teklif TASLAK'tır: PDF'e TASLAK filigranı
-  basılır ve `--final` / "Kesinleştir" reddedilir. Bir satırı gerekçeyle ezmek o satırın bayrağını
-  kapatır (karar verilmiş sayılır); bayrak satırda yine görünür. Eski veritabanlarına `status`
-  sütunu otomatik eklenir (eski kayıtlar "draft").
+  basılır ve `--final` / "Kesinleştir" reddedilir. Eksik değer bayrağı (`missing_value`, `missing_upstream`, `nre_missing`) gerekçeli bir ezmeyle
+  kapanır (karar verilmiş sayılır, bayrak satırda yine görünür); sığmama, aşırı sıcaklık, geçersiz
+  girdi gibi gerçek sorun bayrakları ezmeyle kapanmaz. Gerekçe boş olamaz. Eski veritabanlarına
+  `status` sütunu otomatik eklenir (eski kayıtlar "draft"; eski kayıtlarda `manual_review` sütunu
+  "herhangi bir bayrak", yenilerde "açık bayrak" anlamındadır).
 - **CSV:** `;` ayraç, ondalık virgül, UTF-8 BOM (Türkçe Excel). `--csv-decimal .` ile nokta.
 
 ### Demo (dummy veri)

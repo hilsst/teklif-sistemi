@@ -125,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _quote(args: argparse.Namespace, lib: Library) -> int:
+    if args.final and not args.db:
+        print("--final needs --db", file=sys.stderr)
+        return 1
     data = yaml.safe_load(args.input.read_text(encoding="utf-8"))
     try:
         result = compute_quote(QuoteInput.model_validate(data), lib)
@@ -138,14 +141,14 @@ def _quote(args: argparse.Namespace, lib: Library) -> int:
         print(f"\nManuel inceleme: {len(result.open_review_items)} açık bayrak")
         for key, flag in result.open_review_items[:15]:
             print(f"  {key}: {flag.code} {flag.path or flag.reason}")
-        if len(result.review_items) > 15:
+        if len(result.open_review_items) > 15:
             print("  ... (tamamı Excel kırılımında)")
     if args.xlsx:
         print(f"Wrote {write_excel(result, args.xlsx)}")
     if args.pdf:
         print(f"Wrote {write_pdf(result, args.pdf)}")
     if args.csv:
-        args.csv.write_text(breakdown_csv(result, args.csv_decimal), encoding="utf-8")
+        args.csv.write_text(breakdown_csv(result, args.csv_decimal), encoding="utf-8", newline="")
         print(f"Wrote {args.csv}")
     if args.sweep or args.sweep_csv:
         qtys = (
@@ -162,7 +165,7 @@ def _quote(args: argparse.Namespace, lib: Library) -> int:
             )
         if args.sweep_csv:
             args.sweep_csv.write_text(
-                sweep_csv(rows, result.currency, args.csv_decimal), encoding="utf-8"
+                sweep_csv(rows, result.currency, args.csv_decimal), encoding="utf-8", newline=""
             )
             print(f"Wrote {args.sweep_csv}")
     if args.final and not args.db:
@@ -196,6 +199,9 @@ def _new(args: argparse.Namespace, lib: Library) -> int:
 
 
 def _quote_set(args: argparse.Namespace, lib: Library) -> int:
+    if args.final and not args.db:
+        print("--final needs --db", file=sys.stderr)
+        return 1
     data = yaml.safe_load(args.input.read_text(encoding="utf-8"))
     try:
         result = compute_quote_set(QuoteSetInput.model_validate(data), lib)
@@ -214,7 +220,9 @@ def _quote_set(args: argparse.Namespace, lib: Library) -> int:
     if args.pdf:
         print(f"Wrote {write_set_pdf(result, args.pdf)}")
     if args.csv:
-        args.csv.write_text(set_breakdown_csv(result, args.csv_decimal), encoding="utf-8")
+        args.csv.write_text(
+            set_breakdown_csv(result, args.csv_decimal), encoding="utf-8", newline=""
+        )
         print(f"Wrote {args.csv}")
     if args.final and not args.db:
         print("--final needs --db", file=sys.stderr)

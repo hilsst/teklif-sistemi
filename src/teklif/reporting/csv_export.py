@@ -22,7 +22,12 @@ BOM = "﻿"
 def _num(value: float | None, decimal: str) -> str:
     if value is None:
         return ""
-    return repr(round(value, 6)).replace(".", decimal)
+    return f"{value:.6f}".rstrip("0").rstrip(".").replace(".", decimal) or "0"
+
+
+def _safe(text: str) -> str:
+    """Neutralise spreadsheet formulas in free text (a leading = + - @ would be executed)."""
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
 def _write(rows: Sequence[Sequence[str]]) -> str:
@@ -50,15 +55,15 @@ def _line_row(prefix: str, ln: CostLine, decimal: str) -> list[str]:
     return [
         prefix + ln.key,
         ln.category,
-        ln.description,
-        ln.formula,
-        inputs_text(ln),
+        _safe(ln.description),
+        _safe(ln.formula),
+        _safe(inputs_text(ln)),
         _num(ln.result, decimal),
         _num(ln.override.value, decimal) if ln.override else "",
-        ln.override.reason if ln.override else "",
+        _safe(ln.override.reason) if ln.override else "",
         _num(ln.final, decimal),
         ln.unit,
-        flags_text(ln),
+        _safe(flags_text(ln)),
     ]
 
 
@@ -74,6 +79,15 @@ def set_breakdown_csv(result: QuoteSetResult, decimal: str = ",") -> str:
     return _write(rows)
 
 
+def _override_note(r: SweepRow) -> str:
+    notes = []
+    if r.dropped_overrides:
+        notes.append("atlanan ezme: " + ", ".join(r.dropped_overrides))
+    if r.kept_overrides:
+        notes.append("sabit tutulan ezme: " + ", ".join(r.kept_overrides))
+    return "; ".join(notes)
+
+
 def sweep_csv(rows: Sequence[SweepRow], currency: str, decimal: str = ",") -> str:
     out: list[list[str]] = [
         [
@@ -84,6 +98,7 @@ def sweep_csv(rows: Sequence[SweepRow], currency: str, decimal: str = ",") -> st
             f"sipariş toplamı [{currency}]",
             f"etkin birim fiyat [{currency}]",
             "inceleme",
+            "ezme notu",
         ]
     ]
     for r in rows:
@@ -96,6 +111,7 @@ def sweep_csv(rows: Sequence[SweepRow], currency: str, decimal: str = ",") -> st
                 _num(r.order_total, decimal),
                 _num(r.effective_unit_price, decimal),
                 "manual_review" if r.manual_review else "",
+                _override_note(r),
             ]
         )
     return _write(out)

@@ -373,7 +373,7 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
     nre = _nre_total(out, inp, ccy, fx)
     qty = _user(inp.quantity, "part")
     min_order = costing.min_order_value
-    use_min = apply_min_order and (min_order.value or 0) > 0
+    use_min = apply_min_order and (min_order.value is None or min_order.value > 0)
     total_key = "price.order_raw" if use_min else "price.order_total"
     total_desc = "Sipariş toplamı (minimum öncesi)" if use_min else "Sipariş toplamı"
     if inp.amortize_nre and nre is not None:

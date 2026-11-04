@@ -412,7 +412,7 @@ def test_set_excel(tmp_path: Path, filled_lib: Library, example_input: QuoteInpu
     result = compute_quote_set(_set_input(example_input), filled_lib)
     wb = load_workbook(write_set_excel(result, tmp_path / "s.xlsx"))
     assert wb.sheetnames[0] == "Ozet"
-    assert "Kirilim P1" in wb.sheetnames and "Kirilim P2" in wb.sheetnames
+    assert "K01 P1" in wb.sheetnames and "K02 P2" in wb.sheetnames
     labels = [row[0].value for row in wb["Ozet"].iter_rows()]
     assert "Teklif toplamı" in labels
 
@@ -515,3 +515,126 @@ def test_example_quote_set_runs_on_demo_library() -> None:
     assert not result.has_open_review
     assert result.value("set.nre_total") == pytest.approx(15000.0)
     assert [r.input.part_no for r in result.parts] == ["P-1001", "P-1002"]
+
+
+# --- review findings (Opus) --------------------------------------------------------
+
+
+def test_empty_override_reason_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        Override(value=1.0, reason="   ")
+    assert Override(value=1.0, reason="  neden ").reason == "neden"
+
+
+def test_only_missing_value_flags_are_decided_by_override() -> None:
+    from teklif.common.models import CostLine, ReviewFlag
+
+    def line(code: str) -> CostLine:
+        return CostLine(
+            key="k",
+            description="",
+            formula="",
+            inputs=[],
+            result=None,
+            unit="EUR",
+            flags=[ReviewFlag(code=code, reason="x")],
+            override=Override(value=1.0, reason="karar"),
+        )
+
+    assert line("missing_value").open_flags == []
+    assert line("nre_missing").open_flags == []
+    assert [f.code for f in line("does_not_fit").open_flags] == ["does_not_fit"]
+    assert [f.code for f in line("invalid_input").open_flags] == ["invalid_input"]
+
+
+def test_master_nre_with_existing_tooling_is_rejected(example_input: QuoteInput) -> None:
+    data = example_input.model_dump()
+    data.update(tooling_exists=True, master_nre={"value": 3000.0, "currency": "EUR", "per": "pcs"})
+    with pytest.raises(ValueError, match="master_nre"):
+        QuoteInput.model_validate(data)
+
+
+def test_sweep_drops_order_level_overrides(filled_lib: Library, example_input: QuoteInput) -> None:
+    inp = example_input.model_copy(
+        update={
+            "overrides": {
+                "price.order_total": Override(value=5000.0, reason="sabit"),
+                "labor.serim": Override(value=50.0, reason="ölçüm"),
+            }
+        }
+    )
+    rows = quantity_sweep(inp, filled_lib, [1, 20])
+    assert all(r.dropped_overrides == ("price.order_total",) for r in rows)
+    assert all(r.kept_overrides == ("labor.serim",) for r in rows)
+    assert rows[0].order_total != rows[1].order_total  # the fixed total did not leak through
+    assert "price.order_total" in sweep_csv(rows, "EUR")
+
+
+def test_set_excel_survives_odd_part_numbers(
+    tmp_path: Path, filled_lib: Library, example_input: QuoteInput
+) -> None:
+    from openpyxl import load_workbook
+
+    long_a = "X" * 40 + "A"
+    long_b = "X" * 40 + "B"
+    inp = QuoteSetInput(
+        quote_no="S-3",
+        parts=[
+            _part(example_input, "A/B:1"),
+            _part(example_input, long_a),
+            _part(example_input, long_b),
+            _part(example_input, "(teklif)"),
+        ],
+    )
+    result = compute_quote_set(inp, filled_lib)
+    wb = load_workbook(write_set_excel(result, tmp_path / "odd.xlsx"))
+    names = wb.sheetnames
+    assert len(names) == len(set(names)) == 2 + 4
+    assert all(len(n) <= 31 and not set("/\\?*[]:") & set(n) for n in names)
+
+
+def test_null_min_order_is_a_todo_not_off(
+    filled_lib_dir: Path, tmp_path: Path, example_input: QuoteInput
+) -> None:
+    dst = tmp_path / "lib_null_min"
+    shutil.copytree(filled_lib_dir, dst)
+    path = dst / "thresholds.yaml"
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    data["costing"]["min_order_value"]["value"] = None
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), "utf-8")
+    lib = load_library(dst)
+    result = compute_quote(example_input, lib)
+    assert result.value("price.order_total") is None
+    assert result.has_open_review
+    assert any(fl.code == "missing_value" for _, fl in result.open_review_items)
+    sres = compute_quote_set(_set_input(example_input), lib)
+    assert sres.value("set.order_total") is None and sres.has_open_review
+
+
+def test_finalize_set(tmp_path: Path, filled_lib: Library, example_input: QuoteInput) -> None:
+    store = Store(tmp_path / "t.sqlite")
+    row = store.save_quote_set(compute_quote_set(_set_input(example_input), filled_lib), filled_lib)
+    assert row.status == "draft"
+    assert store.finalize_set(row.id).status == "final"
+
+
+def test_csv_neutralises_formulas_and_avoids_exponents(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    inp = example_input.model_copy(
+        update={"overrides": {"labor.serim": Override(value=0.0000001, reason="=1+1")}}
+    )
+    text_ = breakdown_csv(compute_quote(inp, filled_lib), ".")
+    assert "'=1+1" in text_ and ";=1+1;" not in text_
+    assert "e-" not in text_.split("labor.serim;", 1)[1].split("\r\n", 1)[0].replace("e-mail", "")
+
+
+def test_cli_csv_has_single_crlf_and_final_needs_db(tmp_path: Path) -> None:
+    example = REPO / "examples" / "ornek_parca.yaml"
+    out = tmp_path / "q.csv"
+    assert main(["--library", str(DEMO), "quote", str(example), "--csv", str(out)]) == 0
+    raw = out.read_bytes()
+    assert b"\r\r" not in raw and b"\r\n" in raw
+    pdf = tmp_path / "q.pdf"
+    assert main(["--library", str(DEMO), "quote", str(example), "--final", "--pdf", str(pdf)]) == 1
+    assert not pdf.exists()  # refused before any output is written

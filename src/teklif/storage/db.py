@@ -227,6 +227,18 @@ class Store:
             s.commit()
             return row
 
+    def finalize_set(self, set_id: int) -> QuoteSetRow:
+        """Mark a stored quote-set revision final, if no manual_review flag is open."""
+        with Session(self.engine, expire_on_commit=False) as s:
+            row = s.get(QuoteSetRow, set_id)
+            if row is None:
+                raise KeyError(set_id)
+            if row.result().has_open_review:
+                raise NotFinalizableError("manual_review flags are open")
+            row.status = STATUS_FINAL
+            s.commit()
+            return row
+
     def list_quote_sets(self) -> list[QuoteSetRow]:
         with Session(self.engine, expire_on_commit=False) as s:
             return list(s.scalars(select(QuoteSetRow).order_by(QuoteSetRow.id.desc())))
