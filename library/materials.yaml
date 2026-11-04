@@ -59,7 +59,34 @@ prepregs:
     out_life: {value: null, unit: h, desc: "Oda sıcaklığında çalışma ömrü"}
     price: {value: null, currency: EUR, per: m2, desc: "Prepreg birim fiyatı"}
 
+  - id: KUMAS_CF_DOKUMA
+    name: "Karbon kuru dokuma kumaş (ıslak serim) (TODO: ticari ad)"
+    fiber: carbon
+    form: woven
+    resin: none
+    cure_temp: {value: null, unit: degC, desc: "Kullanılacak reçinenin kür sıcaklığı sınıfı"}
+    areal_weight: {value: null, unit: g/m2, desc: "Lif alan ağırlığı (FAW)"}
+    cured_ply_thickness: {value: null, unit: mm, desc: "Kürlenmiş ply kalınlığı (CPT)"}
+    roll_width: {value: null, unit: mm, desc: "Rulo eni"}
+    out_life: {value: null, unit: h, desc: "Çalışma ömrü (kuru kumaşta sınırsız ise çok büyük bir değer)"}
+    price: {value: null, currency: EUR, per: m2, desc: "Kumaş birim fiyatı"}
+  - id: KUMAS_GF_DOKUMA
+    name: "Cam kuru dokuma kumaş (ıslak serim) (TODO: ticari ad)"
+    fiber: glass
+    form: woven
+    resin: none
+    cure_temp: {value: null, unit: degC, desc: "Kullanılacak reçinenin kür sıcaklığı sınıfı"}
+    areal_weight: {value: null, unit: g/m2, desc: "Lif alan ağırlığı (FAW)"}
+    cured_ply_thickness: {value: null, unit: mm, desc: "Kürlenmiş ply kalınlığı (CPT)"}
+    roll_width: {value: null, unit: mm, desc: "Rulo eni"}
+    out_life: {value: null, unit: h, desc: "Çalışma ömrü (kuru kumaşta sınırsız ise çok büyük bir değer)"}
+    price: {value: null, currency: EUR, per: m2, desc: "Kumaş birim fiyatı"}
+
 consumables:
+  - id: RECINE
+    name: "Islak serim reçinesi (karışım) (TODO: ticari ad)"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: kg, desc: "Reçine + sertleştirici karışım fiyatı"}
   - id: VAKUM_TORBA
     name: "Vakum torba filmi"
     max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}

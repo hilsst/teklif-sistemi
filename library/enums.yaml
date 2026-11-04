@@ -35,8 +35,10 @@ undercut_solutions:
   - {id: bladder, label: "Bladder"}
   - {id: cozunur_mandrel, label: "Çözünür mandrel"}
 operations:
+  - {id: recine_hazirlama, label: "Reçine hazırlama"}
   - {id: kesim, label: "Ply kesimi"}
   - {id: serim, label: "Serim (layup)"}
+  - {id: islatma, label: "Islatma (rulo)"}
   - {id: debulk, label: "Debulk"}
   - {id: torbalama, label: "Torbalama"}
   - {id: kur, label: "Kür"}

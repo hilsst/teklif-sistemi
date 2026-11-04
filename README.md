@@ -211,8 +211,13 @@ Arayüzdeki **Veri girişi** sekmesi firma verisini Excel yerine formlarla topla
   çevrilir. Var olan kayıtların üzerine yazılmaz. Geçmiş kalıp tablosundaki toplam maliyet master modeli
   de içerir; bu yüzden master model için ayrı maliyet kaydı açılmaz (çifte sayım olmasın).
 
-Henüz yok: delik sayısı ve trim çevresinin STEP'ten çıkarımı (Faz 2), şerit sarım operasyonları
-(iş merkezi `SERIT_SARIM` var, proses şablonu yok), ıslak serim ve su jeti için proses şablonları.
+- **Islak serim (`el_yatirma`):** Dört adım: reçine hazırlama, kumaş kesimi, kalıba kumaş serimi, kumaşların
+  rulo ile ıslatılması (hepsi `ISLAK_SERIM` iş merkezi, süreler TODO). Autoclave kalemi yoktur; reçine ıslatma
+  operasyonunda sarf olarak (kg/m², ply alanı başına) hesaplanır. Kuru kumaşlar `materials.yaml` içinde
+  `KUMAS_*` kayıtlarıdır. Kür, kalıptan çıkarma ve trim adımları henüz tanımlı değil.
+
+Henüz yok: delik sayısı ve trim çevresinin STEP'ten çıkarımı (Faz 2), şerit sarım (kapsam dışı bırakıldı,
+iş merkezi `SERIT_SARIM` hazır), su jeti proses şablonu.
 
 ## Yükleme şablonları
 

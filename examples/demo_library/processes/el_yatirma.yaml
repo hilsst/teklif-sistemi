@@ -1,0 +1,129 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+id: el_yatirma
+name: El yatırma (ıslak serim)
+version: 1
+parameters: {}
+cure_cycles:
+- id: ambient
+  name: Oda sıcaklığı kürü (kür operasyonu bu şablonda tanımlı değil)
+  cure_temp:
+    value: 23
+    unit: degC
+    desc: Kür sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  pressure:
+    value: 1
+    unit: bar
+    desc: Basınç (vakum/atmosferik)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cycle_time:
+    value: 24
+    unit: h
+    desc: Kür süresi
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+operations:
+- seq: 10
+  id: recine_hazirlama
+  name: Reçine hazırlama
+  work_center: ISLAK_SERIM
+  learning: false
+  setup:
+    value: 15
+    unit: min/batch
+    desc: Reçine ve sertleştirici tartım, ekipman hazırlığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: ply_area_total_m2
+    rate:
+      value: 2
+      unit: min/m2
+      desc: Reçine karıştırma süresi, ply alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 20
+  id: kesim
+  name: Kumaş kesimi
+  work_center: ISLAK_SERIM
+  learning: false
+  setup:
+    value: 10
+    unit: min/batch
+    desc: Kumaş rulosu hazırlığı, kesim masası
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: ply_area_total_m2
+    rate:
+      value: 4
+      unit: min/m2
+      desc: Kumaş kesim süresi, ply alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: ply_count
+    rate:
+      value: 0.5
+      unit: min/ply
+      desc: Etiketleme ve kitleme, ply başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 30
+  id: serim
+  name: Kalıba kumaş serimi
+  work_center: ISLAK_SERIM
+  apply_complexity: true
+  setup:
+    value: 20
+    unit: min/batch
+    desc: Kalıp temizliği ve ayırıcı uygulaması
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  times:
+  - driver: ply_area_total_m2
+    rate:
+      value: 10
+      unit: min/m2
+      desc: Serim süresi, ply alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - driver: ply_count
+    rate:
+      value: 1
+      unit: min/ply
+      desc: Ply konumlandırma, ply başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  consumables:
+  - material: KALIP_AYIRICI
+    driver: tool_area_m2
+    qty:
+      value: 0.03
+      unit: L/m2
+      desc: Kalıp ayırıcı sarfiyatı, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 40
+  id: islatma
+  name: Kumaşların rulo ile ıslatılması
+  work_center: ISLAK_SERIM
+  apply_complexity: true
+  times:
+  - driver: ply_area_total_m2
+    rate:
+      value: 8
+      unit: min/m2
+      desc: Rulo ile ıslatma süresi, ply alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  consumables:
+  - material: RECINE
+    driver: ply_area_total_m2
+    qty:
+      value: 0.6
+      unit: kg/m2
+      desc: Reçine kullanımı, ply alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil

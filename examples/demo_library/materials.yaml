@@ -205,7 +205,106 @@ prepregs:
     desc: Prepreg birim fiyatı
     source: default
     note: DEMO / dummy değer - gerçek firma verisi değil
+- id: KUMAS_CF_DOKUMA
+  name: 'Karbon kuru dokuma kumaş (ıslak serim) (TODO: ticari ad)'
+  fiber: carbon
+  form: woven
+  resin: none
+  cure_temp:
+    value: 23
+    unit: degC
+    desc: Kullanılacak reçinenin kür sıcaklığı sınıfı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  areal_weight:
+    value: 200
+    unit: g/m2
+    desc: Lif alan ağırlığı (FAW)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cured_ply_thickness:
+    value: 0.25
+    unit: mm
+    desc: Kürlenmiş ply kalınlığı (CPT)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  roll_width:
+    value: 1250
+    unit: mm
+    desc: Rulo eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  out_life:
+    value: 720
+    unit: h
+    desc: Çalışma ömrü (kuru kumaşta sınırsız ise çok büyük bir değer)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 22
+    currency: EUR
+    per: m2
+    desc: Kumaş birim fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: KUMAS_GF_DOKUMA
+  name: 'Cam kuru dokuma kumaş (ıslak serim) (TODO: ticari ad)'
+  fiber: glass
+  form: woven
+  resin: none
+  cure_temp:
+    value: 23
+    unit: degC
+    desc: Kullanılacak reçinenin kür sıcaklığı sınıfı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  areal_weight:
+    value: 300
+    unit: g/m2
+    desc: Lif alan ağırlığı (FAW)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cured_ply_thickness:
+    value: 0.3
+    unit: mm
+    desc: Kürlenmiş ply kalınlığı (CPT)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  roll_width:
+    value: 1250
+    unit: mm
+    desc: Rulo eni
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  out_life:
+    value: 720
+    unit: h
+    desc: Çalışma ömrü (kuru kumaşta sınırsız ise çok büyük bir değer)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 6
+    currency: EUR
+    per: m2
+    desc: Kumaş birim fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
 consumables:
+- id: RECINE
+  name: 'Islak serim reçinesi (karışım) (TODO: ticari ad)'
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 14
+    currency: EUR
+    per: kg
+    desc: Reçine + sertleştirici karışım fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
 - id: VAKUM_TORBA
   name: Vakum torba filmi
   max_temp:
