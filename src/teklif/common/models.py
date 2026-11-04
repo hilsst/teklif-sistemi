@@ -118,6 +118,11 @@ class CostLine(BaseModel):
         return bool(self.flags)
 
     @property
+    def open_flags(self) -> list[ReviewFlag]:
+        """Flags still needing a decision: a line the user overrode (with a reason) is decided."""
+        return [] if self.override is not None else self.flags
+
+    @property
     def final(self) -> float | None:
         """Overridden value if present, otherwise the computed result."""
         return self.override.value if self.override is not None else self.result

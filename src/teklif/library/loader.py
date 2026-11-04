@@ -22,6 +22,7 @@ from teklif.common.units import is_known_unit
 from teklif.library.schema import (
     DRIVER_UNITS,
     Autoclaves,
+    Blueprints,
     CurrencyTable,
     Enums,
     Materials,
@@ -51,6 +52,7 @@ class Library:
     autoclaves: Autoclaves
     thresholds: Thresholds
     processes: dict[str, ProcessTemplate]
+    blueprints: Blueprints
 
     def files(self) -> dict[str, BaseModel]:
         """Every loaded model keyed by its file path relative to the library root."""
@@ -91,6 +93,7 @@ def load_library(root: Path | str = DEFAULT_LIBRARY_DIR) -> Library:
     work_centers = _parse(WorkCenters, root / "work_centers.yaml", issues)
     autoclaves = _parse(Autoclaves, root / "autoclaves.yaml", issues)
     thresholds = _parse(Thresholds, root / "thresholds.yaml", issues)
+    blueprints = _parse(Blueprints, root / "blueprints.yaml", issues)
     processes: dict[str, ProcessTemplate] = {}
     for path in sorted((root / "processes").glob("*.yaml")):
         proc = _parse(ProcessTemplate, path, issues)
@@ -100,7 +103,15 @@ def load_library(root: Path | str = DEFAULT_LIBRARY_DIR) -> Library:
             processes[proc.id] = proc
     if issues:
         raise LibraryError(issues)
-    assert currency and enums and materials and work_centers and autoclaves and thresholds
+    assert (
+        currency
+        and enums
+        and materials
+        and work_centers
+        and autoclaves
+        and thresholds
+        and blueprints
+    )
     lib = Library(
         root=root,
         currency=currency,
@@ -110,6 +121,7 @@ def load_library(root: Path | str = DEFAULT_LIBRARY_DIR) -> Library:
         autoclaves=autoclaves,
         thresholds=thresholds,
         processes=processes,
+        blueprints=blueprints,
     )
     issues = validate_references(lib)
     if issues:
@@ -153,6 +165,12 @@ def validate_references(lib: Library) -> list[str]:
         issues.append("currency.yaml: base currency rate must be 1.0")
     if lib.currency.quote_currency not in currencies:
         issues.append("currency.yaml: quote_currency missing from rates")
+
+    for bp_id in _duplicates([b.id for b in lib.blueprints.blueprints]):
+        issues.append(f"blueprints.yaml: duplicate id '{bp_id}'")
+    for bp in lib.blueprints.blueprints:
+        for item_id in _duplicates([i.id for i in bp.items]):
+            issues.append(f"blueprints.yaml: {bp.id}: duplicate item id '{item_id}'")
 
     for fname, model in lib.files().items():
         for path, v in iter_values(model):

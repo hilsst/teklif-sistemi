@@ -19,6 +19,11 @@ costing:
   margin_basis: markup
   consumable_waste_ratio: {value: null, unit: ratio, desc: "Sarf malzeme kesim/bindirme payı"}
   autoclave_spacing: {value: null, unit: mm, desc: "Autoclave yerleşiminde kalıp çevresine bırakılan boşluk (her kenar)"}
+  # Sipariş toplamı bu değerin altındaysa fark "price.min_order_topup" satırı olarak eklenir. 0 = minimum yok.
+  # TODO(Kemal): firmanın gerçek minimum sipariş tutarı ve para birimi.
+  min_order_value: {value: 0, currency: EUR, per: pcs, source: default, desc: "Minimum sipariş tutarı (sipariş başına; 0 = devre dışı)"}
+  # Adet taramasında (teklif adet duyarlılığı) kullanılan varsayılan adetler.
+  sweep_quantities: [1, 5, 10, 25, 50, 100]
 acceptance:
   cost_tolerance: {value: 0.15, unit: ratio, source: user, desc: "Faz 1 kabul: fiili maliyete göre izin verilen sapma"}
 complexity_factors:

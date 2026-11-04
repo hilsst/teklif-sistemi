@@ -66,6 +66,19 @@ costing:
     desc: Autoclave yerleşiminde kalıp çevresine bırakılan boşluk (her kenar)
     source: default
     note: DEMO / dummy değer - gerçek firma verisi değil
+  min_order_value:
+    value: 0
+    currency: EUR
+    per: pcs
+    source: default
+    desc: Minimum sipariş tutarı (sipariş başına; 0 = devre dışı)
+  sweep_quantities:
+  - 1
+  - 5
+  - 10
+  - 25
+  - 50
+  - 100
 acceptance:
   cost_tolerance:
     value: 0.15

@@ -51,6 +51,9 @@ class QuoteInput(_Strict):
     include_optional: list[str] = Field(default_factory=list)
     exclude_operations: list[str] = Field(default_factory=list)
     tooling_nre: Price | None = Field(None, description="Tool + master model price (Phase 1)")
+    master_nre: Price | None = Field(
+        None, description="Separate master model price; then tooling_nre is the tool alone"
+    )
     tooling_exists: bool = Field(False, description="Tool already exists, no NRE")
     amortize_nre: bool = False
     quote_currency: str | None = None

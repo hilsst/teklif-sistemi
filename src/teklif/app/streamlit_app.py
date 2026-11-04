@@ -17,18 +17,30 @@ import yaml
 from teklif.common.models import Override, Price
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
+from teklif.costing.quote_set import (
+    QuoteSetInput,
+    QuoteSetResult,
+    blueprint_skeleton,
+    compute_quote_set,
+)
+from teklif.costing.sweep import quantity_sweep
 from teklif.library import Library, LibraryError, list_todos, load_library
 from teklif.library.editor import CHOICES, Change, current_choice, editable_values, set_values
 from teklif.library.loader import DEFAULT_LIBRARY_DIR
+from teklif.reporting.csv_export import breakdown_csv, set_breakdown_csv, sweep_csv
 from teklif.reporting.quote_report import (
     CATEGORY_LABELS,
     flags_text,
     inputs_text,
     pdf_bytes,
+    set_item_rows,
+    set_pdf_bytes,
+    set_total_rows,
     summary_rows,
     write_excel,
+    write_set_excel,
 )
-from teklif.storage.db import Store
+from teklif.storage.db import NotFinalizableError, Store
 
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "ornek_parca.yaml"
@@ -183,6 +195,11 @@ def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
         else 0,
     )
     amortize = n4.checkbox("NRE birim fiyata yedirilsin", bool(base.get("amortize_nre")))
+    master_value = n2.number_input(
+        "Master model NRE (ayrı satır; 0 = yukarıdaki tutara dahil)",
+        0.0,
+        value=float((base.get("master_nre") or {}).get("value") or 0.0),
+    )
 
     try:
         plies = [
@@ -217,6 +234,9 @@ def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
             tooling_nre=None
             if tooling_exists or nre_value <= 0
             else Price(value=nre_value, currency=nre_ccy, per="pcs"),
+            master_nre=None
+            if tooling_exists or master_value <= 0
+            else Price(value=master_value, currency=nre_ccy, per="pcs"),
             tooling_exists=tooling_exists,
             amortize_nre=amortize,
             overrides=st.session_state.get("overrides", {}),
@@ -226,11 +246,78 @@ def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
         return None
 
 
+def _draft_banner(manual_review: bool, n_flags: int) -> None:
+    if manual_review:
+        st.error(
+            f"TASLAK: {n_flags} manuel inceleme bayrağı açık. Bayraklar çözülmeden "
+            "(eksik değer girilmeden veya gerekçeyle ezilmeden) teklif kesinleştirilemez; "
+            "PDF'ler TASLAK filigranıyla çıkar."
+        )
+
+
+def _save_buttons(save_draft: Any, save_final: Any, blocked: bool) -> None:
+    """Draft/final save buttons; ``save_*`` are callables that store and return a row."""
+    b1, b2 = st.columns(2)
+    if b1.button("Taslak olarak kaydet"):
+        row = save_draft()
+        st.success(f"Taslak kaydedildi: {row.quote_no} rev {row.revision}")
+    if b2.button("Kesinleştir ve kaydet", disabled=blocked, help="Açık bayrak varken kapalı"):
+        try:
+            row = save_final()
+        except NotFinalizableError as exc:
+            st.error(str(exc))
+        else:
+            st.success(f"Kesin teklif kaydedildi: {row.quote_no} rev {row.revision}")
+
+
+def _sweep_section(result: QuoteResult, lib: Library) -> None:
+    with st.expander("Adet taraması (birim fiyat adetle nasıl değişir)"):
+        default = ",".join(str(q) for q in lib.thresholds.costing.sweep_quantities)
+        text = st.text_input("Adetler (virgülle)", default, key="sweep_qtys")
+        try:
+            qtys = [int(q) for q in text.split(",") if q.strip()]
+            rows = quantity_sweep(result.input, lib, qtys)
+        except ValueError as exc:
+            st.warning(f"Geçersiz adet listesi: {exc}")
+            return
+        frame = pd.DataFrame(
+            [
+                {
+                    "adet": r.quantity,
+                    "parti": r.batch_size,
+                    "birim maliyet": r.unit_cost,
+                    "birim fiyat": r.unit_price,
+                    "sipariş toplamı": r.order_total,
+                    "etkin birim fiyat": r.effective_unit_price,
+                    "inceleme": "manual_review" if r.manual_review else "",
+                }
+                for r in rows
+            ]
+        )
+        st.dataframe(
+            frame,
+            hide_index=True,
+            column_config={
+                c: st.column_config.NumberColumn(format="%.2f")
+                for c in ("birim maliyet", "birim fiyat", "sipariş toplamı", "etkin birim fiyat")
+            },
+        )
+        chart = frame.set_index("adet")[["birim maliyet", "birim fiyat", "etkin birim fiyat"]]
+        if chart.notna().any().any():
+            st.line_chart(chart)
+        st.download_button(
+            "Adet taraması CSV",
+            sweep_csv(rows, result.currency).encode("utf-8"),
+            f"{result.input.quote_no}_adet_taramasi.csv",
+        )
+
+
 def _show_result(result: QuoteResult, lib: Library, store: Store) -> None:
     cols = st.columns(4)
+    nre_key = "nre.total" if any(ln.key == "nre.total" for ln in result.lines) else "nre.tooling"
     for col, key, label in zip(
         cols,
-        ["cost.unit", "price.unit_final", "nre.tooling", "price.order_total"],
+        ["cost.unit", "price.unit_final", nre_key, "price.order_total"],
         ["Birim maliyet", "Birim fiyat", "NRE", "Sipariş toplamı"],
         strict=True,
     ):
@@ -240,6 +327,7 @@ def _show_result(result: QuoteResult, lib: Library, store: Store) -> None:
             v = None
         col.metric(f"{label} [{result.currency}]", "—" if v is None else f"{v:,.2f}")
 
+    _draft_banner(result.has_open_review, len(result.open_review_items))
     if result.manual_review:
         with st.expander(f"Manuel inceleme: {len(result.review_items)} bayrak", expanded=True):
             st.dataframe(
@@ -289,12 +377,20 @@ def _show_result(result: QuoteResult, lib: Library, store: Store) -> None:
             st.session_state["overrides"] = {}
             st.rerun()
 
+    _sweep_section(result, lib)
+    _save_buttons(
+        lambda: store.save_quote(result, lib),
+        lambda: store.save_quote(result, lib, final=True),
+        result.has_open_review,
+    )
     d1, d2, d3 = st.columns(3)
-    if d1.button("Teklifi kaydet"):
-        row = store.save_quote(result, lib)
-        st.success(f"Kaydedildi: {row.quote_no} rev {row.revision}")
-    d2.download_button("Excel indir", excel_bytes(result), f"{result.input.quote_no}.xlsx")
-    d3.download_button("PDF indir", pdf_bytes(result), f"{result.input.quote_no}.pdf")
+    d1.download_button("Excel indir", excel_bytes(result), f"{result.input.quote_no}.xlsx")
+    d2.download_button("PDF indir", pdf_bytes(result), f"{result.input.quote_no}.pdf")
+    d3.download_button(
+        "CSV indir (kırılım)",
+        breakdown_csv(result).encode("utf-8"),
+        f"{result.input.quote_no}.csv",
+    )
 
 
 def _saved_tab(store: Store, lib: Library) -> None:
@@ -314,6 +410,7 @@ def _saved_tab(store: Store, lib: Library) -> None:
                     "birim maliyet": r.unit_cost,
                     "birim fiyat": r.unit_price,
                     "toplam": r.order_total,
+                    "durum": "KESİN" if r.status == "final" else "taslak",
                     "inceleme": r.manual_review,
                     "tarih": r.created_at,
                 }
@@ -363,6 +460,114 @@ def _saved_tab(store: Store, lib: Library) -> None:
             f"{a.recorded_at:%Y-%m-%d}: fiili {a.unit_cost:,.2f}, "
             f"sapma {'—' if dev is None else f'{dev:+.1%}'} {ok} {a.note}"
         )
+
+
+def _set_tab(lib: Library, store: Store) -> None:
+    st.caption(
+        "Birden çok parça ve tek seferlik (NRE) kalem içeren teklif. Şablon seçin, iskelet YAML'ı "
+        "indirip doldurun, sonra yükleyin. Parça kalemleri examples/ornek_parca.yaml biçimindedir."
+    )
+    bps = {b.id: b for b in lib.blueprints.blueprints}
+    c1, c2 = st.columns([2, 1])
+    bp_id = c1.selectbox(
+        "Teklif şablonu", list(bps), format_func=lambda i: f"{bps[i].name} — {bps[i].description}"
+    )
+    no = c2.text_input("Teklif no", "T-2026-100")
+    skeleton = yaml.safe_dump(
+        blueprint_skeleton(lib, bp_id, no), allow_unicode=True, sort_keys=False
+    )
+    st.download_button("İskelet YAML indir", skeleton.encode("utf-8"), f"{no}_iskelet.yaml")
+    up = st.file_uploader("Doldurulmuş teklif YAML", type=["yaml", "yml"])
+    if up is None:
+        _saved_sets(store)
+        return
+    try:
+        inp = QuoteSetInput.model_validate(yaml.safe_load(up.getvalue().decode("utf-8")))
+        result = compute_quote_set(inp, lib)
+    except (QuoteInputError, ValueError, yaml.YAMLError) as exc:
+        st.error(f"Girdi hatası: {exc}")
+        return
+    _show_set_result(result, lib, store)
+    _saved_sets(store)
+
+
+def _show_set_result(result: QuoteSetResult, lib: Library, store: Store) -> None:
+    total = result.value("set.order_total")
+    st.metric(f"Teklif toplamı [{result.currency}]", "—" if total is None else f"{total:,.2f}")
+    _draft_banner(result.has_open_review, len(result.open_review_items))
+    if result.manual_review:
+        with st.expander(f"Manuel inceleme: {len(result.review_items)} bayrak"):
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {"kalem": k, "kod": fl.code, "neden": fl.reason, "kütüphane yolu": fl.path}
+                        for k, fl in result.review_items
+                    ]
+                ),
+                hide_index=True,
+            )
+    for heading, rows in (("Kalemler", set_item_rows(result)), ("Toplam", set_total_rows(result))):
+        st.markdown(f"**{heading}**")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "kalem": r.label,
+                        "tutar": r.value,
+                        "birim": r.unit,
+                        "inceleme": "manual_review" if r.review else "",
+                    }
+                    for r in rows
+                ]
+            ),
+            hide_index=True,
+            column_config={"tutar": st.column_config.NumberColumn(format="%.2f")},
+        )
+    for part in result.parts:
+        with st.expander(f"Kırılım: {part.input.part_no} {part.input.part_name}"):
+            st.dataframe(
+                breakdown_frame(part), hide_index=True, height=360, column_config=NUMBER_COLUMNS
+            )
+    _save_buttons(
+        lambda: store.save_quote_set(result, lib),
+        lambda: store.save_quote_set(result, lib, final=True),
+        result.has_open_review,
+    )
+    qn = result.input.quote_no
+    d1, d2, d3 = st.columns(3)
+    with tempfile.TemporaryDirectory() as tmp:
+        d1.download_button(
+            "Excel indir", write_set_excel(result, Path(tmp) / "t.xlsx").read_bytes(), f"{qn}.xlsx"
+        )
+    d2.download_button("PDF indir", set_pdf_bytes(result), f"{qn}.pdf")
+    d3.download_button("CSV indir", set_breakdown_csv(result).encode("utf-8"), f"{qn}.csv")
+
+
+def _saved_sets(store: Store) -> None:
+    rows = store.list_quote_sets()
+    if not rows:
+        return
+    st.markdown("**Kayıtlı çok kalemli teklifler**")
+    st.dataframe(
+        pd.DataFrame(
+            [
+                {
+                    "id": r.id,
+                    "teklif": r.quote_no,
+                    "rev": r.revision,
+                    "müşteri": r.customer,
+                    "kalem": r.item_count,
+                    "toplam": r.order_total,
+                    "para birimi": r.currency,
+                    "durum": "KESİN" if r.status == "final" else "taslak",
+                    "inceleme": r.manual_review,
+                    "tarih": r.created_at,
+                }
+                for r in rows
+            ]
+        ),
+        hide_index=True,
+    )
 
 
 CHOICE_LABELS = {
@@ -491,7 +696,9 @@ def main() -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = Store(db_path)
 
-    new_tab, saved_tab, lib_tab = st.tabs(["Yeni teklif", "Kayıtlı teklifler", "Kütüphane"])
+    new_tab, set_tab, saved_tab, lib_tab = st.tabs(
+        ["Yeni teklif", "Çok kalemli teklif", "Kayıtlı teklifler", "Kütüphane"]
+    )
     with new_tab:
         base = _example() if st.toggle("Örnek parçayla doldur", value=True) else {}
         inp = _input_form(lib, base)
@@ -502,6 +709,8 @@ def main() -> None:
                 st.error(f"Girdi hatası: {exc}")
             else:
                 _show_result(result, lib, store)
+    with set_tab:
+        _set_tab(lib, store)
     with saved_tab:
         _saved_tab(store, lib)
     with lib_tab:

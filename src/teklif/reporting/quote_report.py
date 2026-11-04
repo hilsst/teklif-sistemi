@@ -15,6 +15,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 from teklif.common.models import CostLine
 from teklif.costing.engine import QuoteResult
+from teklif.costing.quote_set import QuoteSetResult
 
 CATEGORY_LABELS: dict[str, str] = {
     "time": "Süre",
@@ -39,7 +40,11 @@ SUMMARY_KEYS: list[tuple[str, str]] = [
     ("cost.unit", "Birim maliyet"),
     ("price.unit", "Birim fiyat"),
     ("nre.tooling", "Kalıp + master model (NRE)"),
+    ("nre.master", "Master model (NRE)"),
+    ("nre.total", "NRE toplamı"),
     ("price.unit_final", "Teklif birim fiyatı"),
+    ("price.order_raw", "Sipariş toplamı (minimum öncesi)"),
+    ("price.min_order_topup", "Minimum sipariş farkı"),
     ("price.order_total", "Sipariş toplamı"),
 ]
 
@@ -69,46 +74,18 @@ class SummaryRow:
 
 def summary_rows(result: QuoteResult) -> list[SummaryRow]:
     keys = {ln.key: ln for ln in result.lines}
+    labels = dict(SUMMARY_KEYS)
+    if "nre.master" in keys:
+        labels["nre.tooling"] = "Kalıp (NRE)"
     return [
-        SummaryRow(label, keys[k].final, keys[k].unit, keys[k].manual_review)
-        for k, label in SUMMARY_KEYS
+        SummaryRow(labels[k], keys[k].final, keys[k].unit, bool(keys[k].open_flags))
+        for k, _ in SUMMARY_KEYS
         if k in keys
     ]
 
 
-def write_excel(result: QuoteResult, path: Path | str) -> Path:
-    inp = result.input
-    wb = Workbook()
-    ws = wb.active
-    assert ws is not None
-    ws.title = "Ozet"
-    ws.append([f"Teklif {inp.quote_no}"])
-    ws["A1"].font = Font(bold=True, size=14)
-    for label, val in [
-        ("Parça", f"{inp.part_no} {inp.part_name}".strip()),
-        ("Müşteri", inp.customer),
-        ("Proses", inp.process),
-        ("Adet", inp.quantity),
-        ("Parti", inp.batch_size),
-        ("Para birimi", result.currency),
-        ("Manuel inceleme", "EVET" if result.manual_review else "hayır"),
-    ]:
-        ws.append([label, val])
-    ws.append([])
-    ws.append(["Kalem", "Tutar", "Birim", "İnceleme"])
-    for c in ws[ws.max_row]:
-        c.font = Font(bold=True)
-    for row in summary_rows(result):
-        ws.append([row.label, row.value, row.unit, "manual_review" if row.review else ""])
-        ws.cell(ws.max_row, 2).number_format = "#,##0.00"
-        if row.review:
-            for c in ws[ws.max_row]:
-                c.fill = _REVIEW_FILL
-    ws.column_dimensions["A"].width = 30
-    ws.column_dimensions["B"].width = 16
-    ws.column_dimensions["D"].width = 16
-
-    br = wb.create_sheet("Kirilim")
+def _breakdown_sheet(wb: Workbook, title: str, lines: list[CostLine]) -> None:
+    br = wb.create_sheet(title)
     headers = [
         "Kalem",
         "Kategori",
@@ -125,7 +102,7 @@ def write_excel(result: QuoteResult, path: Path | str) -> Path:
     br.append(headers)
     for c in br[1]:
         c.font = Font(bold=True)
-    for ln in result.lines:
+    for ln in lines:
         br.append(
             [
                 ln.key,
@@ -157,6 +134,41 @@ def write_excel(result: QuoteResult, path: Path | str) -> Path:
             c.alignment = Alignment(wrap_text=True, vertical="top")
     br.freeze_panes = "B2"
 
+
+def write_excel(result: QuoteResult, path: Path | str) -> Path:
+    inp = result.input
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Ozet"
+    ws.append([f"Teklif {inp.quote_no}"])
+    ws["A1"].font = Font(bold=True, size=14)
+    for label, val in [
+        ("Parça", f"{inp.part_no} {inp.part_name}".strip()),
+        ("Müşteri", inp.customer),
+        ("Proses", inp.process),
+        ("Adet", inp.quantity),
+        ("Parti", inp.batch_size),
+        ("Para birimi", result.currency),
+        ("Manuel inceleme", "EVET" if result.has_open_review else "hayır"),
+    ]:
+        ws.append([label, val])
+    ws.append([])
+    ws.append(["Kalem", "Tutar", "Birim", "İnceleme"])
+    for c in ws[ws.max_row]:
+        c.font = Font(bold=True)
+    for row in summary_rows(result):
+        ws.append([row.label, row.value, row.unit, "manual_review" if row.review else ""])
+        ws.cell(ws.max_row, 2).number_format = "#,##0.00"
+        if row.review:
+            for c in ws[ws.max_row]:
+                c.fill = _REVIEW_FILL
+    ws.column_dimensions["A"].width = 30
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["D"].width = 16
+
+    _breakdown_sheet(wb, "Kirilim", result.lines)
+
     out = Path(path)
     wb.save(out)
     return out
@@ -168,8 +180,24 @@ _REVIEW_RGB = (252, 228, 214)
 _OVERRIDE_RGB = (255, 242, 204)
 
 
-def _pdf_doc() -> FPDF:
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
+class _QuotePdf(FPDF):
+    """FPDF with an optional diagonal TASLAK (draft) watermark on every page."""
+
+    draft = False
+
+    def header(self) -> None:
+        if not self.draft:
+            return
+        self.set_font("DejaVu", "B", 80)
+        self.set_text_color(235, 200, 200)
+        with self.rotation(45, x=105, y=148):
+            self.text(45, 160, "TASLAK")
+        self.set_text_color(0, 0, 0)
+
+
+def _pdf_doc(draft: bool = False) -> FPDF:
+    pdf = _QuotePdf(orientation="P", unit="mm", format="A4")
+    pdf.draft = draft
     pdf.set_margins(12, 12, 12)
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_font("DejaVu", "", str(FONT_DIR / "DejaVuSans.ttf"))
@@ -178,10 +206,36 @@ def _pdf_doc() -> FPDF:
     return pdf
 
 
+DRAFT_NOTE = "TASLAK: manuel inceleme bayrakları açık; bu belge müşteriye gönderilemez."
+
+
+def _pdf_breakdown(pdf: FPDF, lines: list[CostLine]) -> None:
+    pdf.ln(4)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 8, "Kalem kalem kırılım", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("DejaVu", "", 7)
+    with pdf.table(
+        col_widths=(44, 106, 22, 14),
+        text_align=("LEFT", "LEFT", "RIGHT", "LEFT"),
+        headings_style=FontFace(emphasis="BOLD", fill_color=_GREY),
+        line_height=3.4,
+    ) as table:
+        table.row(["Kalem", "Formül ve girdiler [kaynak]", "Sonuç", "Birim"])
+        for ln in lines:
+            detail = f"{ln.formula}\n{inputs_text(ln)}"
+            if ln.override:
+                detail += f"\nEzme: {fmt(ln.override.value)} ({ln.override.reason})"
+            if ln.flags:
+                detail += f"\nİnceleme: {flags_text(ln)}"
+            fill = _REVIEW_RGB if ln.flags else _OVERRIDE_RGB if ln.override else None
+            style = FontFace(fill_color=fill) if fill else None
+            table.row([f"{ln.key}\n{ln.description}", detail, fmt(ln.final), ln.unit], style=style)
+
+
 def pdf_bytes(result: QuoteResult) -> bytes:
     """Render the quote as PDF with fpdf2 (pure Python, works on Windows as is)."""
     inp = result.input
-    pdf = _pdf_doc()
+    pdf = _pdf_doc(draft=result.has_open_review)
     pdf.set_font("DejaVu", "B", 15)
     pdf.cell(0, 9, f"Teklif {inp.quote_no}", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("DejaVu", "", 8.5)
@@ -194,13 +248,13 @@ def pdf_bytes(result: QuoteResult) -> bytes:
         new_x="LMARGIN",
         new_y="NEXT",
     )
-    if result.manual_review:
+    if result.has_open_review:
         pdf.set_text_color(170, 0, 0)
         pdf.set_font("DejaVu", "B", 9)
         pdf.cell(
             0,
             6,
-            "Bu teklifte manuel inceleme gerektiren kalemler var.",
+            DRAFT_NOTE,
             new_x="LMARGIN",
             new_y="NEXT",
         )
@@ -219,30 +273,155 @@ def pdf_bytes(result: QuoteResult) -> bytes:
             style = FontFace(fill_color=_REVIEW_RGB) if r.review else None
             table.row([r.label, fmt(r.value), r.unit], style=style)
 
-    pdf.ln(4)
-    pdf.set_font("DejaVu", "B", 12)
-    pdf.cell(0, 8, "Kalem kalem kırılım", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("DejaVu", "", 7)
-    with pdf.table(
-        col_widths=(44, 106, 22, 14),
-        text_align=("LEFT", "LEFT", "RIGHT", "LEFT"),
-        headings_style=FontFace(emphasis="BOLD", fill_color=_GREY),
-        line_height=3.4,
-    ) as table:
-        table.row(["Kalem", "Formül ve girdiler [kaynak]", "Sonuç", "Birim"])
-        for ln in result.lines:
-            detail = f"{ln.formula}\n{inputs_text(ln)}"
-            if ln.override:
-                detail += f"\nEzme: {fmt(ln.override.value)} ({ln.override.reason})"
-            if ln.flags:
-                detail += f"\nİnceleme: {flags_text(ln)}"
-            fill = _REVIEW_RGB if ln.flags else _OVERRIDE_RGB if ln.override else None
-            style = FontFace(fill_color=fill) if fill else None
-            table.row([f"{ln.key}\n{ln.description}", detail, fmt(ln.final), ln.unit], style=style)
+    _pdf_breakdown(pdf, result.lines)
     return bytes(pdf.output())
 
 
 def write_pdf(result: QuoteResult, path: Path | str) -> Path:
     out = Path(path)
     out.write_bytes(pdf_bytes(result))
+    return out
+
+
+# --- multi-item quote (quote set) ----------------------------------------------------
+
+SET_SUMMARY_KEYS: list[tuple[str, str]] = [
+    ("set.parts_total", "Parça kalemleri toplamı"),
+    ("set.nre_total", "NRE kalemleri toplamı"),
+    ("set.order_raw", "Teklif toplamı (minimum öncesi)"),
+    ("set.min_order_topup", "Minimum sipariş farkı"),
+    ("set.order_total", "Teklif toplamı"),
+]
+
+
+def set_item_rows(result: QuoteSetResult) -> list[SummaryRow]:
+    """One row per item: parts at their order total, NRE items at their amount."""
+    rows = [
+        SummaryRow(
+            f"{r.input.part_no} {r.input.part_name} (adet {r.input.quantity})".strip(),
+            r.value("price.order_total"),
+            r.currency,
+            r.has_open_review,
+        )
+        for r in result.parts
+    ]
+    rows += [
+        SummaryRow(ln.description, ln.final, ln.unit, bool(ln.open_flags))
+        for ln in result.lines
+        if ln.key.startswith("nre.")
+    ]
+    return rows
+
+
+def set_total_rows(result: QuoteSetResult) -> list[SummaryRow]:
+    keys = {ln.key: ln for ln in result.lines}
+    return [
+        SummaryRow(label, keys[k].final, keys[k].unit, bool(keys[k].open_flags))
+        for k, label in SET_SUMMARY_KEYS
+        if k in keys
+    ]
+
+
+def write_set_excel(result: QuoteSetResult, path: Path | str) -> Path:
+    inp = result.input
+    wb = Workbook()
+    ws = wb.active
+    assert ws is not None
+    ws.title = "Ozet"
+    ws.append([f"Teklif {inp.quote_no}"])
+    ws["A1"].font = Font(bold=True, size=14)
+    for label, val in [
+        ("Müşteri", inp.customer),
+        ("Şablon", inp.blueprint or ""),
+        ("Para birimi", result.currency),
+        ("Manuel inceleme", "EVET (TASLAK)" if result.has_open_review else "hayır"),
+    ]:
+        ws.append([label, val])
+    ws.append([])
+    for heading, rows in (("Kalemler", set_item_rows(result)), ("Toplam", set_total_rows(result))):
+        ws.append([heading, "Tutar", "Birim", "İnceleme"])
+        for c in ws[ws.max_row]:
+            c.font = Font(bold=True)
+        for row in rows:
+            ws.append([row.label, row.value, row.unit, "manual_review" if row.review else ""])
+            ws.cell(ws.max_row, 2).number_format = "#,##0.00"
+            if row.review:
+                for c in ws[ws.max_row]:
+                    c.fill = _REVIEW_FILL
+        ws.append([])
+    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["D"].width = 16
+    _breakdown_sheet(wb, "Kirilim (teklif)", result.lines)
+    for r in result.parts:
+        _breakdown_sheet(wb, f"Kirilim {r.input.part_no}"[:31], r.lines)
+    out = Path(path)
+    wb.save(out)
+    return out
+
+
+def set_pdf_bytes(result: QuoteSetResult) -> bytes:
+    inp = result.input
+    pdf = _pdf_doc(draft=result.has_open_review)
+    pdf.set_font("DejaVu", "B", 15)
+    pdf.cell(0, 9, f"Teklif {inp.quote_no}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("DejaVu", "", 8.5)
+    pdf.multi_cell(
+        0,
+        4.5,
+        f"Müşteri: {inp.customer} · Para birimi: {result.currency} · "
+        f"Kalem sayısı: {len(inp.parts) + len(inp.nre_items)}",
+        new_x="LMARGIN",
+        new_y="NEXT",
+    )
+    if result.has_open_review:
+        pdf.set_text_color(170, 0, 0)
+        pdf.set_font("DejaVu", "B", 9)
+        pdf.cell(0, 6, DRAFT_NOTE, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+    pdf.set_font("DejaVu", "", 8.5)
+    for heading, rows in (("Kalemler", set_item_rows(result)), ("Toplam", set_total_rows(result))):
+        with pdf.table(
+            col_widths=(110, 50, 26),
+            text_align=("LEFT", "RIGHT", "LEFT"),
+            headings_style=FontFace(emphasis="BOLD", fill_color=_GREY),
+            line_height=5,
+        ) as table:
+            table.row([heading, "Tutar", "Birim"])
+            for r in rows:
+                style = FontFace(fill_color=_REVIEW_RGB) if r.review else None
+                table.row([r.label, fmt(r.value), r.unit], style=style)
+        pdf.ln(3)
+    pdf.set_font("DejaVu", "B", 12)
+    pdf.cell(0, 8, "Teklif düzeyi kırılım", new_x="LMARGIN", new_y="NEXT")
+    _pdf_breakdown(pdf, result.lines)
+    for part in result.parts:
+        pdf.add_page()
+        pdf.set_font("DejaVu", "B", 13)
+        pdf.cell(
+            0,
+            8,
+            f"Parça {part.input.part_no} {part.input.part_name}",
+            new_x="LMARGIN",
+            new_y="NEXT",
+        )
+        pdf.set_font("DejaVu", "", 8.5)
+        with pdf.table(
+            col_widths=(110, 50, 26),
+            text_align=("LEFT", "RIGHT", "LEFT"),
+            headings_style=FontFace(emphasis="BOLD", fill_color=_GREY),
+            line_height=5,
+        ) as table:
+            table.row(["Kalem", "Tutar", "Birim"])
+            for row in summary_rows(part):
+                style = FontFace(fill_color=_REVIEW_RGB) if row.review else None
+                table.row([row.label, fmt(row.value), row.unit], style=style)
+        _pdf_breakdown(pdf, part.lines)
+    return bytes(pdf.output())
+
+
+def write_set_pdf(result: QuoteSetResult, path: Path | str) -> Path:
+    out = Path(path)
+    out.write_bytes(set_pdf_bytes(result))
     return out
