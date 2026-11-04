@@ -107,6 +107,14 @@ consumables:
     name: "Sızdırmazlık bandı (tacky tape)"
     max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
     price: {value: null, currency: EUR, per: m, desc: "Sızdırmazlık bandı fiyatı"}
+  - id: CEKIRDEK
+    name: "Sandviç çekirdek (köpük/petek) (TODO: ticari ad)"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: m2, desc: "Çekirdek malzeme fiyatı (kalınlığa göre; tek kalınlık varsayımı)"}
+  - id: FILM_YAPISTIRICI
+    name: "Film yapıştırıcı (TODO: ticari ad)"
+    max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}
+    price: {value: null, currency: EUR, per: m2, desc: "Film yapıştırıcı fiyatı"}
   - id: KALIP_AYIRICI
     name: "Kalıp ayırıcı (sıvı)"
     max_temp: {value: null, unit: degC, desc: "Maksimum kullanım sıcaklığı"}

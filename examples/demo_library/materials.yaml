@@ -380,6 +380,36 @@ consumables:
     desc: Sızdırmazlık bandı fiyatı
     source: default
     note: DEMO / dummy değer - gerçek firma verisi değil
+- id: CEKIRDEK
+  name: 'Sandviç çekirdek (köpük/petek) (TODO: ticari ad)'
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 40
+    currency: EUR
+    per: m2
+    desc: Çekirdek malzeme fiyatı (kalınlığa göre; tek kalınlık varsayımı)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: FILM_YAPISTIRICI
+  name: 'Film yapıştırıcı (TODO: ticari ad)'
+  max_temp:
+    value: 200
+    unit: degC
+    desc: Maksimum kullanım sıcaklığı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  price:
+    value: 8
+    currency: EUR
+    per: m2
+    desc: Film yapıştırıcı fiyatı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
 - id: KALIP_AYIRICI
   name: Kalıp ayırıcı (sıvı)
   max_temp:

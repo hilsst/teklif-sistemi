@@ -215,3 +215,25 @@ def test_wet_layup_has_no_autoclave_and_counts_resin(
     # resin: ply area 4 x 0.5 = 2 m2 x qty x (1 + waste) x price, from the filled library
     assert (r.value("consumable.islatma.RECINE") or 0) > 0
     assert (r.value("labor.islatma") or 0) > 0
+
+
+def test_sandwich_quote_includes_core_operations_and_trim_margin(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    base = compute_quote(example_input, filled_lib)
+    inp = example_input.model_copy(update={"process": "sandvic_autoclave"})
+    r = compute_quote(inp, filled_lib)
+    keys = {ln.key for ln in r.lines}
+    for op in ("cekirdek_kesim", "film_serim", "cekirdek_yerlestirme", "kenar_kapama"):
+        assert f"time.{op}" in keys
+    assert (r.value("consumable.cekirdek_kesim.CEKIRDEK") or 0) > 0
+    assert (r.value("labor.cekirdek_kesim") or 0) > 0
+    assert r.value("cost.unit") > base.value("cost.unit")  # type: ignore[operator]
+    trim = r.get("time.trim")
+    assert "× margin" in trim.formula
+    assert next(i for i in trim.inputs if i.name == "margin").value == 1.05
+    # holes no longer add trim time in the sandwich template
+    more_holes = inp.model_copy(
+        update={"geometry": inp.geometry.model_copy(update={"hole_count": 99})}
+    )
+    assert compute_quote(more_holes, filled_lib).value("time.trim") == r.value("time.trim")

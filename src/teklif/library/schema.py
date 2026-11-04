@@ -268,9 +268,19 @@ class Operation(_Strict):
     apply_complexity: bool = False
     autoclave_cure: bool = False
     learning: bool = True
+    margin: Param | None = Field(
+        None, description="Safety factor on the paid time of this operation (ratio, > 0)"
+    )
     setup: Param | None = None
     times: list[TimeTerm] = Field(default_factory=list)
     consumables: list[ConsumableUse] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _margin_positive(self) -> Operation:
+        v = None if self.margin is None else self.margin.value
+        if self.margin is not None and v is not None and not (math.isfinite(v) and v > 0):
+            raise ValueError(f"operation {self.id}: margin must be a number > 0")
+        return self
 
 
 class CureCycle(_Strict):
