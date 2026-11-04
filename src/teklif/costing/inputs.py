@@ -57,6 +57,14 @@ class QuoteInput(_Strict):
     tooling_exists: bool = Field(False, description="Tool already exists, no NRE")
     amortize_nre: bool = False
     quote_currency: str | None = None
+    wage_factor: float = Field(
+        1.0, gt=0, description="Strategic factor on all labor rates (e.g. 0.9 to win a bid)"
+    )
+    wage_factor_reason: str = Field("", description="Required when wage_factor is not 1")
+    review_notes: list[str] = Field(
+        default_factory=list,
+        description="Input values that need a person's check (flagged in the catalog)",
+    )
     overrides: dict[str, Override] = Field(default_factory=dict)
 
     @model_validator(mode="after")

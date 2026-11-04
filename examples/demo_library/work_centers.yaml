@@ -367,3 +367,47 @@ work_centers:
     desc: Verim (0-1)
     source: default
     note: DEMO / dummy değer - gerçek firma verisi değil
+- id: SU_JETI
+  name: Su jeti kesim (köpük, MDF, FR4 vb. malzeme kesimi)
+  wage_class: operator
+  machine_rate:
+    value: 40
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: SERIT_SARIM
+  name: Şerit sarım (özel proses; operasyonları henüz tanımlı değil)
+  wage_class: operator
+  machine_rate:
+    value: 40
+    currency: EUR
+    per: h
+    desc: Makine/tesis saat ücreti
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  operators:
+    value: 1
+    unit: person
+    desc: Tipik operatör sayısı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  efficiency:
+    value: 0.85
+    unit: ratio
+    desc: Verim (0-1)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil

@@ -81,6 +81,8 @@ DEMO: dict[str, dict[str, float]] = {
         "work_centers[OLCUM].labor_rate": 30,
         "work_centers[KALIP_ATOLYE].labor_rate": 25,
         "work_centers[ISLAK_SERIM].machine_rate": 0,
+        "work_centers[SU_JETI].machine_rate": 40,
+        "work_centers[SERIT_SARIM].machine_rate": 40,
         "work_centers[*].operators": 1,
         "work_centers[*].efficiency": 0.85,
         "work_centers[KESIM_MASASI].machine_rate": 30,
