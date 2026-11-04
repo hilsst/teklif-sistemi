@@ -1,0 +1,50 @@
+# Örnek çok kalemli teklif (Faz 1.5): iki parça + kalıp + master model. Değerler örnektir.
+# Başlangıç iskeleti için: teklif new --blueprint kalip_ve_parca --quote-no T-2026-100 --out teklif.yaml
+quote_no: T-2026-100
+customer: "Örnek müşteri"
+blueprint: kalip_ve_parca
+parts:
+  - part_no: P-1001
+    part_name: "Örnek kapak paneli"
+    process: autoclave_prepreg
+    material: PP_CF_WOVEN_120
+    cure_cycle: cure_120
+    autoclave: AC1
+    complexity: orta
+    plies:
+      - {name: "Dış dokuma", area_m2: 1.20, count: 2}
+      - {name: "UD çekirdek", material: PP_CF_UD_120, area_m2: 1.10, count: 8}
+    geometry:
+      part_area_m2: 1.00
+      part_perimeter_m: 4.2
+      hole_count: 12
+      tool_area_m2: 1.80
+      tool_perimeter_m: 5.6
+      tool_footprint_x_mm: 1600
+      tool_footprint_y_mm: 1100
+    quantity: 20
+    batch_size: 5
+    tooling_exists: true       # kalıp bedeli aşağıda ayrı NRE kalemi
+  - part_no: P-1002
+    part_name: "Örnek destek"
+    process: autoclave_prepreg
+    material: PP_CF_WOVEN_120
+    cure_cycle: cure_120
+    autoclave: AC1
+    complexity: dusuk
+    plies:
+      - {name: "Dokuma", area_m2: 0.40, count: 4}
+    geometry:
+      part_area_m2: 0.30
+      part_perimeter_m: 2.0
+      hole_count: 4
+      tool_area_m2: 0.60
+      tool_perimeter_m: 3.2
+      tool_footprint_x_mm: 800
+      tool_footprint_y_mm: 500
+    quantity: 20
+    batch_size: 10
+    tooling_exists: true
+nre_items:
+  - {id: KALIP, name: "Kalıp", nre_type: tool, amount: {value: 12000, currency: EUR, per: pcs}}
+  - {id: MASTER, name: "Master model", nre_type: master, amount: {value: 3000, currency: EUR, per: pcs}}

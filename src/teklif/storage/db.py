@@ -5,10 +5,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, create_engine, func, select
+from sqlalchemy import (
+    ForeignKey,
+    String,
+    UniqueConstraint,
+    create_engine,
+    func,
+    inspect,
+    select,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
 from teklif.costing.engine import QuoteResult
+from teklif.costing.quote_set import QuoteSetResult
 from teklif.library.loader import Library, library_hash
 
 
@@ -18,6 +28,14 @@ def _now() -> datetime:
 
 class Base(DeclarativeBase):
     pass
+
+
+STATUS_DRAFT = "draft"
+STATUS_FINAL = "final"
+
+
+class NotFinalizableError(ValueError):
+    """A quote with open manual_review flags cannot be marked final."""
 
 
 class QuoteRow(Base):
@@ -36,6 +54,7 @@ class QuoteRow(Base):
     unit_price: Mapped[float | None]
     order_total: Mapped[float | None]
     manual_review: Mapped[bool]
+    status: Mapped[str] = mapped_column(String(16), default=STATUS_DRAFT)
     library_hash: Mapped[str] = mapped_column(String(64))
     result_json: Mapped[str]
 
@@ -44,6 +63,29 @@ class QuoteRow(Base):
 
     def result(self) -> QuoteResult:
         return QuoteResult.model_validate_json(self.result_json)
+
+
+class QuoteSetRow(Base):
+    """A multi-item quote (parts + NRE items) with its full result JSON."""
+
+    __tablename__ = "quote_sets"
+    __table_args__ = (UniqueConstraint("quote_no", "revision"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    quote_no: Mapped[str] = mapped_column(String(64), index=True)
+    revision: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+    customer: Mapped[str] = mapped_column(String(256), default="")
+    currency: Mapped[str] = mapped_column(String(8))
+    item_count: Mapped[int]
+    order_total: Mapped[float | None]
+    manual_review: Mapped[bool]
+    status: Mapped[str] = mapped_column(String(16), default=STATUS_DRAFT)
+    library_hash: Mapped[str] = mapped_column(String(64))
+    result_json: Mapped[str]
+
+    def result(self) -> QuoteSetResult:
+        return QuoteSetResult.model_validate_json(self.result_json)
 
 
 class OverrideRow(Base):
@@ -84,9 +126,30 @@ class Store:
     def __init__(self, path: Path | str) -> None:
         self.engine = create_engine(f"sqlite:///{path}")
         Base.metadata.create_all(self.engine)
+        self._migrate()
 
-    def save_quote(self, result: QuoteResult, lib: Library) -> QuoteRow:
-        """Store a new revision of the quote, with its override log."""
+    def _migrate(self) -> None:
+        """Add columns introduced after a database file was first created."""
+        cols = {c["name"] for c in inspect(self.engine).get_columns("quotes")}
+        if "status" not in cols:
+            with self.engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE quotes ADD COLUMN status VARCHAR(16) NOT NULL "
+                        f"DEFAULT '{STATUS_DRAFT}'"
+                    )
+                )
+
+    def save_quote(self, result: QuoteResult, lib: Library, *, final: bool = False) -> QuoteRow:
+        """Store a new revision of the quote, with its override log.
+
+        ``final=True`` marks it as issued; refused while any manual_review flag is open.
+        """
+        if final and result.has_open_review:
+            raise NotFinalizableError(
+                f"{len(result.open_review_items)} manual_review flags are open; "
+                "fill the value or override with a reason"
+            )
         inp = result.input
         with Session(self.engine, expire_on_commit=False) as s:
             last = s.scalar(
@@ -102,7 +165,8 @@ class Store:
                 unit_cost=result.value("cost.unit"),
                 unit_price=result.value("price.unit_final"),
                 order_total=result.value("price.order_total"),
-                manual_review=result.manual_review,
+                manual_review=result.has_open_review,
+                status=STATUS_FINAL if final else STATUS_DRAFT,
                 library_hash=library_hash(lib),
                 result_json=result.model_dump_json(),
             )
@@ -120,6 +184,64 @@ class Store:
             s.add(row)
             s.commit()
             return row
+
+    def finalize(self, quote_id: int) -> QuoteRow:
+        """Mark a stored quote revision final, if no manual_review flag is open."""
+        with Session(self.engine, expire_on_commit=False) as s:
+            row = s.get(QuoteRow, quote_id)
+            if row is None:
+                raise KeyError(quote_id)
+            if row.result().has_open_review:
+                raise NotFinalizableError("manual_review flags are open")
+            row.status = STATUS_FINAL
+            s.commit()
+            return row
+
+    def save_quote_set(
+        self, result: QuoteSetResult, lib: Library, *, final: bool = False
+    ) -> QuoteSetRow:
+        """Store a new revision of a multi-item quote."""
+        if final and result.has_open_review:
+            raise NotFinalizableError(
+                f"{len(result.open_review_items)} manual_review flags are open; "
+                "fill the value or override with a reason"
+            )
+        inp = result.input
+        with Session(self.engine, expire_on_commit=False) as s:
+            last = s.scalar(
+                select(func.max(QuoteSetRow.revision)).where(QuoteSetRow.quote_no == inp.quote_no)
+            )
+            row = QuoteSetRow(
+                quote_no=inp.quote_no,
+                revision=(last or 0) + 1,
+                customer=inp.customer,
+                currency=result.currency,
+                item_count=len(inp.parts) + len(inp.nre_items),
+                order_total=result.value("set.order_total"),
+                manual_review=result.has_open_review,
+                status=STATUS_FINAL if final else STATUS_DRAFT,
+                library_hash=library_hash(lib),
+                result_json=result.model_dump_json(),
+            )
+            s.add(row)
+            s.commit()
+            return row
+
+    def finalize_set(self, set_id: int) -> QuoteSetRow:
+        """Mark a stored quote-set revision final, if no manual_review flag is open."""
+        with Session(self.engine, expire_on_commit=False) as s:
+            row = s.get(QuoteSetRow, set_id)
+            if row is None:
+                raise KeyError(set_id)
+            if row.result().has_open_review:
+                raise NotFinalizableError("manual_review flags are open")
+            row.status = STATUS_FINAL
+            s.commit()
+            return row
+
+    def list_quote_sets(self) -> list[QuoteSetRow]:
+        with Session(self.engine, expire_on_commit=False) as s:
+            return list(s.scalars(select(QuoteSetRow).order_by(QuoteSetRow.id.desc())))
 
     def get(self, quote_id: int) -> QuoteRow:
         with Session(self.engine, expire_on_commit=False) as s:

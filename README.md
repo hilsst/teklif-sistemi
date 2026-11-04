@@ -2,7 +2,7 @@
 
 Autoclave/prepreg kompozit parça ve kalıp teklif sistemi (kurum içi, tek kullanıcı, yerel).
 CAD/teknik resimden kalıp ihtiyacı, ters açı çözümü, kalıp cinsi, master model, proses rotası
-ve kalem kalem izlenebilir maliyet çıkarır. Durum: **Faz 1** (maliyet motoru, geometri elle girilir).
+ve kalem kalem izlenebilir maliyet çıkarır. Durum: **Faz 1.5** (maliyet motoru + çok kalemli teklif; geometri elle girilir).
 
 ## Windows'ta kurulum ve çalıştırma
 
@@ -46,6 +46,43 @@ ve toplamlar hesaplanmaz (`—`), her biri kütüphane yoluyla birlikte `manual_
 Veritabanı varsayılan olarak `data/teklif.sqlite` (`TEKLIF_DB` ile değiştirilebilir); her kayıt yeni
 bir revizyondur ve kullanılan kütüphanenin SHA-256 özetini saklar.
 
+### Faz 1.5: şablonlar, çok kalemli teklif, adet taraması
+
+```bash
+uv run teklif blueprints                                   # teklif şablonları
+uv run teklif new --blueprint kalip_ve_parca --quote-no T-2026-100 --out teklif.yaml
+uv run teklif quote-set examples/ornek_teklif_seti.yaml --xlsx t.xlsx --pdf t.pdf --csv t.csv --db data/teklif.sqlite
+uv run teklif quote examples/ornek_parca.yaml --sweep            # adet taraması (kütüphane adetleri)
+uv run teklif quote examples/ornek_parca.yaml --sweep 1,10,250 --sweep-csv tarama.csv
+uv run teklif quote examples/ornek_parca.yaml --db data/teklif.sqlite --final   # kesinleştir
+```
+
+- **Şablon (blueprint):** `library/blueprints.yaml`; yeni teklifte hangi kalemlerin hazır geldiğini
+  belirler (yalnız parça / kalıp + master + parça / yalnız kalıp / yalnız master). Sayı içermez,
+  kendi şablonunuzu ekleyebilirsiniz. `teklif new` veya arayüzdeki **Çok kalemli teklif** sekmesi
+  iskelet YAML üretir; `null` alanlar doldurulana kadar teklif hesaplanmaz.
+- **Çok kalemli teklif:** parça kalemleri (her biri normal `QuoteInput`) ve tek seferlik NRE
+  kalemleri (kalıp, master model, fikstür; tutar elle girilir, Faz 3'e kadar). Teklif toplamı =
+  Σ parça sipariş toplamları + Σ NRE; her toplam kalem kalem izlenebilir (`set.*` satırları).
+  Kümedeki parçalar `teklif no`yu üstten alır; NRE yedirme (`amortize_nre`) yalnız tek parçalı
+  tekliflerde vardır, kümede NRE ayrı satırdır.
+- **Master model ayrı satır:** tek parçalı teklifte `master_nre` verilirse (`tooling_exists: true` ile birlikte hatadır) `tooling_nre` yalnız
+  kalıptır; `nre.tooling`, `nre.master`, `nre.total` satırları oluşur. Verilmezse eski davranış.
+- **Minimum sipariş tutarı:** `thresholds.yaml` → `costing.min_order_value` (0 = kapalı; `null` = TODO, teklifi taslak yapar). Sipariş
+  toplamı altında kalırsa fark `price.min_order_topup` satırı olarak eklenir; birim fiyat değişmez.
+  Çok kalemli teklifte tek kez, teklif toplamına uygulanır. **TODO: gerçek değeri girin.**
+- **Adet taraması:** adet başına tam yeniden hesap (öğrenme eğrisi, kurulum bölüşümü, NRE dahil).
+  Parti adedi sipariş adedini aşamaz (sınırlanır). Sipariş düzeyindeki ezmeler (`price.order_*`) adetle
+  değişeceği için atlanır, diğer ezmeler sabit tutulur; ikisi de satırda/CSV'de belirtilir. Varsayılan adetler
+  `costing.sweep_quantities`.
+- **Taslak / kesin:** açık `manual_review` bayrağı varken teklif TASLAK'tır: PDF'e TASLAK filigranı
+  basılır ve `--final` / "Kesinleştir" reddedilir. Eksik değer bayrağı (`missing_value`, `missing_upstream`, `nre_missing`) gerekçeli bir ezmeyle
+  kapanır (karar verilmiş sayılır, bayrak satırda yine görünür); sığmama, aşırı sıcaklık, geçersiz
+  girdi gibi gerçek sorun bayrakları ezmeyle kapanmaz. Gerekçe boş olamaz. Eski veritabanlarına
+  `status` sütunu otomatik eklenir (eski kayıtlar "draft"; eski kayıtlarda `manual_review` sütunu
+  "herhangi bir bayrak", yenilerde "açık bayrak" anlamındadır).
+- **CSV:** `;` ayraç, ondalık virgül, UTF-8 BOM (Türkçe Excel). `--csv-decimal .` ile nokta.
+
 ### Demo (dummy veri)
 
 `examples/demo_library` gerçek kütüphanenin, TODO alanları **uydurma** değerlerle doldurulmuş
@@ -69,13 +106,15 @@ library/                 Düzenlenebilir kütüphane (YAML) — koda gömülü s
   materials.yaml         Prepreg, sarf, kalıp/master model malzemeleri
   work_centers.yaml      İş merkezleri, işçilik ve makine saat ücretleri, verim
   autoclaves.yaml        Autoclave ölçüleri, sınırları, saat maliyeti
-  thresholds.yaml        Karar eşikleri (draft, maça oranı, tessellation) ve katsayılar
+  thresholds.yaml        Karar eşikleri (draft, maça oranı, tessellation), katsayılar, min. sipariş, tarama adetleri
+  blueprints.yaml        Teklif şablonları (hangi kalemlerle başlanır)
   processes/             Proses şablonları (operasyon, süre sürücüleri, sarf kullanımı)
 src/teklif/
   common/                Param, Price, CostLine, ReviewFlag (izlenebilirlik), birim, kur
   library/               YAML şemaları, yükleyici, çapraz doğrulama, TODO raporu
   routing/               Proses şablonundan operasyon listesi ve sürücü miktarları
-  costing/               Saf formüller (formulas), motor (engine), girdi şeması, regresyon
+  costing/               Saf formüller (formulas), motor (engine), girdi şeması, çok kalemli teklif
+                         (quote_set), adet taraması (sweep), regresyon
   storage/               SQLite (teklif, ezme kaydı, gerçekleşme), yükleme formatları, içe aktarıcı
   reporting/             Teklif Excel/PDF çıktısı, boş Excel şablon üretici
   app/                   Streamlit arayüzü

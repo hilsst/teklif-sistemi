@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from teklif.common.models import Param, Price
 
@@ -148,6 +148,8 @@ class CostingDefaults(_Strict):
     margin_basis: Literal["markup", "margin"]
     consumable_waste_ratio: Param
     autoclave_spacing: Param
+    min_order_value: Price
+    sweep_quantities: list[Annotated[int, Field(ge=1)]] = Field(min_length=1)
 
 
 class AcceptanceThresholds(_Strict):
@@ -230,3 +232,35 @@ class ProcessTemplate(_Strict):
     parameters: dict[str, Param] = Field(default_factory=dict)
     cure_cycles: list[CureCycle] = Field(default_factory=list)
     operations: list[Operation]
+
+
+# --- blueprints.yaml ---------------------------------------------------------------
+
+NreType = Literal["tool", "master", "fixture", "other"]
+
+
+class BlueprintItem(_Strict):
+    """One line item a blueprint creates in a new quote."""
+
+    type: Literal["part", "nre"]
+    id: str
+    name: str
+    nre_type: NreType | None = None
+    tooling_exists: bool = False
+
+    @model_validator(mode="after")
+    def _check(self) -> BlueprintItem:
+        if (self.type == "nre") != (self.nre_type is not None):
+            raise ValueError("nre_type is required for (and only for) type 'nre'")
+        return self
+
+
+class Blueprint(_Strict):
+    id: str
+    name: str
+    description: str = ""
+    items: list[BlueprintItem] = Field(min_length=1)
+
+
+class Blueprints(_Strict):
+    blueprints: list[Blueprint]

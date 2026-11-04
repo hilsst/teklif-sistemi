@@ -16,6 +16,7 @@ from teklif.common.models import (
     CostLine,
     LibValue,
     Param,
+    Price,
     ReviewFlag,
     Source,
     derived,
@@ -62,6 +63,16 @@ class QuoteResult(BaseModel):
     @property
     def manual_review(self) -> bool:
         return bool(self.review_items)
+
+    @property
+    def open_review_items(self) -> list[tuple[str, ReviewFlag]]:
+        """Flags not yet decided: flags on overridden lines are excluded."""
+        return [(ln.key, fl) for ln in self.lines for fl in ln.open_flags]
+
+    @property
+    def has_open_review(self) -> bool:
+        """True while the quote is a draft: it cannot be finalized or sent."""
+        return bool(self.open_review_items)
 
 
 class _Lines:
@@ -167,7 +178,12 @@ def _resolve(
 # --- engine ------------------------------------------------------------------------
 
 
-def compute_quote(inp: QuoteInput, lib: Library) -> QuoteResult:
+def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True) -> QuoteResult:
+    """Price one part.
+
+    ``apply_min_order=False`` skips the library's minimum order value; a quote set applies
+    it once on the quote total instead of on every part.
+    """
     template, prepregs, autoclave = _resolve(inp, lib)
     ccy = inp.quote_currency or lib.currency.quote_currency
     tfile = f"processes/{template.id}.yaml"
@@ -354,8 +370,12 @@ def compute_quote(inp: QuoteInput, lib: Library) -> QuoteResult:
     )
 
     # NRE and order total -------------------------------------------------------------
-    nre = _nre_line(out, inp, ccy, fx)
+    nre = _nre_total(out, inp, ccy, fx)
     qty = _user(inp.quantity, "part")
+    min_order = costing.min_order_value
+    use_min = apply_min_order and (min_order.value is None or min_order.value > 0)
+    total_key = "price.order_raw" if use_min else "price.order_total"
+    total_desc = "Sipariş toplamı (minimum öncesi)" if use_min else "Sipariş toplamı"
     if inp.amortize_nre and nre is not None:
         final = out.add(
             _line(
@@ -369,17 +389,7 @@ def compute_quote(inp: QuoteInput, lib: Library) -> QuoteResult:
             )
         )
         total_inputs: dict[str, LibValue] = {"unit": _from_line(final), "qty": qty}
-        out.add(
-            _line(
-                "price.order_total",
-                "Sipariş toplamı",
-                "price.unit_final × qty",
-                total_inputs,
-                lambda v: v["unit"] * v["qty"],
-                ccy,
-                "price",
-            )
-        )
+        total_formula = "price.unit_final × qty"
     else:
         final = out.add(
             _line(
@@ -393,17 +403,30 @@ def compute_quote(inp: QuoteInput, lib: Library) -> QuoteResult:
             )
         )
         total_inputs = {"unit": _from_line(final), "qty": qty}
-        formula = "price.unit_final × qty"
+        total_formula = "price.unit_final × qty"
         if nre is not None:
             total_inputs["nre"] = _from_line(nre)
-            formula += " + nre"
+            total_formula += " + nre"
+    order = out.add(
+        _line(
+            total_key,
+            total_desc,
+            total_formula,
+            total_inputs,
+            lambda v: v["unit"] * v["qty"] + v.get("nre", 0.0),
+            ccy,
+            "price",
+        )
+    )
+    if use_min:
+        topup = out.add(min_order_topup_line("price.min_order_topup", order, lib, fx))
         out.add(
             _line(
                 "price.order_total",
                 "Sipariş toplamı",
-                formula,
-                total_inputs,
-                lambda v: v["unit"] * v["qty"] + v.get("nre", 0.0),
+                "price.order_raw + price.min_order_topup",
+                {"raw": _from_line(order), "topup": _from_line(topup)},
+                lambda v: v["raw"] + v["topup"],
                 ccy,
                 "price",
             )
@@ -592,16 +615,63 @@ def _autoclave_lines(
     return [cost]
 
 
-def _nre_line(
+def min_order_topup_line(
+    key: str,
+    raw: CostLine,
+    lib: Library,
+    fx: Callable[[str], tuple[Param, str | None]],
+) -> CostLine:
+    """Amount added so the order total reaches the library's minimum order value."""
+    minimum = lib.thresholds.costing.min_order_value
+    return _line(
+        key,
+        "Minimum sipariş farkı",
+        "max(0, min_order × fx − sipariş toplamı)",
+        {
+            "min_order": (minimum, _p("thresholds.yaml", "costing.min_order_value")),
+            "fx": fx(minimum.currency),
+            "raw": _from_line(raw),
+        },
+        lambda v: max(0.0, v["min_order"] * v["fx"] - v["raw"]),
+        raw.unit,
+        "price",
+    )
+
+
+def _nre_total(
     out: _Lines, inp: QuoteInput, ccy: str, fx: Callable[[str], tuple[Param, str | None]]
 ) -> CostLine | None:
+    """Tooling NRE line, plus a separate master model line and a total when one is given."""
     if inp.tooling_exists:
         return None
-    if inp.tooling_nre is None:
+    tool = _nre_line(out, inp.tooling_nre, "nre.tooling", inp, ccy, fx)
+    if inp.master_nre is None:
+        return tool
+    master = _nre_line(out, inp.master_nre, "nre.master", inp, ccy, fx)
+    return out.add(
+        sum_line("nre.total", "NRE toplamı (kalıp + master model)", [tool, master], ccy, "nre")
+    )
+
+
+def _nre_line(
+    out: _Lines,
+    price: Price | None,
+    key: str,
+    inp: QuoteInput,
+    ccy: str,
+    fx: Callable[[str], tuple[Param, str | None]],
+) -> CostLine:
+    master = key == "nre.master"
+    description = (
+        "Master model (NRE)"
+        if master
+        else ("Kalıp (NRE)" if inp.master_nre is not None else "Kalıp + master model (NRE)")
+    )
+    if price is None:
         return out.add(
             CostLine(
-                key="nre.tooling",
-                description="Kalıp + master model (NRE)",
+                key=key,
+                description=description,
                 formula="kullanıcı girişi",
                 inputs=[],
                 result=None,
@@ -615,11 +685,11 @@ def _nre_line(
                 ],
             )
         )
-    nre = inp.tooling_nre.model_copy(update={"source": Source.USER})
+    nre = price.model_copy(update={"source": Source.USER})
     return out.add(
         _line(
-            "nre.tooling",
-            "Kalıp + master model (NRE)",
+            key,
+            description,
             "nre × fx",
             {"nre": nre, "fx": fx(nre.currency)},
             lambda v: v["nre"] * v["fx"],

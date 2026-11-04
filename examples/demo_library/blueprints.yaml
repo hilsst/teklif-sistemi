@@ -1,0 +1,27 @@
+# Teklif şablonları (blueprint): yeni teklifte hangi kalemlerin hazır geldiği.
+# Sayı içermez; kalemlerin türünü ve adlarını belirler. İstediğiniz kadar şablon ekleyebilirsiniz.
+# type: part = parça kalemi (proses, ply, geometri girilir); nre = tek seferlik kalem (tutar girilir).
+# nre_type: tool (kalıp) / master (master model) / fixture (fikstür) / other.
+blueprints:
+  - id: parca
+    name: "Yalnız parça"
+    description: "Kalıp mevcut; yalnızca üretim maliyeti."
+    items:
+      - {type: part, id: P1, name: "Parça", tooling_exists: true}
+  - id: kalip_ve_parca
+    name: "Kalıp + master model + parça"
+    description: "Yeni kalıp ve master model NRE olarak ayrı kalem, parça üretimi ayrı."
+    items:
+      - {type: part, id: P1, name: "Parça", tooling_exists: true}
+      - {type: nre, id: KALIP, name: "Kalıp", nre_type: tool}
+      - {type: nre, id: MASTER, name: "Master model", nre_type: master}
+  - id: sadece_kalip
+    name: "Yalnız kalıp"
+    description: "Müşteri yalnızca kalıp ister (parça üretimi yok)."
+    items:
+      - {type: nre, id: KALIP, name: "Kalıp", nre_type: tool}
+  - id: sadece_master
+    name: "Yalnız master model"
+    description: "Yalnızca master model (pattern) işi."
+    items:
+      - {type: nre, id: MASTER, name: "Master model", nre_type: master}

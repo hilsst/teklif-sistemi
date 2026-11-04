@@ -172,9 +172,14 @@ def test_streamlit_app_smoke(
     metrics = {m.label: m.value for m in at.metric}
     assert metrics["Birim maliyet [EUR]"] != "—"
     labels = [b.label for b in at.button]
-    at.button[labels.index("Teklifi kaydet")].click().run()
+    at.button[labels.index("Taslak olarak kaydet")].click().run()
     assert not at.exception
-    assert [s.value for s in at.success] == ["Kaydedildi: T-2026-001 rev 1"]
+    assert [s.value for s in at.success] == ["Taslak kaydedildi: T-2026-001 rev 1"]
+    labels = [b.label for b in at.button]
+    final = at.button[labels.index("Kesinleştir ve kaydet")]
+    assert not final.disabled  # filled library -> no open flags
+    final.click().run()
+    assert [s.value for s in at.success] == ["Kesin teklif kaydedildi: T-2026-001 rev 2"]
 
 
 def test_streamlit_library_tab_switches_margin(lib_copy: Path) -> None:
