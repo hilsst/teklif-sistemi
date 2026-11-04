@@ -76,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     qs.add_argument("--final", action="store_true")
     rg = sub.add_parser("regress", help="Compare the reference set with actual cost")
     rg.add_argument("file", type=Path)
+    ex = sub.add_parser(
+        "catalog-examples", help="Load part/model/tool cost examples into the catalog"
+    )
+    ex.add_argument("csv", type=Path)
+    ex.add_argument("step_dir", type=Path, help="Folder with the part STEP files")
+    ex.add_argument("--db", type=Path, default=Path("data/katalog.sqlite"))
+    te = sub.add_parser("tool-estimate", help="Rough tool cost from the part's one-side area (m2)")
+    te.add_argument("area_m2", type=float)
     sub.add_parser("app", help="Start the Streamlit UI (needs the 'app' extra)")
     args = parser.parse_args(argv)
 
@@ -85,6 +93,23 @@ def main(argv: list[str] | None = None) -> int:
         app = Path(__file__).resolve().parent / "app" / "streamlit_app.py"
         env = {**os.environ, "TEKLIF_LIBRARY": str(args.library)}
         return subprocess.call([sys.executable, "-m", "streamlit", "run", str(app)], env=env)
+
+    if args.cmd == "tool-estimate":
+        from teklif.tooling_rules.cost_estimate import estimate_tool_cost
+
+        est = estimate_tool_cost(args.area_m2)
+        print(f"{est.value:,.0f} {est.currency} ({est.low:,.0f}-{est.high:,.0f}); {est.note}")
+        return 0
+
+    if args.cmd == "catalog-examples":
+        from teklif.storage.catalog import Catalog
+        from teklif.storage.catalog_examples import load_examples
+
+        summary = load_examples(Catalog(args.db), args.csv, args.step_dir)
+        for note in summary.notes:
+            print(note)
+        print(f"{summary.parts} parça yüklendi ({args.db}).")
+        return 0
 
     try:
         lib = load_library(args.library)
