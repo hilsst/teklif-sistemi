@@ -16,6 +16,7 @@ import streamlit as st
 
 from teklif.common.models import Source
 from teklif.costing.from_catalog import quote_input_from_catalog
+from teklif.geometry.plate_features import extract_plate_features, plate_step_values
 from teklif.ingest.step_props import (
     EXTRACTOR_VERSION,
     StepUnavailableError,
@@ -158,15 +159,24 @@ def _wages_tab(lib: Library, lib_dir: str) -> None:
 # --- STEP upload ---------------------------------------------------------------------
 
 
-def _measure(cat: Catalog, cad_id: int, path: Path) -> list[StepValue] | None:
+def _measure(cat: Catalog, cad_id: int, path: Path, kind: str) -> list[StepValue] | None:
     try:
         props = extract_step_props(path)
     except StepUnavailableError as exc:
         st.warning(f"{path.name}: ölçülemedi ({exc}). Değerleri elle girebilirsiniz.")
         return None
     cat.record_values("cad_file", cad_id, props.values)
+    extra: list[StepValue] = []
+    if kind == "part":
+        try:
+            extra = plate_step_values(extract_plate_features(path))
+        except StepUnavailableError as exc:
+            st.warning(
+                f"{path.name}: levha özellikleri çıkarılamadı ({exc}); yaklaşık alan kullanılır."
+            )
+        cat.record_values("cad_file", cad_id, extra)
     cat.mark_measured(cad_id, EXTRACTOR_VERSION)
-    return props.values + derive_part_values(props)
+    return props.values + (extra or derive_part_values(props))
 
 
 def _upload_tab(cat: Catalog) -> None:
@@ -191,7 +201,7 @@ def _upload_tab(cat: Catalog) -> None:
             if not created and row.extractor_version == EXTRACTOR_VERSION:
                 st.info(f"{f.name}: aynı içerik zaten kayıtlı ve ölçülmüş ({row.name}).")
                 continue
-            values = _measure(cat, row.id, Path(row.stored_path))
+            values = _measure(cat, row.id, Path(row.stored_path), row.kind)
             for v in values or []:
                 rows.append(
                     {
@@ -237,7 +247,12 @@ def _link_cad_values(cat: Catalog, entity: str, entity_id: int, cad_id: int | No
         for p in cad.values()
     ]
     cat.record_values(entity, entity_id, values)
-    if entity == "part" and "surface_area_m2" in cad and "volume_m3" in cad:
+    if (
+        entity == "part"
+        and "part_area_m2" not in cad
+        and "surface_area_m2" in cad
+        and "volume_m3" in cad
+    ):
         from teklif.ingest.step_props import StepProps
 
         derived = derive_part_values(StepProps(solid_count=1, file_length_units=[], values=values))
