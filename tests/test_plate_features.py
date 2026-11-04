@@ -63,7 +63,6 @@ def test_step_values_are_derived_and_flagged(tmp_path: Path) -> None:
     assert {v.key for v in vals} == {
         "part_area_m2",
         "mean_thickness_mm",
-        "part_perimeter_m",
         "hole_count",
     }
     assert all(v.source.value == "derived" and v.review_reason for v in vals)

@@ -40,7 +40,7 @@ class PlateFeatures(BaseModel):
 
     one_side_area_m2: float
     mean_thickness_mm: float
-    trim_perimeter_mm: float
+    trim_perimeter_mm: float  # upper bound only; see plate_step_values
     hole_count: int
     holes: list[Hole]
     curved_area_fraction: float
@@ -194,7 +194,12 @@ def extract_plate_features(path: Path | str) -> PlateFeatures:
 
 
 def plate_step_values(f: PlateFeatures) -> list[StepValue]:
-    """Part-card values from the features; all derived and flagged for review."""
+    """Part-card values from the features; all derived and flagged for review.
+
+    The trim perimeter is deliberately not exported: on real sandwich parts (tapered or
+    stepped edges, internal ramps) edge-face area / thickness over-counted by about 2.5x, so
+    ``trim_perimeter_mm`` is only an upper bound and the perimeter stays a manual entry.
+    """
     reason = "; ".join(f.notes)
 
     def v(key: str, value: float, unit: str, why: str) -> StepValue:
@@ -205,6 +210,5 @@ def plate_step_values(f: PlateFeatures) -> list[StepValue]:
     return [
         v("part_area_m2", f.one_side_area_m2, "m2", "total area minus edge faces, halved"),
         v("mean_thickness_mm", f.mean_thickness_mm, "mm", "volume / one-side area"),
-        v("part_perimeter_m", f.trim_perimeter_mm / 1000, "m", "edge-face area / thickness"),
         v("hole_count", float(f.hole_count), "adet", "full concave cylinders on the part"),
     ]
