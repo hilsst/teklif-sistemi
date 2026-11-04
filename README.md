@@ -199,8 +199,20 @@ Arayüzdeki **Veri girişi** sekmesi firma verisini Excel yerine formlarla topla
 - **İzlenebilirlik:** Her değer kaynağıyla saklanır. CAD/türetilmiş bir değeri ezmek gerekçe ister;
   geçmiş korunur. STEP yeniden ölçülse bile kullanıcının girdiği değerin üzerine yazılmaz.
 
-Henüz yok: delik sayısı ve trim çevresinin STEP'ten çıkarımı (Faz 2), parça kartından tek tıkla teklif açma,
-Excel geçmiş yüklemesinin yeni tablolara bağlanması, teklif başına ücret çarpanı ezmesi.
+- **Parçadan teklif açma:** Parça kartındaki "Teklif girdisini hazırla" düğmesi parça ve kalıp kartından
+  teklif girdisini kurar ve "Yeni teklif" formunu doldurur. Eksik değer varsa liste verilir, tahminle
+  devam edilmez. Katalogda inceleme bayraklı (CAD'den ölçülen veya türetilmiş) değerler `input.review`
+  satırında bayrak olarak kalır; teklif, bir kişi o satırı gerekçeyle ezene kadar taslaktır.
+  Kalıp ve master model maliyeti NRE olarak gelir.
+- **Ücret çarpanı (teklif başına):** Tüm işçilik satırlarına çarpan uygulanır (örn. 0,90 rekabet için).
+  1 dışında bir değer gerekçe ister; çarpan her işçilik satırının girdilerinde `wage_factor` olarak görünür.
+- **Excel geçmişi:** `kalip_gecmis` ve `iscilik_gecmis` dosyaları doğrulanır ve kataloğa aktarılır.
+  İşçilik satırlarındaki adam-dakika, kişi sayısına ve parti adedine bölünerek parça başı takvim dakikasına
+  çevrilir. Var olan kayıtların üzerine yazılmaz. Geçmiş kalıp tablosundaki toplam maliyet master modeli
+  de içerir; bu yüzden master model için ayrı maliyet kaydı açılmaz (çifte sayım olmasın).
+
+Henüz yok: delik sayısı ve trim çevresinin STEP'ten çıkarımı (Faz 2), şerit sarım operasyonları
+(iş merkezi `SERIT_SARIM` var, proses şablonu yok), ıslak serim ve su jeti için proses şablonları.
 
 ## Yükleme şablonları
 

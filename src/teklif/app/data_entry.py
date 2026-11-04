@@ -6,6 +6,7 @@ user). Values measured from CAD can be overridden, but only with a reason.
 
 from __future__ import annotations
 
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from teklif.common.models import Source
+from teklif.costing.from_catalog import quote_input_from_catalog
 from teklif.ingest.step_props import (
     EXTRACTOR_VERSION,
     StepUnavailableError,
@@ -32,6 +34,9 @@ from teklif.storage.catalog import (
     Part,
     Tool,
 )
+from teklif.storage.catalog_import import import_labor_history, import_tool_history
+from teklif.storage.history_import import read_workbook
+from teklif.storage.history_schema import WORKBOOKS
 
 KIND_LABELS = {
     "part": "Parça",
@@ -472,6 +477,43 @@ def _part_tab(cat: Catalog, lib: Library) -> None:
     _values_editor(cat, "part", part.id)
     _plies_editor(cat, part)
     _ops_editor(cat, lib, part)
+    _open_quote(cat, lib, part)
+
+
+def _open_quote(cat: Catalog, lib: Library, part: Part) -> None:
+    st.markdown("**Bu parçadan teklif aç**")
+    tools = cat.tools_for_part(part.id)
+    if not tools:
+        st.caption("Önce Master model / Kalıp sekmesinde bu parçaya hizmet eden bir kalıp ekleyin.")
+        return
+    c1, c2, c3, c4 = st.columns(4)
+    tool = c1.selectbox("Kalıp", tools, format_func=lambda t: t.tool_no, key=f"q_tool_{part.id}")
+    quote_no = c2.text_input("Teklif no", value=f"T-{part.part_no}", key=f"q_no_{part.id}")
+    qty = c3.number_input("Adet", min_value=1, value=1, key=f"q_qty_{part.id}")
+    batch = c4.number_input("Parti adedi", min_value=1, value=1, key=f"q_batch_{part.id}")
+    f1, f2 = st.columns([1, 2])
+    factor = f1.number_input(
+        "Ücret çarpanı", min_value=0.01, value=1.0, step=0.05, key=f"q_wf_{part.id}"
+    )
+    reason = f2.text_input("Çarpan gerekçesi (1 değilse zorunlu)", key=f"q_wr_{part.id}")
+    if st.button("Teklif girdisini hazırla", key=f"q_go_{part.id}"):
+        if factor != 1.0 and not reason.strip():
+            st.warning("Ücret çarpanı 1 değilse gerekçe zorunlu.")
+            return
+        try:
+            res = quote_input_from_catalog(
+                cat, lib, part.id, tool.id, quote_no, int(qty), int(batch), factor, reason
+            )
+        except ValueError as exc:  # pydantic ValidationError is a ValueError
+            st.error(f"Girdi kurulamadı: {exc}")
+            return
+        if res.input is None:
+            st.error("Eksik veri var, teklif açılamadı:")
+            for m in res.missing:
+                st.markdown(f"- {m}")
+            return
+        st.session_state["catalog_base"] = res.input.model_dump(mode="json")
+        st.success("Teklif girdisi hazır. 'Yeni teklif' sekmesine geçin; kırılım orada.")
 
 
 def _plies_editor(cat: Catalog, part: Part) -> None:
@@ -589,13 +631,55 @@ def _ops_editor(cat: Catalog, lib: Library, part: Part) -> None:
         st.rerun()
 
 
+# --- Excel history import ------------------------------------------------------------
+
+
+def _excel_tab(cat: Catalog, lib: Library) -> None:
+    st.caption(
+        "Geçmiş kalıp ve işçilik tabloları (Faz 0 şablonları) katalog kayıtlarına dönüşür. "
+        "Var olan kayıtların üzerine yazılmaz."
+    )
+    kind = st.selectbox(
+        "Tablo türü",
+        ["kalip_gecmis", "iscilik_gecmis"],
+        format_func=lambda k: WORKBOOKS[k].title,
+        key="excel_kind",
+    )
+    upload = st.file_uploader("Excel dosyası", type=["xlsx"], key="excel_file")
+    if upload is None:
+        return
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "upload.xlsx"
+        path.write_bytes(upload.getvalue())
+        result = read_workbook(path, WORKBOOKS[kind], lib)
+    if not result.ok:
+        st.error(f"{len(result.issues)} sorun var; hiçbir şey aktarılmadı.")
+        st.dataframe(
+            pd.DataFrame(
+                [{"satır": i.row, "kolon": i.column, "sorun": i.message} for i in result.issues]
+            ),
+            hide_index=True,
+        )
+        return
+    st.success(f"{len(result.rows)} satır doğrulandı.")
+    if st.button("Kataloğa aktar", key="excel_go"):
+        summary = (
+            import_tool_history(cat, result.rows)
+            if kind == "kalip_gecmis"
+            else import_labor_history(cat, result.rows, lib)
+        )
+        st.write(summary.created or "Yeni kayıt yok.")
+        for note in summary.skipped:
+            st.warning(note)
+
+
 # --- entry point -----------------------------------------------------------------------
 
 
 def render(lib: Library, lib_dir: str, catalog_path: Path) -> None:
     cat = Catalog(catalog_path)
-    wages, upload, tools, parts = st.tabs(
-        ["Saat ücretleri", "STEP yükle", "Master model / Kalıp", "Parça"]
+    wages, upload, tools, parts, excel = st.tabs(
+        ["Saat ücretleri", "STEP yükle", "Master model / Kalıp", "Parça", "Excel geçmişi"]
     )
     with wages:
         _wages_tab(lib, lib_dir)
@@ -605,3 +689,5 @@ def render(lib: Library, lib_dir: str, catalog_path: Path) -> None:
         _tool_tab(cat, lib)
     with parts:
         _part_tab(cat, lib)
+    with excel:
+        _excel_tab(cat, lib)

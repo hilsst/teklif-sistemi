@@ -151,6 +151,7 @@ class CostRecord(Base):
     material: Mapped[float | None]
     currency: Mapped[str] = mapped_column(String(8))
     cost_date: Mapped[date | None]
+    includes_master: Mapped[bool] = mapped_column(default=False)
     note: Mapped[str] = mapped_column(default="")
 
     @property
@@ -181,7 +182,17 @@ class Catalog:
     def __init__(self, path: Path | str, cad_dir: Path | str | None = None) -> None:
         self.engine = create_engine(f"sqlite:///{path}")
         Base.metadata.create_all(self.engine)
+        self._add_missing_columns()
         self.cad_dir = Path(cad_dir) if cad_dir else Path(str(path)).parent / "cad"
+
+    def _add_missing_columns(self) -> None:
+        """Databases made before a column existed get it added (SQLite ALTER TABLE)."""
+        with self.engine.begin() as conn:
+            cols = {r[1] for r in conn.exec_driver_sql("PRAGMA table_info(cost_records)")}
+            if "includes_master" not in cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE cost_records ADD COLUMN includes_master BOOLEAN NOT NULL DEFAULT 0"
+                )
 
     def _session(self) -> Session:
         return Session(self.engine, expire_on_commit=False)
@@ -279,6 +290,7 @@ class Catalog:
         material: float | None = None,
         cost_date: date | None = None,
         note: str = "",
+        includes_master: bool = False,
     ) -> CostRecord:
         if entity not in ("tool", "master_model"):
             raise CatalogError("costs are recorded for tools and master models")
@@ -292,6 +304,7 @@ class Catalog:
                 material=material,
                 currency=currency,
                 cost_date=cost_date,
+                includes_master=includes_master,
                 note=note,
             )
             s.add(row)

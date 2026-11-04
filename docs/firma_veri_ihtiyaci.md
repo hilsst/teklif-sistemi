@@ -6,7 +6,7 @@ Bu liste `teklif todo` komutuyla kütüphanedeki boş (`value: null`) alanlardan
 
 Birim gösterimi: `min` = dakika, `h` = saat, `m2` = m², `degC` = °C, `ratio` = oran (0–1), `1e-6/K` = 10⁻⁶/K, `min/batch` = parti başına dakika, `EUR/m2` = m² başına EUR. Para birimi her kalemde ayrı seçilebilir (EUR, TRY, USD); farklı birim kullanırsanız belirtmeniz yeterli.
 
-Toplam açık kalem: **171**
+Toplam açık kalem: **177**
 
 ## Kurlar — `currency.yaml` (2)
 
@@ -88,7 +88,7 @@ Toplam açık kalem: **171**
 | 67 | `tooling_materials[CELIK].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
 | 68 | `tooling_materials[CELIK].price` | Plaka/blok fiyatı | `EUR/kg` |
 
-## İş merkezleri ve saat ücretleri — `work_centers.yaml` (45)
+## İş merkezleri ve saat ücretleri — `work_centers.yaml` (51)
 
 | # | Anahtar | Açıklama | Birim |
 |---|---|---|---|
@@ -137,6 +137,12 @@ Toplam açık kalem: **171**
 | 43 | `work_centers[ISLAK_SERIM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
 | 44 | `work_centers[ISLAK_SERIM].operators` | Tipik operatör sayısı | `person` |
 | 45 | `work_centers[ISLAK_SERIM].efficiency` | Verim (0-1) | `ratio` |
+| 46 | `work_centers[SU_JETI].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 47 | `work_centers[SU_JETI].operators` | Tipik operatör sayısı | `person` |
+| 48 | `work_centers[SU_JETI].efficiency` | Verim (0-1) | `ratio` |
+| 49 | `work_centers[SERIT_SARIM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
+| 50 | `work_centers[SERIT_SARIM].operators` | Tipik operatör sayısı | `person` |
+| 51 | `work_centers[SERIT_SARIM].efficiency` | Verim (0-1) | `ratio` |
 
 ## Autoclave ölçü ve maliyetleri — `autoclaves.yaml` (9)
 

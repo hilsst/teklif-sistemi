@@ -15,7 +15,7 @@ import streamlit as st
 import yaml
 
 from teklif.app import data_entry
-from teklif.common.models import Override, Price
+from teklif.common.models import Override, Price, Source
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
 from teklif.costing.quote_set import (
@@ -83,6 +83,25 @@ def excel_bytes(result: QuoteResult) -> bytes:
 def _example() -> dict[str, Any]:
     data: dict[str, Any] = yaml.safe_load(EXAMPLE.read_text(encoding="utf-8"))
     return data
+
+
+def _nre_price(value: float, currency: str, base: dict[str, Any]) -> Price:
+    """Keep the catalog price (with its source note) while untouched; an edit makes it USER."""
+    if (
+        base
+        and base.get("currency") == currency
+        and abs(float(base.get("value") or 0) - value) < 1e-9
+    ):
+        return Price.model_validate(base)
+    return Price(value=value, currency=currency, per="pcs", source=Source.USER)
+
+
+def _geometry_source(base_geo: dict[str, Any], geo: dict[str, Any]) -> Source:
+    """Keep the catalog's source while the values are untouched; any edit makes it USER."""
+    untouched = "source" in base_geo and all(
+        abs(float(base_geo.get(k, float("nan"))) - float(v)) < 1e-9 for k, v in geo.items()
+    )
+    return Source(base_geo["source"]) if untouched else Source.USER
 
 
 def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
@@ -169,6 +188,18 @@ def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
     quantity = q1.number_input("Sipariş adedi", 1, value=int(base.get("quantity", 1)))
     batch = q2.number_input("Parti adedi", 1, value=int(base.get("batch_size", 1)))
     first = q3.number_input("İlk parça sıra no", 1, value=int(base.get("first_unit_no", 1)))
+    w1, w2 = st.columns([1, 2])
+    wage_factor = w1.number_input(
+        "Ücret çarpanı (tüm işçilik)",
+        min_value=0.01,
+        value=float(base.get("wage_factor", 1.0)),
+        step=0.05,
+        help="1,00 = kütüphane ücretleri. Rekabet veya stratejik önem için değiştirin.",
+    )
+    wage_reason = w2.text_input(
+        "Ücret çarpanı gerekçesi (çarpan 1 değilse zorunlu)",
+        value=str(base.get("wage_factor_reason", "")),
+    )
     optional = [op.id for op in template.operations if op.optional]
     all_ops = [op.id for op in template.operations]
     include = q1.multiselect(
@@ -201,6 +232,14 @@ def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
         0.0,
         value=float((base.get("master_nre") or {}).get("value") or 0.0),
     )
+    master_base = base.get("master_nre") or {}
+    master_ccy = n3.selectbox(
+        "Master model para birimi",
+        currencies,
+        index=currencies.index(master_base["currency"])
+        if master_base.get("currency") in currencies
+        else 0,
+    )
 
     try:
         plies = [
@@ -226,18 +265,21 @@ def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
             autoclave=autoclave,
             complexity=cx,
             plies=plies,
-            geometry=PartGeometry(**geo),
+            geometry=PartGeometry(**geo, source=_geometry_source(g, geo)),
             quantity=int(quantity),
             batch_size=int(batch),
             first_unit_no=int(first),
+            review_notes=list(base.get("review_notes", [])),
+            wage_factor=float(wage_factor),
+            wage_factor_reason=wage_reason,
             include_optional=include,
             exclude_operations=exclude,
             tooling_nre=None
             if tooling_exists or nre_value <= 0
-            else Price(value=nre_value, currency=nre_ccy, per="pcs"),
+            else _nre_price(nre_value, nre_ccy, nre_base),
             master_nre=None
             if tooling_exists or master_value <= 0
-            else Price(value=master_value, currency=nre_ccy, per="pcs"),
+            else _nre_price(master_value, master_ccy, master_base),
             tooling_exists=tooling_exists,
             amortize_nre=amortize,
             overrides=st.session_state.get("overrides", {}),
@@ -701,7 +743,18 @@ def main() -> None:
         ["Yeni teklif", "Çok kalemli teklif", "Kayıtlı teklifler", "Kütüphane", "Veri girişi"]
     )
     with new_tab:
-        base = _example() if st.toggle("Örnek parçayla doldur", value=True) else {}
+        catalog_base = st.session_state.get("catalog_base")
+        if catalog_base:
+            st.info(
+                "Girdi katalogdaki parça ve kalıp kartından dolduruldu "
+                f"({catalog_base.get('part_no')}). Katalogda bayraklı değerler taslak olarak kalır."
+            )
+            if st.button("Katalog girdisini temizle"):
+                del st.session_state["catalog_base"]
+                st.rerun()
+            base = catalog_base
+        else:
+            base = _example() if st.toggle("Örnek parçayla doldur", value=True) else {}
         inp = _input_form(lib, base)
         if inp is not None:
             try:

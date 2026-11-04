@@ -106,3 +106,15 @@ work_centers:
     machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
     operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
     efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: SU_JETI
+    name: "Su jeti kesim (köpük, MDF, FR4 vb. malzeme kesimi)"
+    wage_class: operator
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+  - id: SERIT_SARIM
+    name: "Şerit sarım (özel proses; operasyonları henüz tanımlı değil)"
+    wage_class: operator
+    machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
+    operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
+    efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}

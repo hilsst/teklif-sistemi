@@ -191,7 +191,28 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
     ops = active_operations(template, inp)
     drivers = compute_drivers(template, inp)
     work_centers = {w.id: w for w in lib.work_centers.work_centers}
+    if inp.wage_factor != 1.0 and not inp.wage_factor_reason.strip():
+        raise QuoteInputError("wage_factor other than 1 needs wage_factor_reason")
+    wage_factor = Param(
+        value=inp.wage_factor,
+        unit="ratio",
+        source=Source.USER,
+        desc=inp.wage_factor_reason.strip() or "no strategic adjustment",
+    )
     out = _Lines(inp.overrides)
+    if inp.review_notes:
+        out.add(
+            _line(
+                "input.review",
+                "Girdi değerleri incelemesi (katalogda bayraklı)",
+                "number of flagged input values",
+                {"n": _user(len(inp.review_notes), "adet")},
+                lambda v: v["n"],
+                "adet",
+                "input",
+                [ReviewFlag(code="catalog_review", reason=n) for n in inp.review_notes],
+            )
+        )
 
     def fx(from_ccy: str) -> tuple[Param, str | None]:
         return fx_param(lib, from_ccy, ccy)
@@ -232,7 +253,7 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
         wc = work_centers[op.work_center]
         tl = out.add(_time_line(op, wc, tfile, inp, drivers, cf, cf_path, learning))
         time_lines.append(tl)
-        labor_lines.append(out.add(_labor_line(op, wc, tl, fx(wc.labor.currency))))
+        labor_lines.append(out.add(_labor_line(op, wc, tl, fx(wc.labor.currency), wage_factor)))
         if wc.machine_rate.value != 0:
             machine_lines.append(out.add(_machine_line(op, wc, tl, fx(wc.machine_rate.currency))))
     out.add(sum_line("time.total", "Toplam süre (parça başı)", time_lines, "min", "time"))
@@ -494,13 +515,17 @@ def _time_line(
 
 
 def _labor_line(
-    op: Operation, wc: WorkCenter, time: CostLine, fx: tuple[Param, str | None]
+    op: Operation,
+    wc: WorkCenter,
+    time: CostLine,
+    fx: tuple[Param, str | None],
+    wage_factor: Param,
 ) -> CostLine:
     wpath = f"work_centers[{wc.id}]"
     return _line(
         f"labor.{op.id}",
         f"{op.name} ({wc.id})",
-        "time / 60 × operators × labor_rate × fx",
+        "time / 60 × operators × labor_rate × wage_factor × fx",
         {
             "time": _from_line(time),
             "operators": (wc.operators, _p("work_centers.yaml", f"{wpath}.operators")),
@@ -511,9 +536,12 @@ def _labor_line(
                     "engineer_rate" if wc.wage_class else f"{wpath}.labor_rate",
                 ),
             ),
+            "wage_factor": (wage_factor, None),
             "fx": fx,
         },
-        lambda v: f.labor_cost(v["time"], v["operators"], v["labor_rate"], v["fx"]),
+        lambda v: f.labor_cost(
+            v["time"], v["operators"], v["labor_rate"] * v["wage_factor"], v["fx"]
+        ),
         fx[0].unit.split("/")[0],
         "labor",
     )

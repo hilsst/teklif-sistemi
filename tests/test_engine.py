@@ -175,3 +175,22 @@ def test_bad_references(
 ) -> None:
     with pytest.raises(QuoteInputError):
         compute_quote(example_input.model_copy(update={field: value}), filled_lib)
+
+
+def test_wage_factor_scales_labor_only_and_needs_reason(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    base = compute_quote(example_input, filled_lib)
+    with pytest.raises(QuoteInputError):
+        compute_quote(example_input.model_copy(update={"wage_factor": 0.9}), filled_lib)
+    inp = example_input.model_copy(
+        update={"wage_factor": 0.9, "wage_factor_reason": "rekabetçi teklif"}
+    )
+    r = compute_quote(inp, filled_lib)
+    assert r.value("labor.total") == pytest.approx((base.value("labor.total") or 0) * 0.9)
+    assert r.value("material.total") == base.value("material.total")
+    assert r.value("machine.total") == base.value("machine.total")
+    line = r.get("labor.serim")
+    factor = next(i for i in line.inputs if i.name == "wage_factor")
+    assert factor.value == 0.9 and factor.source.value == "user"
+    assert r.input.wage_factor_reason == "rekabetçi teklif"
