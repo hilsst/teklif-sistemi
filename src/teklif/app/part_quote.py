@@ -106,7 +106,12 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     quote_no = c1.text_input("Teklif no", f"TASLAK-{stem[:24]}", key="pq_qno")
     part_no = c2.text_input("Parça no", stem, key="pq_pno")
     customer = c3.text_input("Müşteri", "", key="pq_cust")
-    process = c1.selectbox("Proses", procs, key="pq_proc")
+    process = c1.selectbox(
+        "Proses",
+        procs,
+        index=procs.index("sandvic_autoclave") if "sandvic_autoclave" in procs else 0,
+        key="pq_proc",
+    )
     cycles = [x.id for x in lib.processes[process].cure_cycles]
     cure = c2.selectbox("Kür çevrimi", cycles, key="pq_cure")
     material = c3.selectbox("Ana prepreg", prepregs, key="pq_mat")

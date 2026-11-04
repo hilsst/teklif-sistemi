@@ -494,15 +494,19 @@ def _time_line(
         run += " × complexity" if use_cf else ""
         run += " × learning" if use_lc else ""
         parts.append(run)
+    if op.margin is not None:
+        inputs["margin"] = (op.margin, _p(tfile, f"{base}.margin"))
     inputs["efficiency"] = (
         wc.efficiency,
         _p("work_centers.yaml", f"work_centers[{wc.id}].efficiency"),
     )
     formula = "(" + " + ".join(parts or ["0"]) + ") / efficiency"
+    if op.margin is not None:
+        formula += " × margin"
     drivers_used = [t.driver for t in op.times]
 
     def compute(v: Mapping[str, float]) -> float:
-        return f.operation_time(
+        return v.get("margin", 1.0) * f.operation_time(
             v.get("setup", 0.0),
             v.get("batch", 1.0),
             [(v[f"rate.{d}"], v[d]) for d in drivers_used],

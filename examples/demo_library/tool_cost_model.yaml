@@ -1,0 +1,15 @@
+# Kaba kalıp maliyeti tahmini: maliyet = base_eur + eur_per_m2 x parça tek yüz alanı.
+# source: derived = Kemal'in geçmiş kalıp maliyetlerinden hesaplandı (CES-PO-1522 radom panelleri).
+# Yalnız doğrulama aralığında geçerli; dışında uyarı verilir. Yeni örnekler gelince güncellenir.
+tool_cost_model:
+  basis: part_one_side_area_m2
+  currency: EUR
+  base: 4430
+  per_m2: 1224
+  valid_area_m2: {min: 2.4, max: 4.7}
+  valid_for: "kompozit kalıp, 5.8-6.1 mm eğrisel panel (CES-PO-1522 A/B/BA/BB/BC/BX)"
+  samples: 6
+  r_squared: 0.88
+  max_residual_ratio: 0.075
+  leave_one_out_max_error: 0.093
+  source: derived

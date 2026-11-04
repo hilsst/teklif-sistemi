@@ -2,6 +2,7 @@
 # id değerleri kodda ve geçmiş verilerde kullanılır; değiştirmeyin, yeni satır ekleyin.
 processes:
   - {id: autoclave_prepreg, label: "Autoclave prepreg"}
+  - {id: sandvic_autoclave, label: "Sandviç panel (autoclave prepreg)"}
   - {id: ooa_prepreg, label: "OOA prepreg"}
   - {id: infuzyon, label: "Vakum infüzyon"}
   - {id: rtm, label: "RTM / Light RTM"}
@@ -38,6 +39,9 @@ operations:
   - {id: recine_hazirlama, label: "Reçine hazırlama"}
   - {id: kesim, label: "Ply kesimi"}
   - {id: serim, label: "Serim (layup)"}
+  - {id: cekirdek_kesim, label: "Çekirdek kesimi"}
+  - {id: film_serim, label: "Film yapıştırıcı serimi"}
+  - {id: cekirdek_yerlestirme, label: "Çekirdek yerleştirme"}
   - {id: islatma, label: "Islatma (rulo)"}
   - {id: debulk, label: "Debulk"}
   - {id: torbalama, label: "Torbalama"}
@@ -45,10 +49,14 @@ operations:
   - {id: kaliptan_cikarma, label: "Kalıptan çıkarma"}
   - {id: trim, label: "Trim / delik delme"}
   - {id: el_isciligi, label: "Çapak alma / el işçiliği"}
+  - {id: kenar_kapama, label: "Kenar kapama"}
+  - {id: yuzey_hazirlama, label: "Yüzey hazırlama"}
   - {id: ndt, label: "NDT"}
+  - {id: sizdirmazlik_testi, label: "Sızdırmazlık / test"}
   - {id: olcum, label: "Ölçüm"}
   - {id: boya, label: "Boya"}
   - {id: montaj, label: "Montaj"}
+  - {id: insert_potting, label: "Insert / potting"}
   - {id: diger, label: "Diğer"}
 complexity:
   - {id: dusuk, label: "Düşük"}
