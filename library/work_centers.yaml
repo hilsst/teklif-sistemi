@@ -118,3 +118,25 @@ work_centers:
     machine_rate: {value: null, currency: EUR, per: h, desc: "Makine/tesis saat ücreti"}
     operators: {value: null, unit: person, desc: "Tipik operatör sayısı"}
     efficiency: {value: null, unit: ratio, desc: "Verim (0-1)"}
+
+  # Adam-saat merkezleri (Kemal, 2026-11-04): hızlı sandviç şablonundaki süreler 7 panelin parça başı
+  # ADAM-SAAT değerleridir (toplam emek). Bu yüzden operatör sayısı 1 ve verim 1 sabittir; süre dakika
+  # cinsinden adam-dakikadır. Gerçek merkezlerin operatör sayısına (TODO) bağlı değildir.
+  - id: ADAMSAAT_SERIM
+    name: "Adam-saat: serim, kalıp hazırlık ve kalıptan çıkarma (toplu süre)"
+    wage_class: prepreg_serim
+    machine_rate: {value: 0, currency: EUR, per: h, source: user, desc: "Makine/tesis saat ücreti (serim toplu süresinde makine ayrı yok; autoclave ayrıca hesaplanır)"}
+    operators: {value: 1, unit: person, source: user, desc: "Adam-saat verisi: 1 kişi gibi hesaplanır"}
+    efficiency: {value: 1, unit: ratio, source: user, desc: "Gerçekleşen adam-saat, verim 1"}
+  - id: ADAMSAAT_TRIM
+    name: "Adam-saat: CNC trim (toplu süre)"
+    wage_class: operator
+    machine_rate: {value: null, currency: EUR, per: h, desc: "CNC makine/tesis saat ücreti"}
+    operators: {value: 1, unit: person, source: user, desc: "Adam-saat verisi: 1 kişi gibi hesaplanır"}
+    efficiency: {value: 1, unit: ratio, source: user, desc: "Gerçekleşen adam-saat, verim 1"}
+  - id: ADAMSAAT_MONTAJ
+    name: "Adam-saat: montaj (toplu süre)"
+    wage_class: montaj
+    machine_rate: {value: 0, currency: EUR, per: h, source: user, desc: "Makine/tesis saat ücreti"}
+    operators: {value: 1, unit: person, source: user, desc: "Adam-saat verisi: 1 kişi gibi hesaplanır"}
+    efficiency: {value: 1, unit: ratio, source: user, desc: "Gerçekleşen adam-saat, verim 1"}

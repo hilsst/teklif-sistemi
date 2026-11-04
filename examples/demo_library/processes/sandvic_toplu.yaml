@@ -1,0 +1,187 @@
+# DEMO / dummy değer - gerçek firma verisi değil. scripts/make_demo_library.py ile üretildi; elle düzenlemeyin.
+id: sandvic_toplu
+name: Sandviç panel (toplu süre, hızlı teklif)
+version: 1
+parameters: {}
+cure_cycles:
+- id: cure_120
+  name: 120 °C kür çevrimi
+  cure_temp:
+    value: 120
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı
+  pressure:
+    value: 6
+    unit: bar
+    desc: Autoclave basıncı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cycle_time:
+    value: 6
+    unit: h
+    desc: Toplam çevrim süresi (ısıtma + bekleme + soğutma)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+- id: cure_180
+  name: 180 °C kür çevrimi
+  cure_temp:
+    value: 180
+    unit: degC
+    source: user
+    desc: Kür sıcaklığı
+  pressure:
+    value: 7
+    unit: bar
+    desc: Autoclave basıncı
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+  cycle_time:
+    value: 9
+    unit: h
+    desc: Toplam çevrim süresi (ısıtma + bekleme + soğutma)
+    source: default
+    note: DEMO / dummy değer - gerçek firma verisi değil
+operations:
+- seq: 10
+  id: kalip_hazirlik
+  name: Kalıp hazırlık
+  work_center: ADAMSAAT_SERIM
+  learning: false
+  times:
+  - driver: per_part
+    rate:
+      value: 60
+      unit: min/part
+      source: user
+      desc: 1 adam-saat parça başına (Kemal, 7 panel)
+- seq: 20
+  id: serim
+  name: Serim (kesim, debulk, torbalama, kür bağlama, NDT ve ölçüm dahil)
+  work_center: ADAMSAAT_SERIM
+  learning: false
+  times:
+  - driver: per_part
+    rate:
+      value: 202.45
+      unit: min/part
+      source: user
+      desc: 3,374 adam-saat sabit terim (7 panel doğrusal uyumu)
+  - driver: part_area_m2
+    rate:
+      value: 134.72
+      unit: min/m2
+      source: user
+      desc: 2,245 adam-saat/m2 (7 panel doğrusal uyumu; 2,4-4,7 m2 aralığında geçerli)
+  consumables:
+  - material: KALIP_AYIRICI
+    driver: tool_area_m2
+    qty:
+      value: 0.03
+      unit: L/m2
+      desc: Kalıp ayırıcı sarfiyatı, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: CEKIRDEK
+    driver: part_area_m2
+    qty:
+      value: 1.25
+      unit: m2/m2
+      desc: Çekirdek malzeme kullanımı (fire dahil), parça alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: FILM_YAPISTIRICI
+    driver: part_area_m2
+    qty:
+      value: 2.2
+      unit: m2/m2
+      desc: Film yapıştırıcı kullanımı (iki yüz, fire dahil), parça alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: PEEL_PLY
+    driver: part_area_m2
+    qty:
+      value: 1.1
+      unit: m2/m2
+      desc: Peel ply kullanımı, parça alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: AYIRICI_FILM
+    driver: tool_area_m2
+    qty:
+      value: 1.2
+      unit: m2/m2
+      desc: Ayırıcı film kullanımı, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: BREATHER
+    driver: tool_area_m2
+    qty:
+      value: 1.3
+      unit: m2/m2
+      desc: Breather kullanımı, kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: VAKUM_TORBA
+    driver: tool_area_m2
+    qty:
+      value: 1.6
+      unit: m2/m2
+      desc: Vakum torba filmi (pile payı dahil), kalıp alanı başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+  - material: SIZDIRMAZLIK_BANDI
+    driver: tool_perimeter_m
+    qty:
+      value: 1.05
+      unit: m/m
+      desc: Sızdırmazlık bandı, çevre başına
+      source: default
+      note: DEMO / dummy değer - gerçek firma verisi değil
+- seq: 30
+  id: kur
+  name: Autoclave kürü (yalnız autoclave payı; işçilik serim süresinde)
+  work_center: ADAMSAAT_SERIM
+  learning: false
+  autoclave_cure: true
+- seq: 40
+  id: kaliptan_cikarma
+  name: Kalıptan çıkarma
+  work_center: ADAMSAAT_SERIM
+  learning: false
+  times:
+  - driver: per_part
+    rate:
+      value: 15
+      unit: min/part
+      source: user
+      desc: 0,25 adam-saat parça başına (Kemal, 7 panel)
+- seq: 50
+  id: trim
+  name: CNC trim (delik delme dahil, güvenlik marjlı)
+  work_center: ADAMSAAT_TRIM
+  learning: false
+  margin:
+    value: 1.05
+    unit: ratio
+    source: user
+    desc: Trim süresi güvenlik marjı (delik delme dahil; Kemal 2026-11-04)
+  times:
+  - driver: per_part
+    rate:
+      value: 60
+      unit: min/part
+      source: user
+      desc: 1 adam-saat parça başına (Kemal, 7 panel)
+- seq: 60
+  id: montaj
+  name: Montaj
+  work_center: ADAMSAAT_MONTAJ
+  learning: false
+  times:
+  - driver: per_part
+    rate:
+      value: 132
+      unit: min/part
+      source: user
+      desc: 2,2 adam-saat parça başına (Kemal, 7 panel)

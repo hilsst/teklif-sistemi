@@ -237,3 +237,22 @@ def test_sandwich_quote_includes_core_operations_and_trim_margin(
         update={"geometry": inp.geometry.model_copy(update={"hole_count": 99})}
     )
     assert compute_quote(more_holes, filled_lib).value("time.trim") == r.value("time.trim")
+
+
+def test_toplu_sandwich_uses_person_hours_from_table(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    geo = example_input.geometry.model_copy(
+        update={"part_area_m2": 2.64, "tool_footprint_x_mm": 1000, "tool_footprint_y_mm": 1000}
+    )
+    inp = example_input.model_copy(update={"process": "sandvic_toplu", "geometry": geo})
+    r = compute_quote(inp, filled_lib)
+    # person-hours -> minutes at operators=1, efficiency=1 (ADAMSAAT_* centers)
+    assert r.value("time.serim") == pytest.approx(202.45 + 134.72 * 2.64)
+    assert r.value("time.kalip_hazirlik") == pytest.approx(60)
+    assert r.value("time.kaliptan_cikarma") == pytest.approx(15)
+    assert r.value("time.montaj") == pytest.approx(132)
+    assert r.value("time.trim") == pytest.approx(63)  # 60 x 1.05 margin
+    # table fit stays within 10% of the measured 8.75 person-hours for the 2.64 m2 panel
+    assert (r.value("time.serim") or 0) / 60 == pytest.approx(8.75, rel=0.1)
+    assert (r.value("autoclave.total") or 0) > 0

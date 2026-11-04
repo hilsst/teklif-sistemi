@@ -20,6 +20,7 @@ from teklif.library import Library
 from teklif.storage.db import Store
 from teklif.tooling_rules.cost_estimate import ToolCostEstimate, estimate_tool_cost
 
+TOPLU_AREA_RANGE = (2.4, 4.7)  # area range of the 7 panels behind process sandvic_toplu
 FLANGE_MM = 150.0  # typical flange length (Kemal, 2026-11-04); becomes a library value in Faz 3
 FLANGE_SOURCE = "flanş payı 150 mm (tipik değer, kütüphaneye taşınacak)"
 
@@ -109,7 +110,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     process = c1.selectbox(
         "Proses",
         procs,
-        index=procs.index("sandvic_autoclave") if "sandvic_autoclave" in procs else 0,
+        index=procs.index("sandvic_toplu") if "sandvic_toplu" in procs else 0,
         key="pq_proc",
     )
     cycles = [x.id for x in lib.processes[process].cure_cycles]
@@ -155,6 +156,17 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         f"kalıp maliyeti: {est.note}",
         f"kalıp izi/alanı: {FLANGE_SOURCE}",
     ]
+    if (
+        process == "sandvic_toplu"
+        and not TOPLU_AREA_RANGE[0] <= f.one_side_area_m2 <= TOPLU_AREA_RANGE[1]
+    ):
+        msg = (
+            f"toplu serim süresi {TOPLU_AREA_RANGE[0]}-{TOPLU_AREA_RANGE[1]} m2 "
+            f"aralığındaki 7 panelden çıkarıldı; {f.one_side_area_m2:.2f} m2 "
+            "bu aralığın dışında, güvenilmez"
+        )
+        notes.append(msg)
+        st.warning(msg)
     if not est.in_range:
         notes.append("kalıp maliyeti tahmini kalibrasyon aralığı dışında: güvenilmez")
     try:
