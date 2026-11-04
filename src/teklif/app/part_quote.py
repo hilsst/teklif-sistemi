@@ -162,7 +162,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     ):
         msg = (
             f"toplu serim süresi {TOPLU_AREA_RANGE[0]}-{TOPLU_AREA_RANGE[1]} m2 "
-            f"aralığındaki 7 panelden çıkarıldı; {f.one_side_area_m2:.2f} m2 bu aralığın dışında, güvenilmez"
+            f"aralığındaki 7 panelden çıkarıldı; {f.one_side_area_m2:.2f} m2 "
+            "bu aralığın dışında, güvenilmez"
         )
         notes.append(msg)
         st.warning(msg)
