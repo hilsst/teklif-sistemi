@@ -118,6 +118,18 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     batch = q2.number_input("Parti adedi", 1, value=1, key="pq_batch")
     wage = q3.number_input("Ücret çarpanı", 0.01, value=1.0, step=0.05, key="pq_wage")
     wage_reason = st.text_input("Ücret çarpanı gerekçesi (çarpan 1 değilse zorunlu)", key="pq_wr")
+    template = lib.processes[process]
+    o1, o2 = st.columns(2)
+    include = o1.multiselect(
+        "Opsiyonel operasyonlar (boya, montaj vb.)",
+        [op.id for op in template.operations if op.optional],
+        key="pq_inc",
+    )
+    exclude = o2.multiselect(
+        "Bu parçada yapılmayan operasyonlar",
+        [op.id for op in template.operations],
+        key="pq_exc",
+    )
     st.markdown("**Ply grupları** (düz desen alanı, fire hariç; varsayılan: parça alanı × 1)")
     plies_df = st.data_editor(
         pd.DataFrame([{"name": "ply", "area_m2": round(f.one_side_area_m2, 4), "count": 1}]),
@@ -169,6 +181,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             ),
             quantity=int(quantity),
             batch_size=int(batch),
+            include_optional=include,
+            exclude_operations=exclude,
             wage_factor=float(wage),
             wage_factor_reason=wage_reason,
             tooling_nre=Price(
