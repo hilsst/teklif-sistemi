@@ -1,0 +1,76 @@
+# Proses şablonu: El yatırma / ıslak serim (autoclave yok, oda sıcaklığı kürü).
+#
+# Adımlar (Kemal, 2026-11-04): reçine hazırlama, kumaş kesimi, kalıba kumaş serimi,
+# kumaşların rulo ile ıslatılması. Kür, kalıptan çıkarma, trim ve sonrası bu şablonda henüz
+# YOK: tanımlanması için Kemal'e soruldu, uydurulmadı.
+#
+# Süre modeli ve sürücüler autoclave_prepreg.yaml ile aynıdır (bkz. oradaki başlık).
+# Varsayım: dört adımın hepsi ISLAK_SERIM iş merkezinde yapılır (ıslak serim ücret sınıfı).
+# Kumaş kesimi farklı bir iş merkezindeyse (örn. KESIM_MASASI) operasyonun work_center'ı değiştirilir.
+# Reçine, ıslatma operasyonunda sarf olarak hesaplanır: kg/m2 (ply alanı başına, fire dahil).
+# value: null olan her değer firma verisi bekler (TODO).
+
+id: el_yatirma
+name: "El yatırma (ıslak serim)"
+version: 1
+
+parameters: {}
+
+cure_cycles:
+  - id: ambient
+    name: "Oda sıcaklığı kürü (kür operasyonu bu şablonda tanımlı değil)"
+    cure_temp: {value: null, unit: degC, desc: "Kür sıcaklığı"}
+    pressure: {value: null, unit: bar, desc: "Basınç (vakum/atmosferik)"}
+    cycle_time: {value: null, unit: h, desc: "Kür süresi"}
+
+operations:
+  - seq: 10
+    id: recine_hazirlama
+    name: "Reçine hazırlama"
+    work_center: ISLAK_SERIM
+    learning: false
+    setup: {value: null, unit: min/batch, desc: "Reçine ve sertleştirici tartım, ekipman hazırlığı"}
+    times:
+      - driver: ply_area_total_m2
+        rate: {value: null, unit: min/m2, desc: "Reçine karıştırma süresi, ply alanı başına"}
+
+  - seq: 20
+    id: kesim
+    name: "Kumaş kesimi"
+    work_center: ISLAK_SERIM
+    learning: false
+    setup: {value: null, unit: min/batch, desc: "Kumaş rulosu hazırlığı, kesim masası"}
+    times:
+      - driver: ply_area_total_m2
+        rate: {value: null, unit: min/m2, desc: "Kumaş kesim süresi, ply alanı başına"}
+      - driver: ply_count
+        rate: {value: null, unit: min/ply, desc: "Etiketleme ve kitleme, ply başına"}
+
+  - seq: 30
+    id: serim
+    name: "Kalıba kumaş serimi"
+    work_center: ISLAK_SERIM
+    apply_complexity: true
+    setup: {value: null, unit: min/batch, desc: "Kalıp temizliği ve ayırıcı uygulaması"}
+    times:
+      - driver: ply_area_total_m2
+        rate: {value: null, unit: min/m2, desc: "Serim süresi, ply alanı başına"}
+      - driver: ply_count
+        rate: {value: null, unit: min/ply, desc: "Ply konumlandırma, ply başına"}
+    consumables:
+      - material: KALIP_AYIRICI
+        driver: tool_area_m2
+        qty: {value: null, unit: L/m2, desc: "Kalıp ayırıcı sarfiyatı, kalıp alanı başına"}
+
+  - seq: 40
+    id: islatma
+    name: "Kumaşların rulo ile ıslatılması"
+    work_center: ISLAK_SERIM
+    apply_complexity: true
+    times:
+      - driver: ply_area_total_m2
+        rate: {value: null, unit: min/m2, desc: "Rulo ile ıslatma süresi, ply alanı başına"}
+    consumables:
+      - material: RECINE
+        driver: ply_area_total_m2
+        qty: {value: null, unit: kg/m2, desc: "Reçine kullanımı, ply alanı başına"}

@@ -6,7 +6,7 @@ Bu liste `teklif todo` komutuyla kütüphanedeki boş (`value: null`) alanlardan
 
 Birim gösterimi: `min` = dakika, `h` = saat, `m2` = m², `degC` = °C, `ratio` = oran (0–1), `1e-6/K` = 10⁻⁶/K, `min/batch` = parti başına dakika, `EUR/m2` = m² başına EUR. Para birimi her kalemde ayrı seçilebilir (EUR, TRY, USD); farklı birim kullanırsanız belirtmeniz yeterli.
 
-Toplam açık kalem: **177**
+Toplam açık kalem: **205**
 
 ## Kurlar — `currency.yaml` (2)
 
@@ -15,7 +15,7 @@ Toplam açık kalem: **177**
 | 1 | `rates.TRY` | 1 EUR kaç TL | `TRY/EUR` |
 | 2 | `rates.USD` | 1 EUR kaç USD | `USD/EUR` |
 
-## Malzeme ve sarf fiyatları, malzeme özellikleri — `materials.yaml` (68)
+## Malzeme ve sarf fiyatları, malzeme özellikleri — `materials.yaml` (82)
 
 | # | Anahtar | Açıklama | Birim |
 |---|---|---|---|
@@ -44,49 +44,63 @@ Toplam açık kalem: **177**
 | 23 | `prepregs[PP_GF_WOVEN_120].roll_width` | Rulo eni | `mm` |
 | 24 | `prepregs[PP_GF_WOVEN_120].out_life` | Oda sıcaklığında çalışma ömrü | `h` |
 | 25 | `prepregs[PP_GF_WOVEN_120].price` | Prepreg birim fiyatı | `EUR/m2` |
-| 26 | `consumables[VAKUM_TORBA].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
-| 27 | `consumables[VAKUM_TORBA].price` | Vakum torba filmi fiyatı | `EUR/m2` |
-| 28 | `consumables[BREATHER].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
-| 29 | `consumables[BREATHER].price` | Breather fiyatı | `EUR/m2` |
-| 30 | `consumables[AYIRICI_FILM].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
-| 31 | `consumables[AYIRICI_FILM].price` | Ayırıcı film fiyatı | `EUR/m2` |
-| 32 | `consumables[PEEL_PLY].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
-| 33 | `consumables[PEEL_PLY].price` | Peel ply fiyatı | `EUR/m2` |
-| 34 | `consumables[SIZDIRMAZLIK_BANDI].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
-| 35 | `consumables[SIZDIRMAZLIK_BANDI].price` | Sızdırmazlık bandı fiyatı | `EUR/m` |
-| 36 | `consumables[KALIP_AYIRICI].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
-| 37 | `consumables[KALIP_AYIRICI].price` | Kalıp ayırıcı fiyatı | `EUR/L` |
-| 38 | `consumables[BOYA_ASTAR].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
-| 39 | `consumables[BOYA_ASTAR].price` | Boya sistemi fiyatı (karışım) | `EUR/L` |
-| 40 | `tooling_materials[TB_120].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
-| 41 | `tooling_materials[TB_120].cte` | Isıl genleşme katsayısı | `1e-6/K` |
-| 42 | `tooling_materials[TB_120].density` | Yoğunluk | `kg/m3` |
-| 43 | `tooling_materials[TB_120].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
-| 44 | `tooling_materials[TB_120].price` | Blok fiyatı (hacim başına) | `EUR/m3` |
-| 45 | `tooling_materials[TB_180].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
-| 46 | `tooling_materials[TB_180].cte` | Isıl genleşme katsayısı | `1e-6/K` |
-| 47 | `tooling_materials[TB_180].density` | Yoğunluk | `kg/m3` |
-| 48 | `tooling_materials[TB_180].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
-| 49 | `tooling_materials[TB_180].price` | Blok fiyatı (hacim başına) | `EUR/m3` |
-| 50 | `tooling_materials[CFRP_TOOLING_PREPREG].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
-| 51 | `tooling_materials[CFRP_TOOLING_PREPREG].cte` | Kalıp laminatı CTE (yarı-izotropik) | `1e-6/K` |
-| 52 | `tooling_materials[CFRP_TOOLING_PREPREG].density` | Yoğunluk | `kg/m3` |
-| 53 | `tooling_materials[CFRP_TOOLING_PREPREG].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
-| 54 | `tooling_materials[CFRP_TOOLING_PREPREG].price` | Tooling prepreg fiyatı (ply alanı başına) | `EUR/m2` |
-| 55 | `tooling_materials[GFRP_TOOLING].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
-| 56 | `tooling_materials[GFRP_TOOLING].cte` | Kalıp laminatı CTE | `1e-6/K` |
-| 57 | `tooling_materials[GFRP_TOOLING].density` | Yoğunluk | `kg/m3` |
-| 58 | `tooling_materials[GFRP_TOOLING].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
-| 59 | `tooling_materials[GFRP_TOOLING].price` | Kalıp laminatı fiyatı (ply alanı başına) | `EUR/m2` |
-| 60 | `tooling_materials[INVAR36].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
-| 61 | `tooling_materials[INVAR36].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
-| 62 | `tooling_materials[INVAR36].price` | Plaka/blok fiyatı | `EUR/kg` |
-| 63 | `tooling_materials[AL_PLAKA].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
-| 64 | `tooling_materials[AL_PLAKA].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
-| 65 | `tooling_materials[AL_PLAKA].price` | Plaka fiyatı | `EUR/kg` |
-| 66 | `tooling_materials[CELIK].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
-| 67 | `tooling_materials[CELIK].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
-| 68 | `tooling_materials[CELIK].price` | Plaka/blok fiyatı | `EUR/kg` |
+| 26 | `prepregs[KUMAS_CF_DOKUMA].cure_temp` | Kullanılacak reçinenin kür sıcaklığı sınıfı | `degC` |
+| 27 | `prepregs[KUMAS_CF_DOKUMA].areal_weight` | Lif alan ağırlığı (FAW) | `g/m2` |
+| 28 | `prepregs[KUMAS_CF_DOKUMA].cured_ply_thickness` | Kürlenmiş ply kalınlığı (CPT) | `mm` |
+| 29 | `prepregs[KUMAS_CF_DOKUMA].roll_width` | Rulo eni | `mm` |
+| 30 | `prepregs[KUMAS_CF_DOKUMA].out_life` | Çalışma ömrü (kuru kumaşta sınırsız ise çok büyük bir değer) | `h` |
+| 31 | `prepregs[KUMAS_CF_DOKUMA].price` | Kumaş birim fiyatı | `EUR/m2` |
+| 32 | `prepregs[KUMAS_GF_DOKUMA].cure_temp` | Kullanılacak reçinenin kür sıcaklığı sınıfı | `degC` |
+| 33 | `prepregs[KUMAS_GF_DOKUMA].areal_weight` | Lif alan ağırlığı (FAW) | `g/m2` |
+| 34 | `prepregs[KUMAS_GF_DOKUMA].cured_ply_thickness` | Kürlenmiş ply kalınlığı (CPT) | `mm` |
+| 35 | `prepregs[KUMAS_GF_DOKUMA].roll_width` | Rulo eni | `mm` |
+| 36 | `prepregs[KUMAS_GF_DOKUMA].out_life` | Çalışma ömrü (kuru kumaşta sınırsız ise çok büyük bir değer) | `h` |
+| 37 | `prepregs[KUMAS_GF_DOKUMA].price` | Kumaş birim fiyatı | `EUR/m2` |
+| 38 | `consumables[RECINE].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 39 | `consumables[RECINE].price` | Reçine + sertleştirici karışım fiyatı | `EUR/kg` |
+| 40 | `consumables[VAKUM_TORBA].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 41 | `consumables[VAKUM_TORBA].price` | Vakum torba filmi fiyatı | `EUR/m2` |
+| 42 | `consumables[BREATHER].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 43 | `consumables[BREATHER].price` | Breather fiyatı | `EUR/m2` |
+| 44 | `consumables[AYIRICI_FILM].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 45 | `consumables[AYIRICI_FILM].price` | Ayırıcı film fiyatı | `EUR/m2` |
+| 46 | `consumables[PEEL_PLY].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 47 | `consumables[PEEL_PLY].price` | Peel ply fiyatı | `EUR/m2` |
+| 48 | `consumables[SIZDIRMAZLIK_BANDI].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 49 | `consumables[SIZDIRMAZLIK_BANDI].price` | Sızdırmazlık bandı fiyatı | `EUR/m` |
+| 50 | `consumables[KALIP_AYIRICI].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 51 | `consumables[KALIP_AYIRICI].price` | Kalıp ayırıcı fiyatı | `EUR/L` |
+| 52 | `consumables[BOYA_ASTAR].max_temp` | Maksimum kullanım sıcaklığı | `degC` |
+| 53 | `consumables[BOYA_ASTAR].price` | Boya sistemi fiyatı (karışım) | `EUR/L` |
+| 54 | `tooling_materials[TB_120].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
+| 55 | `tooling_materials[TB_120].cte` | Isıl genleşme katsayısı | `1e-6/K` |
+| 56 | `tooling_materials[TB_120].density` | Yoğunluk | `kg/m3` |
+| 57 | `tooling_materials[TB_120].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
+| 58 | `tooling_materials[TB_120].price` | Blok fiyatı (hacim başına) | `EUR/m3` |
+| 59 | `tooling_materials[TB_180].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
+| 60 | `tooling_materials[TB_180].cte` | Isıl genleşme katsayısı | `1e-6/K` |
+| 61 | `tooling_materials[TB_180].density` | Yoğunluk | `kg/m3` |
+| 62 | `tooling_materials[TB_180].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
+| 63 | `tooling_materials[TB_180].price` | Blok fiyatı (hacim başına) | `EUR/m3` |
+| 64 | `tooling_materials[CFRP_TOOLING_PREPREG].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
+| 65 | `tooling_materials[CFRP_TOOLING_PREPREG].cte` | Kalıp laminatı CTE (yarı-izotropik) | `1e-6/K` |
+| 66 | `tooling_materials[CFRP_TOOLING_PREPREG].density` | Yoğunluk | `kg/m3` |
+| 67 | `tooling_materials[CFRP_TOOLING_PREPREG].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
+| 68 | `tooling_materials[CFRP_TOOLING_PREPREG].price` | Tooling prepreg fiyatı (ply alanı başına) | `EUR/m2` |
+| 69 | `tooling_materials[GFRP_TOOLING].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
+| 70 | `tooling_materials[GFRP_TOOLING].cte` | Kalıp laminatı CTE | `1e-6/K` |
+| 71 | `tooling_materials[GFRP_TOOLING].density` | Yoğunluk | `kg/m3` |
+| 72 | `tooling_materials[GFRP_TOOLING].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
+| 73 | `tooling_materials[GFRP_TOOLING].price` | Kalıp laminatı fiyatı (ply alanı başına) | `EUR/m2` |
+| 74 | `tooling_materials[INVAR36].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
+| 75 | `tooling_materials[INVAR36].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
+| 76 | `tooling_materials[INVAR36].price` | Plaka/blok fiyatı | `EUR/kg` |
+| 77 | `tooling_materials[AL_PLAKA].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
+| 78 | `tooling_materials[AL_PLAKA].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
+| 79 | `tooling_materials[AL_PLAKA].price` | Plaka fiyatı | `EUR/kg` |
+| 80 | `tooling_materials[CELIK].max_service_temp` | Maksimum servis sıcaklığı | `degC` |
+| 81 | `tooling_materials[CELIK].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
+| 82 | `tooling_materials[CELIK].price` | Plaka/blok fiyatı | `EUR/kg` |
 
 ## İş merkezleri ve saat ücretleri — `work_centers.yaml` (51)
 
@@ -214,3 +228,22 @@ Toplam açık kalem: **177**
 | 37 | `operations[boya].times[part_area_m2].rate` | Yüzey hazırlama + maskeleme + boyama, alan başına | `min/m2` |
 | 38 | `operations[boya].consumables[BOYA_ASTAR].qty` | Boya sistemi sarfiyatı, alan başına | `L/m2` |
 | 39 | `operations[montaj].times[per_part].rate` | Parça başına montaj süresi (komple için Faz 5'te ayrıntılanacak) | `min/part` |
+
+## Standart süreler ve sarf kullanımı (processes/el_yatirma.yaml) — `processes/el_yatirma.yaml` (14)
+
+| # | Anahtar | Açıklama | Birim |
+|---|---|---|---|
+| 1 | `cure_cycles[ambient].cure_temp` | Kür sıcaklığı | `degC` |
+| 2 | `cure_cycles[ambient].pressure` | Basınç (vakum/atmosferik) | `bar` |
+| 3 | `cure_cycles[ambient].cycle_time` | Kür süresi | `h` |
+| 4 | `operations[recine_hazirlama].setup` | Reçine ve sertleştirici tartım, ekipman hazırlığı | `min/batch` |
+| 5 | `operations[recine_hazirlama].times[ply_area_total_m2].rate` | Reçine karıştırma süresi, ply alanı başına | `min/m2` |
+| 6 | `operations[kesim].setup` | Kumaş rulosu hazırlığı, kesim masası | `min/batch` |
+| 7 | `operations[kesim].times[ply_area_total_m2].rate` | Kumaş kesim süresi, ply alanı başına | `min/m2` |
+| 8 | `operations[kesim].times[ply_count].rate` | Etiketleme ve kitleme, ply başına | `min/ply` |
+| 9 | `operations[serim].setup` | Kalıp temizliği ve ayırıcı uygulaması | `min/batch` |
+| 10 | `operations[serim].times[ply_area_total_m2].rate` | Serim süresi, ply alanı başına | `min/m2` |
+| 11 | `operations[serim].times[ply_count].rate` | Ply konumlandırma, ply başına | `min/ply` |
+| 12 | `operations[serim].consumables[KALIP_AYIRICI].qty` | Kalıp ayırıcı sarfiyatı, kalıp alanı başına | `L/m2` |
+| 13 | `operations[islatma].times[ply_area_total_m2].rate` | Rulo ile ıslatma süresi, ply alanı başına | `min/m2` |
+| 14 | `operations[islatma].consumables[RECINE].qty` | Reçine kullanımı, ply alanı başına | `kg/m2` |

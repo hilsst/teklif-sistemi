@@ -9,7 +9,7 @@ import yaml
 
 from teklif.common.models import Override, Price, Source
 from teklif.costing.engine import QuoteInputError, compute_quote
-from teklif.costing.inputs import QuoteInput
+from teklif.costing.inputs import PlyGroup, QuoteInput
 from teklif.library import Library, load_library
 
 MONEY = {"material", "consumable", "labor", "machine", "autoclave", "total", "price"}
@@ -194,3 +194,24 @@ def test_wage_factor_scales_labor_only_and_needs_reason(
     factor = next(i for i in line.inputs if i.name == "wage_factor")
     assert factor.value == 0.9 and factor.source.value == "user"
     assert r.input.wage_factor_reason == "rekabetçi teklif"
+
+
+def test_wet_layup_has_no_autoclave_and_counts_resin(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    inp = example_input.model_copy(
+        update={
+            "process": "el_yatirma",
+            "cure_cycle": "ambient",
+            "material": "KUMAS_CF_DOKUMA",
+            "plies": [PlyGroup(name="kumaş", area_m2=0.5, count=4)],
+        }
+    )
+    r = compute_quote(inp, filled_lib)
+    keys = {ln.key for ln in r.lines}
+    assert {"time.recine_hazirlama", "time.kesim", "time.serim", "time.islatma"} <= keys
+    assert r.value("autoclave.total") == 0
+    assert "autoclave.share" not in keys
+    # resin: ply area 4 x 0.5 = 2 m2 x qty x (1 + waste) x price, from the filled library
+    assert (r.value("consumable.islatma.RECINE") or 0) > 0
+    assert (r.value("labor.islatma") or 0) > 0
