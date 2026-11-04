@@ -1,0 +1,111 @@
+# Proses şablonu: Sandviç panel, TOPLU süre (hızlı teklif; autoclave prepreg, kompozit kalıp).
+#
+# Kaynak: Kemal'in 7 radom paneli için parça başı ADAM-SAAT tablosu (2026-11-04): serim, kalıp hazırlık,
+# kalıp çıkartma, montaj, trim. Serim süresi kesim, debulk, torbalama, kür bağlama, NDT ve ölçümü İÇERİR
+# (ayrı satır yok). Serim süresi panel boyutuna bağlı: iki boyut grubu (2,45-2,64 m2 -> 8,75 saat;
+# 3,82-4,68 m2 -> 13,125 saat) için doğrusal uyum: süre = 3,374 saat + 2,245 saat/m2 x parça alanı.
+# Uyum sapması örnekte en fazla %9, bir-dışarıda-bırak %11; yalnız ~2,4-4,7 m2 aralığında dayanıklıdır,
+# dışında (örn. 1,3 m2 DOOR) güvenilmez. Yeni örnek geldikçe güncellenir.
+# Süreler adam-dakikadır (adam-saat x 60) ve ADAMSAAT_* iş merkezlerinde operatör 1, verim 1 ile
+# hesaplanır. Öğrenme eğrisi uygulanmaz (süreler gerçekleşen değerler). Trim: 1,05 güvenlik marjı.
+# Autoclave maliyeti ayrıca hesaplanır (kür operasyonu süresiz, yalnız autoclave payı için).
+# Sarf kullanımları (çekirdek, film, torba malzemeleri) bu tabloda yok: firma verisi bekliyor (TODO).
+
+id: sandvic_toplu
+name: "Sandviç panel (toplu süre, hızlı teklif)"
+version: 1
+
+parameters: {}
+
+cure_cycles:
+  - id: cure_120
+    name: "120 °C kür çevrimi"
+    cure_temp: {value: 120, unit: degC, source: user, desc: "Kür sıcaklığı"}
+    pressure: {value: null, unit: bar, desc: "Autoclave basıncı"}
+    cycle_time: {value: null, unit: h, desc: "Toplam çevrim süresi (ısıtma + bekleme + soğutma)"}
+  - id: cure_180
+    name: "180 °C kür çevrimi"
+    cure_temp: {value: 180, unit: degC, source: user, desc: "Kür sıcaklığı"}
+    pressure: {value: null, unit: bar, desc: "Autoclave basıncı"}
+    cycle_time: {value: null, unit: h, desc: "Toplam çevrim süresi (ısıtma + bekleme + soğutma)"}
+
+operations:
+  - seq: 10
+    id: kalip_hazirlik
+    name: "Kalıp hazırlık"
+    work_center: ADAMSAAT_SERIM
+    learning: false
+    times:
+      - driver: per_part
+        rate: {value: 60, unit: min/part, source: user, desc: "1 adam-saat parça başına (Kemal, 7 panel)"}
+
+  - seq: 20
+    id: serim
+    name: "Serim (kesim, debulk, torbalama, kür bağlama, NDT ve ölçüm dahil)"
+    work_center: ADAMSAAT_SERIM
+    learning: false
+    times:
+      - driver: per_part
+        rate: {value: 202.45, unit: min/part, source: user, desc: "3,374 adam-saat sabit terim (7 panel doğrusal uyumu)"}
+      - driver: part_area_m2
+        rate: {value: 134.72, unit: min/m2, source: user, desc: "2,245 adam-saat/m2 (7 panel doğrusal uyumu; 2,4-4,7 m2 aralığında geçerli)"}
+    consumables:
+      - material: KALIP_AYIRICI
+        driver: tool_area_m2
+        qty: {value: null, unit: L/m2, desc: "Kalıp ayırıcı sarfiyatı, kalıp alanı başına"}
+      - material: CEKIRDEK
+        driver: part_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Çekirdek malzeme kullanımı (fire dahil), parça alanı başına"}
+      - material: FILM_YAPISTIRICI
+        driver: part_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Film yapıştırıcı kullanımı (iki yüz, fire dahil), parça alanı başına"}
+      - material: PEEL_PLY
+        driver: part_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Peel ply kullanımı, parça alanı başına"}
+      - material: AYIRICI_FILM
+        driver: tool_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Ayırıcı film kullanımı, kalıp alanı başına"}
+      - material: BREATHER
+        driver: tool_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Breather kullanımı, kalıp alanı başına"}
+      - material: VAKUM_TORBA
+        driver: tool_area_m2
+        qty: {value: null, unit: m2/m2, desc: "Vakum torba filmi (pile payı dahil), kalıp alanı başına"}
+      - material: SIZDIRMAZLIK_BANDI
+        driver: tool_perimeter_m
+        qty: {value: null, unit: m/m, desc: "Sızdırmazlık bandı, çevre başına"}
+
+  - seq: 30
+    id: kur
+    name: "Autoclave kürü (yalnız autoclave payı; işçilik serim süresinde)"
+    work_center: ADAMSAAT_SERIM
+    learning: false
+    autoclave_cure: true
+
+  - seq: 40
+    id: kaliptan_cikarma
+    name: "Kalıptan çıkarma"
+    work_center: ADAMSAAT_SERIM
+    learning: false
+    times:
+      - driver: per_part
+        rate: {value: 15, unit: min/part, source: user, desc: "0,25 adam-saat parça başına (Kemal, 7 panel)"}
+
+  - seq: 50
+    id: trim
+    name: "CNC trim (delik delme dahil, güvenlik marjlı)"
+    work_center: ADAMSAAT_TRIM
+    learning: false
+    margin: {value: 1.05, unit: ratio, source: user, desc: "Trim süresi güvenlik marjı (delik delme dahil; Kemal 2026-11-04)"}
+    times:
+      - driver: per_part
+        rate: {value: 60, unit: min/part, source: user, desc: "1 adam-saat parça başına (Kemal, 7 panel)"}
+
+  - seq: 60
+    id: montaj
+    name: "Montaj"
+    work_center: ADAMSAAT_MONTAJ
+    learning: false
+    times:
+      - driver: per_part
+        rate: {value: 132, unit: min/part, source: user, desc: "2,2 adam-saat parça başına (Kemal, 7 panel)"}

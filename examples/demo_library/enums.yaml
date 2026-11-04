@@ -3,6 +3,7 @@
 processes:
   - {id: autoclave_prepreg, label: "Autoclave prepreg"}
   - {id: sandvic_autoclave, label: "Sandviç panel (autoclave prepreg)"}
+  - {id: sandvic_toplu, label: "Sandviç panel (toplu süre, hızlı teklif)"}
   - {id: ooa_prepreg, label: "OOA prepreg"}
   - {id: infuzyon, label: "Vakum infüzyon"}
   - {id: rtm, label: "RTM / Light RTM"}
@@ -37,6 +38,7 @@ undercut_solutions:
   - {id: cozunur_mandrel, label: "Çözünür mandrel"}
 operations:
   - {id: recine_hazirlama, label: "Reçine hazırlama"}
+  - {id: kalip_hazirlik, label: "Kalıp hazırlık"}
   - {id: kesim, label: "Ply kesimi"}
   - {id: serim, label: "Serim (layup)"}
   - {id: cekirdek_kesim, label: "Çekirdek kesimi"}

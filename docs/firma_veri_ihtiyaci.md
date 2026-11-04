@@ -6,7 +6,7 @@ Bu liste `teklif todo` komutuyla kütüphanedeki boş (`value: null`) alanlardan
 
 Birim gösterimi: `min` = dakika, `h` = saat, `m2` = m², `degC` = °C, `ratio` = oran (0–1), `1e-6/K` = 10⁻⁶/K, `min/batch` = parti başına dakika, `EUR/m2` = m² başına EUR. Para birimi her kalemde ayrı seçilebilir (EUR, TRY, USD); farklı birim kullanırsanız belirtmeniz yeterli.
 
-Toplam açık kalem: **258**
+Toplam açık kalem: **271**
 
 ## Kurlar — `currency.yaml` (2)
 
@@ -106,7 +106,7 @@ Toplam açık kalem: **258**
 | 85 | `tooling_materials[CELIK].tool_life` | Beklenen kalıp ömrü (kür çevrimi) | `cycle` |
 | 86 | `tooling_materials[CELIK].price` | Plaka/blok fiyatı | `EUR/kg` |
 
-## İş merkezleri ve saat ücretleri — `work_centers.yaml` (51)
+## İş merkezleri ve saat ücretleri — `work_centers.yaml` (52)
 
 | # | Anahtar | Açıklama | Birim |
 |---|---|---|---|
@@ -161,6 +161,7 @@ Toplam açık kalem: **258**
 | 49 | `work_centers[SERIT_SARIM].machine_rate` | Makine/tesis saat ücreti | `EUR/h` |
 | 50 | `work_centers[SERIT_SARIM].operators` | Tipik operatör sayısı | `person` |
 | 51 | `work_centers[SERIT_SARIM].efficiency` | Verim (0-1) | `ratio` |
+| 52 | `work_centers[ADAMSAAT_TRIM].machine_rate` | CNC makine/tesis saat ücreti | `EUR/h` |
 
 ## Autoclave ölçü ve maliyetleri — `autoclaves.yaml` (9)
 
@@ -305,3 +306,20 @@ Toplam açık kalem: **258**
 | 47 | `operations[boya].consumables[BOYA_ASTAR].qty` | Boya sistemi sarfiyatı, alan başına | `L/m2` |
 | 48 | `operations[montaj].times[per_part].rate` | Parça başına montaj süresi (komple için Faz 5'te ayrıntılanacak) | `min/part` |
 | 49 | `operations[insert_potting].times[per_part].rate` | Parça başına insert/potting süresi (her projede yok) | `min/part` |
+
+## Standart süreler ve sarf kullanımı (processes/sandvic_toplu.yaml) — `processes/sandvic_toplu.yaml` (12)
+
+| # | Anahtar | Açıklama | Birim |
+|---|---|---|---|
+| 1 | `cure_cycles[cure_120].pressure` | Autoclave basıncı | `bar` |
+| 2 | `cure_cycles[cure_120].cycle_time` | Toplam çevrim süresi (ısıtma + bekleme + soğutma) | `h` |
+| 3 | `cure_cycles[cure_180].pressure` | Autoclave basıncı | `bar` |
+| 4 | `cure_cycles[cure_180].cycle_time` | Toplam çevrim süresi (ısıtma + bekleme + soğutma) | `h` |
+| 5 | `operations[serim].consumables[KALIP_AYIRICI].qty` | Kalıp ayırıcı sarfiyatı, kalıp alanı başına | `L/m2` |
+| 6 | `operations[serim].consumables[CEKIRDEK].qty` | Çekirdek malzeme kullanımı (fire dahil), parça alanı başına | `m2/m2` |
+| 7 | `operations[serim].consumables[FILM_YAPISTIRICI].qty` | Film yapıştırıcı kullanımı (iki yüz, fire dahil), parça alanı başına | `m2/m2` |
+| 8 | `operations[serim].consumables[PEEL_PLY].qty` | Peel ply kullanımı, parça alanı başına | `m2/m2` |
+| 9 | `operations[serim].consumables[AYIRICI_FILM].qty` | Ayırıcı film kullanımı, kalıp alanı başına | `m2/m2` |
+| 10 | `operations[serim].consumables[BREATHER].qty` | Breather kullanımı, kalıp alanı başına | `m2/m2` |
+| 11 | `operations[serim].consumables[VAKUM_TORBA].qty` | Vakum torba filmi (pile payı dahil), kalıp alanı başına | `m2/m2` |
+| 12 | `operations[serim].consumables[SIZDIRMAZLIK_BANDI].qty` | Sızdırmazlık bandı, çevre başına | `m/m` |
