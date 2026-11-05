@@ -2,14 +2,14 @@ import shutil
 from pathlib import Path
 
 from teklif.app.library_relevance import is_needed, needed_paths
-from teklif.library import load_library
-from teklif.library.editor import Change, editable_values, set_values
+from teklif.library import Library, load_library
+from teklif.library.editor import Change, EditableValue, editable_values, set_values
 from teklif.library.overlay import record, restore
 
 SRC = Path(__file__).resolve().parents[1] / "library"
 
 
-def _first_todo(lib):  # type: ignore[no-untyped-def]
+def _first_todo(lib: Library) -> EditableValue:
     return next(v for v in editable_values(lib) if v.value is None and v.currency is None)
 
 
