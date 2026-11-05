@@ -31,6 +31,7 @@ from teklif.geometry.surface_select import (
     faces_facing,
     load_face_mesh,
     suggest_pull_directions,
+    triangulate_polygon,
 )
 
 GREEN, YELLOW, RED, GREY, BLUE = "#2e9e4f", "#e6b800", "#d62728", "#b0b0b0", "#4a78c2"
@@ -110,7 +111,7 @@ def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
 Extra = tuple[NDArray[np.float64], list[int], list[dict[str, Any]]]
 
 
-def mold_extras(outline: Outline) -> Extra:
+def mold_extras(outline: Outline, pull: NDArray[np.float64]) -> Extra:
     """Mold additions around the selected surface: the flange (root envelope -> MEOP), fill over
     every hole/channel loop, and the EOP (all loops) and MEOP lines."""
     tris: list[list[NDArray[np.float64]]] = []
@@ -125,9 +126,12 @@ def mold_extras(outline: Outline) -> Extra:
     for k, lp in enumerate(outline.loops):
         if k == outline.outer or len(lp) < 3:
             continue
-        c = lp.mean(axis=0)  # hole/channel: the mold runs over it
-        for i in range(len(lp)):
-            tris.append([lp[i], lp[(i + 1) % len(lp)], c])
+        d = pull / np.linalg.norm(pull)
+        a = np.cross(d, [1.0, 0.0, 0.0] if abs(d[0]) < 0.9 else [0.0, 1.0, 0.0])
+        a /= np.linalg.norm(a)
+        xy = np.c_[lp @ a, lp @ np.cross(d, a)]
+        for i, j, m in triangulate_polygon(xy):  # the mold runs over the hole/channel
+            tris.append([lp[i], lp[j], lp[m]])
             colors.append(FILL_COLOR_IDX)
 
     def flat(r: NDArray[np.float64]) -> list[float]:
@@ -136,6 +140,11 @@ def mold_extras(outline: Outline) -> Extra:
     lines: list[dict[str, Any]] = [
         {"hex": 0xC000C0, "label": "EOP" if k == outline.outer else "", "pts": flat(lp)}
         for k, lp in enumerate(outline.loops)
+    ]
+    lines += [
+        {"hex": 0xC000C0, "label": "", "pts": list(map(float, np.round(ch, 1).ravel()))}
+        for ch in outline.open_chains
+        if len(ch) > 1
     ]
     if out is not None:
         lines.append({"hex": 0xE06000, "label": "MEOP", "pts": flat(out)})
@@ -221,11 +230,13 @@ def build_figure(mesh: FaceMesh, colors: list[str]) -> Any:
     return fig
 
 
-def _load(data: bytes, deflection_mm: float, angle_deg: float) -> FaceMesh:
+def _load(
+    data: bytes, deflection_mm: float, angle_deg: float, with_edges: bool = False
+) -> FaceMesh:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "part.step"
         path.write_bytes(data)
-        return load_face_mesh(path, deflection_mm, angle_deg)
+        return load_face_mesh(path, deflection_mm, angle_deg, with_edges)
 
 
 def render_surface_panel(
@@ -237,7 +248,7 @@ def render_surface_panel(
     if vk not in st.session_state:
         try:
             with st.spinner("3B model hazırlanıyor (büyük parçada birkaç saniye sürer)..."):
-                st.session_state[vk] = _load(data, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG)
+                st.session_state[vk] = _load(data, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG, True)
         except Exception as exc:
             st.warning(f"3B ekran açılamadı ({exc}); trim çevresi elle girilebilir.")
             return None
@@ -324,7 +335,7 @@ def render_surface_panel(
         with right:
             sub = mold_submesh(view, selected)
             outline = view.outline(selected, np.array(pull), flange_mm)
-            flange = mold_extras(outline) if outline else None
+            flange = mold_extras(outline, np.array(pull)) if outline else None
             mold_key = (
                 f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull), flange_mm))}"
             )

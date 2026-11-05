@@ -66,3 +66,44 @@ def test_outline_has_eop_loops_for_holes_and_flange_only_on_outer_rim() -> None:
     assert ol.ring is not None and ol.offset is not None
     assert np.isclose(np.ptp(ol.offset[:, 0]), 100 + 300)
     assert np.isclose(np.ptp(ol.offset[:, 1]), 50 + 300)
+
+
+def test_triangulate_concave_polygon_covers_its_area() -> None:
+    import numpy as np
+
+    from teklif.geometry.surface_select import triangulate_polygon
+
+    # L shape, area 3
+    xy = np.array([[0, 0], [2, 0], [2, 1], [1, 1], [1, 2], [0, 2]], dtype=float)
+    tris = triangulate_polygon(xy)
+    area = sum(
+        abs(
+            (xy[b][0] - xy[a][0]) * (xy[c][1] - xy[a][1])
+            - (xy[b][1] - xy[a][1]) * (xy[c][0] - xy[a][0])
+        )
+        / 2
+        for a, b, c in tris
+    )
+    assert len(tris) == 4 and np.isclose(area, 3.0)
+
+
+def test_chain_loops_by_vertex_keys_and_open_chains() -> None:
+    import numpy as np
+
+    from teklif.geometry.surface_select import _chain_loops
+
+    def seg(a: tuple[float, float], b: tuple[float, float]) -> np.ndarray:
+        return np.array([[*a, 0.0], [*b, 0.0]])
+
+    # a triangle given with one reversed edge (vertex keys 1,2,3) + a loose open path (7-8-9)
+    segs = [
+        seg((0, 0), (1, 0)),
+        seg((0, 1), (1, 0)),
+        seg((0, 1), (0, 0)),
+        seg((5, 0), (6, 0)),
+        seg((6, 0), (7, 0)),
+    ]
+    ends: list[tuple[object, object]] = [(1, 2), (3, 2), (3, 1), (7, 8), (8, 9)]
+    closed, opened = _chain_loops(segs, ends)
+    assert len(closed) == 1 and len(closed[0]) == 3
+    assert len(opened) == 1 and len(opened[0]) == 4

@@ -51,43 +51,83 @@ class MeshFace:
 
 @dataclass(frozen=True)
 class Outline:
-    loops: list[NDArray[np.float64]]  # every boundary loop of the selection (EOP)
+    loops: list[NDArray[np.float64]]  # every closed boundary loop of the selection (EOP)
+    open_chains: list[NDArray[np.float64]]  # boundary pieces that did not close (not filled)
     outer: int  # index of the outer rim in ``loops``
     ring: NDArray[np.float64] | None  # outer envelope on the surface (flange root)
     offset: NDArray[np.float64] | None  # MEOP: the envelope pushed out by the flange
 
 
-def _chain_loops(segs: list[NDArray[np.float64]], tol: float = 0.05) -> list[NDArray[np.float64]]:
-    """Join edge polylines end to end into closed loops (open chains are kept as they are)."""
+def _cluster_points(pts: NDArray[np.float64], tol: float) -> list[int]:
+    """Cluster id per point: points closer than ``tol`` end up together (STEP files often carry
+    separate vertex copies at the same place, so edges cannot be joined by vertex identity)."""
+    n = len(pts)
+    parent = list(range(n))
 
-    def key(p: NDArray[np.float64]) -> tuple[int, int, int]:
-        q = np.round(p / tol).astype(int)
-        return int(q[0]), int(q[1]), int(q[2])
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
 
-    ends: dict[tuple[int, int, int], list[int]] = {}
-    for i, sg in enumerate(segs):
-        for p in (sg[0], sg[-1]):
-            ends.setdefault(key(p), []).append(i)
+    cells: dict[tuple[int, int, int], list[int]] = {}
+    for i, p in enumerate(pts):
+        c = tuple(int(v) for v in np.floor(p / tol))
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for j in cells.get((c[0] + dx, c[1] + dy, c[2] + dz), []):
+                        if float(np.linalg.norm(pts[j] - p)) <= tol:
+                            parent[find(i)] = find(j)
+        cells.setdefault((c[0], c[1], c[2]), []).append(i)
+    return [find(i) for i in range(n)]
+
+
+def _chain_loops(
+    segs: list[NDArray[np.float64]], ends: list[tuple[object, object]]
+) -> tuple[list[NDArray[np.float64]], list[NDArray[np.float64]]]:
+    """Join edge polylines end to end by their end-vertex keys: (closed loops, open chains)."""
+    at: dict[object, list[int]] = {}
+    for i, (ka, kb) in enumerate(ends):
+        at.setdefault(ka, []).append(i)
+        if kb != ka:
+            at.setdefault(kb, []).append(i)
     used = [False] * len(segs)
-    loops: list[NDArray[np.float64]] = []
+
+    def grow(head: object, chain: list[NDArray[np.float64]]) -> object:
+        while True:
+            nxt = next((j for j in at.get(head, []) if not used[j]), None)
+            if nxt is None:
+                return head
+            used[nxt] = True
+            sg = segs[nxt]
+            ka, kb = ends[nxt]
+            if ka == head:
+                head = kb
+            else:
+                sg, head = sg[::-1], ka
+            chain.append(sg)
+            if head == start_key:
+                return head
+
+    closed: list[NDArray[np.float64]] = []
+    opened: list[NDArray[np.float64]] = []
     for start in range(len(segs)):
         if used[start]:
             continue
         used[start] = True
         chain = [segs[start]]
-        head = key(segs[start][-1])
-        while head != key(chain[0][0]):
-            nxt = next((j for j in ends.get(head, []) if not used[j]), None)
-            if nxt is None:
-                break
-            used[nxt] = True
-            sg = segs[nxt]
-            if key(sg[0]) != head:
-                sg = sg[::-1]
-            chain.append(sg)
-            head = key(sg[-1])
-        loops.append(np.vstack([c[:-1] for c in chain] + [chain[-1][-1:]]))
-    return [lp[:-1] if len(lp) > 2 and key(lp[0]) == key(lp[-1]) else lp for lp in loops]
+        start_key = ends[start][0]
+        head = grow(ends[start][1], chain)
+        if head == start_key:
+            closed.append(np.vstack([c[:-1] for c in chain]))
+        else:  # walk the other way from the start to pick up the rest of an open path
+            back: list[NDArray[np.float64]] = []
+            start_key = None
+            grow(ends[start][0], back)
+            pts = [c[::-1] for c in reversed(back)] + chain if back else chain
+            opened.append(np.vstack(pts))
+    return closed, opened
 
 
 @dataclass
@@ -108,7 +148,9 @@ class FaceMesh:
         hull = _convex_hull(xy)
         return float(np.linalg.norm(np.diff(np.vstack([hull, hull[:1]]), axis=0), axis=1).sum())
 
-    def boundary_loops(self, ids: list[int]) -> list[NDArray[np.float64]]:
+    def boundary_loops(
+        self, ids: list[int]
+    ) -> tuple[list[NDArray[np.float64]], list[NDArray[np.float64]]]:
         """Closed 3D polylines of the selection's boundary: the rim, cut-outs, holes, channels."""
         chosen = set(ids)
         owners: dict[int, int] = {}
@@ -117,13 +159,19 @@ class FaceMesh:
             for key, _ in self.faces[i].edges:
                 owners[key] = owners.get(key, 0) + 1
             polys.update(self.faces[i].edge_polys)
-        segs = [polys[k] for k, n in owners.items() if n == 1 and k in polys and len(polys[k]) > 1]
-        return _chain_loops(segs)
+        keys = [k for k, n in owners.items() if n == 1 and k in polys and len(polys[k]) > 1]
+        segs = [polys[k] for k in keys]
+        pts = np.array([p for sg in segs for p in (sg[0], sg[-1])])
+        ids_ = _cluster_points(pts, 0.1)
+        ends: list[tuple[object, object]] = [
+            (ids_[2 * i], ids_[2 * i + 1]) for i in range(len(segs))
+        ]
+        return _chain_loops(segs, ends)
 
     def outline(self, ids: list[int], pull: Vec, flange_mm: float) -> Outline | None:
         """EOP loops (all boundary loops of the selection) and the MEOP outline: the largest loop's
         outer envelope seen along pull, pushed out by ``flange_mm`` at the same height."""
-        loops = self.boundary_loops(ids)
+        loops, open_chains = self.boundary_loops(ids)
         if not loops:
             return None
         d = _unit(np.asarray(pull, dtype=float))
@@ -146,7 +194,7 @@ class FaceMesh:
                 lookup[(q[0], q[1])] = xyz
         hull = _convex_hull(np.unique(np.round(xy, 2), axis=0).astype(np.float64))
         if len(hull) < 3:
-            return Outline(loops, outer, None, None)
+            return Outline(loops, open_chains, outer, None, None)
         ring = np.array([lookup[(round(float(h[0]), 2), round(float(h[1]), 2))] for h in hull])
         cen = hull.mean(axis=0)
         n = len(hull)
@@ -166,7 +214,7 @@ class FaceMesh:
             if ml > 2.0:  # sharp corner: cap the miter spike
                 m = m * (2.0 / ml)
             out[i] = ring[i] + flange_mm * (m[0] * a + m[1] * b)
-        return Outline(loops, outer, ring, out)
+        return Outline(loops, open_chains, outer, ring, out)
 
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
@@ -211,8 +259,10 @@ def load_face_mesh(
     path: Path | str,
     deflection_mm: float = LINEAR_DEFLECTION_MM,
     angle_deg: float = ANGULAR_DEFLECTION_DEG,
+    with_edges: bool = False,
 ) -> FaceMesh:
-    """Read a STEP file and tessellate every face (needs OCP)."""
+    """Read a STEP file and tessellate every face (needs OCP). ``with_edges`` also samples the
+    edge polylines (only the 3D view needs them)."""
     try:
         from OCP.BRep import BRep_Tool
         from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
@@ -237,6 +287,7 @@ def load_face_mesh(
     BRepMesh_IncrementalMesh(shape, params)
 
     faces: list[MeshFace] = []
+    sampled: set[int] = set()
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while explorer.More():
         face = _as_face(explorer.Current())
@@ -277,9 +328,13 @@ def load_face_mesh(
             if key not in seen:
                 seen.add(key)
                 edges.append((key, lp.Mass()))
-                polys[key] = _edge_polyline(
-                    BRepAdaptor_Curve(_as_edge(ed)), GCPnts_QuasiUniformDeflection, deflection_mm
-                )
+                if with_edges:
+                    edge = _as_edge(ed)
+                    if key not in sampled:
+                        sampled.add(key)
+                        polys[key] = _edge_polyline(
+                            edge, BRepAdaptor_Curve, GCPnts_QuasiUniformDeflection, deflection_mm
+                        )
             else:  # seam: used twice by this face, never a boundary
                 edges.append((key, lp.Mass()))
                 edges.append((key, lp.Mass()))
@@ -302,15 +357,21 @@ def load_face_mesh(
     return FaceMesh(faces)
 
 
-def _edge_polyline(curve: Any, sampler: Any, deflection_mm: float) -> NDArray[np.float64]:
+def _edge_polyline(
+    edge: Any, adaptor: Any, sampler: Any, deflection_mm: float
+) -> NDArray[np.float64]:
     try:
-        g = sampler(curve, max(deflection_mm / 2, 0.2))
-        if not g.IsDone():
-            raise RuntimeError
-        pts = [g.Value(i + 1) for i in range(g.NbPoints())]
-    except Exception:  # degenerate edge: fall back to its two ends
-        pts = [curve.Value(curve.FirstParameter()), curve.Value(curve.LastParameter())]
-    return np.array([(p.X(), p.Y(), p.Z()) for p in pts], dtype=float)
+        curve = adaptor(edge)
+        try:
+            g = sampler(curve, max(deflection_mm / 2, 0.2))
+            if not g.IsDone():
+                raise RuntimeError("sampling failed")
+            pts = [g.Value(i + 1) for i in range(g.NbPoints())]
+        except Exception:  # fall back to the two ends
+            pts = [curve.Value(curve.FirstParameter()), curve.Value(curve.LastParameter())]
+        return np.array([(p.X(), p.Y(), p.Z()) for p in pts], dtype=float)
+    except Exception:  # an edge that cannot be sampled must not fail the whole load
+        return np.zeros((0, 3))
 
 
 def _empty_face(face_id: int) -> MeshFace:
@@ -400,3 +461,38 @@ def faces_facing(mesh: FaceMesh, direction: Vec, tol_deg: float) -> list[int]:
     d = _unit(np.asarray(direction, dtype=float))
     lim = math.cos(math.radians(tol_deg))
     return [f.id for f in mesh.faces if float(f.mean_normal @ d) >= lim]
+
+
+def triangulate_polygon(xy: NDArray[np.float64]) -> list[tuple[int, int, int]]:
+    """Ear clipping of a simple polygon (any orientation). Empty when it cannot be done."""
+    n = len(xy)
+    if n < 3 or n > 600:
+        return []
+    x, y = xy[:, 0], xy[:, 1]
+    sign = 1.0 if float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) > 0 else -1.0
+    idx = list(range(n))
+    out: list[tuple[int, int, int]] = []
+
+    def cross(a: int, b: int, c: int) -> float:
+        return float((x[b] - x[a]) * (y[c] - y[a]) - (y[b] - y[a]) * (x[c] - x[a])) * sign
+
+    def inside(p: int, a: int, b: int, c: int) -> bool:
+        return cross(a, b, p) >= 0 and cross(b, c, p) >= 0 and cross(c, a, p) >= 0
+
+    guard = 0
+    while len(idx) > 3 and guard < 10 * n:
+        guard += 1
+        for k in range(len(idx)):
+            a, b, c = idx[k - 1], idx[k], idx[(k + 1) % len(idx)]
+            if cross(a, b, c) <= 1e-12:
+                continue
+            if any(inside(p, a, b, c) for p in idx if p not in (a, b, c)):
+                continue
+            out.append((a, b, c))
+            idx.pop(k)
+            break
+        else:
+            return []
+    if len(idx) == 3:
+        out.append((idx[0], idx[1], idx[2]))
+    return out
