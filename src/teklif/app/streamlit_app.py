@@ -302,6 +302,20 @@ def _input_form(lib: Library, base: dict[str, Any]) -> QuoteInput | None:
         return None
 
 
+REVIEW_FLAG_HELP = (
+    "Bayrak, programın o hesabın doğruluğundan emin olmadığı bir satırdır. Üç durumda çıkar:\n\n"
+    "1. **Eksik değer:** kütüphanede henüz şirket değeri olmayan (TODO) bir süre, ücret, fiyat vb. "
+    "Bu satırın sonucu hesaplanamaz ve ondan beslenen toplamlar boş (—) kalır.\n"
+    "2. **Tahmin ya da varsayım:** STEP'ten türetilmiş değerler (alan, delik sayısı), tipik "
+    "flanş payı, trim kuralı, kalıp maliyeti tahmini. Kalıp tahmini geçmiş kalıpların "
+    "kalibrasyon aralığının dışındaysa ayrıca güvenilmez diye işaretlenir.\n"
+    "3. **Sizin onayınız gereken öneriler:** geometriden önerilen sarf miktarları gibi.\n\n"
+    "Bayrakları şöyle kapatırsınız: eksik değeri Kütüphane sekmesinden girin, ya da tahmini "
+    "gerekçe yazarak kendi değerinizle ezin. Hepsi kapanana kadar teklif TASLAK kalır; müşteriye "
+    "gönderilemez ve 'Kesinleştir' düğmesi kapalıdır."
+)
+
+
 def _draft_banner(manual_review: bool, n_flags: int) -> None:
     if manual_review:
         st.error(
@@ -309,6 +323,8 @@ def _draft_banner(manual_review: bool, n_flags: int) -> None:
             "(eksik değer girilmeden veya gerekçeyle ezilmeden) teklif kesinleştirilemez; "
             "PDF'ler TASLAK filigranıyla çıkar."
         )
+        with st.expander("Manuel inceleme bayrağı ne demek?"):
+            st.markdown(REVIEW_FLAG_HELP)
 
 
 def _save_buttons(save_draft: Any, save_final: Any, blocked: bool, scope: str = "") -> None:

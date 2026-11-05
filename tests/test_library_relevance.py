@@ -202,3 +202,25 @@ def test_trim_length_uses_the_longer_edge_of_the_wall(tmp_path: Path) -> None:
     boundary, outer_len = m.trim_lengths_mm([inner_face], np.array([1.0, 0.0, 0.0]))
     assert abs(outer_len - 2 * np.pi * 100) < 4.0  # outer circle, not the 2*pi*95 inner one
     assert boundary > 2 * (2 * np.pi * 95)
+
+
+def test_tube_wall_is_not_counted_as_a_hole(tmp_path: Path) -> None:
+    """The inside of an open tube is the part's own wall, not a hole."""
+    pytest.importorskip("OCP")
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    from teklif.geometry.plate_features import extract_plate_features
+
+    ax = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0))
+    shell = BRepAlgoAPI_Cut(
+        BRepPrimAPI_MakeCylinder(ax, 100.0, 80.0).Shape(),
+        BRepPrimAPI_MakeCylinder(ax, 95.0, 80.0).Shape(),
+    ).Shape()
+    w = STEPControl_Writer()
+    w.Transfer(shell, STEPControl_AsIs)
+    path = tmp_path / "tube.step"
+    w.Write(str(path))
+    assert extract_plate_features(path).hole_count == 0

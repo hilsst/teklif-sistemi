@@ -24,6 +24,7 @@ from teklif.ingest.step_props import (
 )
 
 EDGE_WIDTH_FACTOR = 1.5
+HOLE_DEPTH_FACTOR = 4.0  # hole depth limit in part thicknesses
 MM3_PER_M3 = 1_000_000_000.0
 EXTRACTOR_VERSION = "plate_features-1"
 
@@ -162,14 +163,25 @@ def extract_plate_features(path: Path | str) -> PlateFeatures:
     edge_area = sum(f.area for f in edge)
     # holes: cluster concave cylinders by axis and radius, sum angular extent
     clusters: dict[tuple[float, ...], float] = {}
+    cluster_area: dict[tuple[float, ...], float] = {}
     hole_area = 0.0
     for f in faces:
         if f.hole_key is not None:
             clusters[f.hole_key] = clusters.get(f.hole_key, 0.0) + f.hole_angle
+            cluster_area[f.hole_key] = cluster_area.get(f.hole_key, 0.0) + f.area
             hole_area += f.area
     holes: dict[float, int] = {}
     for key, ang in clusters.items():
         if ang >= 2 * math.pi * 0.95:
+            # a hole is as deep as the part is thick; a much deeper concave cylinder is the
+            # part's own wall (inside of a tube, cone or shell), not a hole
+            depth = cluster_area[key] / (ang * key[0]) if ang > 0 and key[0] > 0 else 0.0
+            if depth > HOLE_DEPTH_FACTOR * t:
+                notes.append(
+                    f"Ø{2 * key[0]:.0f} mm içbükey silindir delik sayılmadı: "
+                    f"derinliği {depth:.0f} mm, parça duvarı olarak değerlendirildi"
+                )
+                continue
             diameter = round(2 * key[0], 1)
             holes[diameter] = holes.get(diameter, 0) + round(ang / (2 * math.pi))
     hole_count = sum(holes.values())

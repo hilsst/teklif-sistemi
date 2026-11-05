@@ -54,12 +54,13 @@ def measure(data: bytes, name: str) -> Measured:
         return Measured(name, extract_step_props(path), extract_plate_features(path))
 
 
-def tool_footprint_mm(props: StepProps) -> tuple[float, float]:
-    """Two largest envelope dimensions plus the flange on both sides (rough, flagged)."""
+def tool_footprint_mm(props: StepProps, reach_mm: float = FLANGE_MM) -> tuple[float, float]:
+    """Two largest envelope dimensions plus the tool reach (extension + flange) on both sides
+    (rough, flagged)."""
     dims = sorted(
         (props.get(f"envelope_{a}_mm").value or 0.0 for a in ("x", "y", "z")), reverse=True
     )
-    return dims[0] + 2 * FLANGE_MM, dims[1] + 2 * FLANGE_MM
+    return dims[0] + 2 * reach_mm, dims[1] + 2 * reach_mm
 
 
 def _cached(upload: Any) -> Measured | None:
@@ -218,7 +219,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
                 key="pq_core_cost",
                 help="Kalıp maliyetine eklenir. Bilmiyorsanız 0 bırakın; teklif taslak kalır.",
             )
-    fx, fy = tool_footprint_mm(m.props)
+    reach_mm = (sel.extension_mm + sel.flange_mm) if sel else FLANGE_MM
+    fx, fy = tool_footprint_mm(m.props, reach_mm)
     st.caption(f"Kalıp izi tahmini: {fx:.0f} × {fy:.0f} mm ({FLANGE_SOURCE}).")
 
     procs = list(lib.processes)
@@ -504,12 +506,18 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     nre_margin = a2.checkbox("Kalıp ve model maliyetine de kâr ekle", True, key="pq_nremargin")
     if perimeter <= 0:
         st.warning("Trim çevresi girilmedi: trim süresi 0 hesaplanıyor (kalıp yüzeyi seçin).")
-    flange_m = FLANGE_MM / 1000
+    flange_m = reach_mm / 1000  # extension past the EOP plus flange: the tool outside the part
     outer = sel.outer_m if sel else perimeter  # flange runs along the outer rim only
     notes = [
         "part_area_m2, hole_count: STEP'ten türetilmiş tahmin (levha özellikleri)",
         f"kalıp maliyeti: {est.note}",
-        f"kalıp izi/alanı: {FLANGE_SOURCE}",
+        f"kalıp izi/alanı: {FLANGE_SOURCE}"
+        + (
+            f"; seçili profil: EOP'tan flanş dönüşüne {sel.extension_mm:.0f} mm + flanş "
+            f"{sel.flange_mm:.0f} mm"
+            if sel
+            else ""
+        ),
         TRIM_RULE_ALL if trim_all else TRIM_RULE_OUTER,
     ]
     if perimeter <= 0:
