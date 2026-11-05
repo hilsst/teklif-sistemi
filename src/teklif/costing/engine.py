@@ -262,15 +262,38 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
     material_lines: list[CostLine] = []
     for i, ply in enumerate(inp.plies, start=1):
         mat = prepregs[ply.material or inp.material]
-        if mat.nesting_scrap_ratio is not None:
+        scrap: tuple[Param, str | None]
+        if inp.nest_efficiency is not None:
+            scrap = (
+                _user(
+                    (1.0 / inp.nest_efficiency) * (1.0 + inp.fire_ratio) - 1.0,
+                    "ratio",
+                    f"nest verimi {inp.nest_efficiency:.0%}, ek fire {inp.fire_ratio:.0%}: "
+                    "harcanan = 1 / verim × (1 + fire)",
+                ),
+                None,
+            )
+        elif mat.nesting_scrap_ratio is not None:
             scrap = (
                 mat.nesting_scrap_ratio,
                 _p("materials.yaml", f"prepregs[{mat.id}].nesting_scrap_ratio"),
             )
-        else:
+        elif costing.nesting_scrap_ratio.value is not None:
             scrap = (
                 costing.nesting_scrap_ratio,
                 _p("thresholds.yaml", "costing.nesting_scrap_ratio"),
+            )
+        else:
+            eff, fire = costing.nest_efficiency, costing.fire_ratio
+            total = (1.0 / eff.value) * (1.0 + (fire.value or 0.0)) - 1.0 if eff.value else None
+            scrap = (
+                Param(
+                    value=total,
+                    unit="ratio",
+                    source=Source.LIBRARY,
+                    desc="kütüphane: harcanan = 1 / nest verimi × (1 + fire)",
+                ),
+                _p("thresholds.yaml", "costing.nest_efficiency"),
             )
         material_lines.append(
             out.add(

@@ -91,7 +91,9 @@ _VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).pa
 _PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
 
 
-def viewer_payload(mesh: FaceMesh, colors: list[str], key: str) -> dict[str, Any]:
+def viewer_payload(
+    mesh: FaceMesh, colors: list[str], key: str, pull: tuple[float, float, float] | None = None
+) -> dict[str, Any]:
     """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index."""
     pos = np.round(
         np.vstack([f.vertices[f.triangles].reshape(-1, 3) for f in mesh.faces if len(f.triangles)]),
@@ -100,6 +102,7 @@ def viewer_payload(mesh: FaceMesh, colors: list[str], key: str) -> dict[str, Any
     tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
     return {
         "mesh_key": key,
+        "pull": list(pull) if pull else None,
         "pos": pos.ravel().tolist(),
         "tri_face": tri_face,
         "tri_color": [_PALETTE_IDX[c] for c in colors],
@@ -246,7 +249,7 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
             pull, pull_label = cand.direction, cand.label
     colors = triangle_colors(view, selected, pull, min_ok, warn_min)
     click = _VIEWER(
-        **viewer_payload(view, colors, key), height=560, key=f"{key}_viewer", default=None
+        **viewer_payload(view, colors, key, pull), height=560, key=f"{key}_viewer", default=None
     )
     last = f"{key}_lastclick"
     if click and click.get("n", 0) != st.session_state.get(last):
@@ -259,7 +262,8 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     st.caption(
         f"Renkler (seçili yüzler): yeşil ≥ {min_ok:g}° çekme açısı, sarı {warn_min:g}–{min_ok:g}°, "
         "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil. "
-        "Yüze tıklayarak seçip bırakabilirsiniz."
+        "Yüze tıklayarak seçip bırakabilirsiniz. Eksenler: X kırmızı, Y yeşil, Z mavi (parçanın "
+        "sol-alt köşesinde); mor ok seçili çekme yönüdür."
     )
     if not selected or pull is None:
         return None

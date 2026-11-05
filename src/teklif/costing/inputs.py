@@ -64,6 +64,15 @@ class QuoteInput(_Strict):
         ge=1,
         description="Quantity the NRE is spread over when amortized (default: order quantity)",
     )
+    nest_efficiency: float | None = Field(
+        None,
+        gt=0,
+        le=1,
+        description="Fabric nesting efficiency (used / consumed area); consumed = 1 / efficiency",
+    )
+    fire_ratio: float = Field(
+        0.0, ge=0, description="Extra waste on top of nesting (cut-off, setup)"
+    )
     quote_currency: str | None = None
     wage_factor: float = Field(
         1.0, gt=0, description="Strategic factor on all labor rates (e.g. 0.9 to win a bid)"
