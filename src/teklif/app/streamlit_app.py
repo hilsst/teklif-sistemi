@@ -27,10 +27,10 @@ from teklif.costing.quote_set import (
 )
 from teklif.costing.sweep import quantity_sweep
 from teklif.library import Library, LibraryError, list_todos, load_library
-from teklif.library.editor import CHOICES, Change, current_choice, editable_values, set_values
+from teklif.library.editor import CHOICES, Change, current_choice, editable_values
 from teklif.library.loader import DEFAULT_LIBRARY_DIR
-from teklif.library.overlay import record as record_overlay
 from teklif.library.overlay import restore as restore_overlay
+from teklif.library.overlay import save_values
 from teklif.reporting.csv_export import breakdown_csv, set_breakdown_csv, sweep_csv
 from teklif.reporting.quote_report import (
     CATEGORY_LABELS,
@@ -50,6 +50,15 @@ REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "ornek_parca.yaml"
 DEFAULT_DB = Path(os.environ.get("TEKLIF_DB", REPO / "data" / "teklif.sqlite"))
 _OVERLAY = DEFAULT_DB.parent / "library_values.json"
+
+
+def overlay_for(lib_dir: str) -> Path | None:
+    """The overlay belongs to the program's own library folder only."""
+    try:
+        same = Path(lib_dir).resolve() == Path(DEFAULT_LIBRARY_DIR).resolve()
+    except OSError:
+        return None
+    return _OVERLAY if same else None
 
 
 NUMBER_COLUMNS = {
@@ -782,9 +791,8 @@ def _save(lib_dir: str, changes: list[Change], reason: str) -> None:
         st.warning("Gerekçe zorunlu.")
         return
     try:
-        set_values(lib_dir, changes, reason)
-        record_overlay(_OVERLAY, changes)
-    except (LibraryError, KeyError, ValueError) as exc:
+        save_values(lib_dir, changes, reason, overlay_for(lib_dir))
+    except (LibraryError, KeyError, ValueError, OSError) as exc:
         st.error(f"Kaydedilmedi, kütüphane değişmedi: {exc}")
         return
     st.success(f"{len(changes)} değer kaydedildi.")
@@ -801,7 +809,8 @@ def main() -> None:
     except LibraryError as exc:
         st.error(str(exc))
         return
-    lib = restore_overlay(lib_dir, _OVERLAY, lib)
+    if (ov := overlay_for(lib_dir)) is not None:
+        lib = restore_overlay(lib_dir, ov, lib)
     st.sidebar.caption(f"Kütüphanede {len(list_todos(lib))} TODO değer var.")
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = Store(db_path)
@@ -849,7 +858,7 @@ def main() -> None:
     with lib_tab:
         _library_tab(lib, lib_dir)
     with data_tab:
-        data_entry.render(lib, lib_dir, db_path.with_name("katalog.sqlite"))
+        data_entry.render(lib, lib_dir, db_path.with_name("katalog.sqlite"), overlay_for(lib_dir))
 
 
 if __name__ == "__main__":

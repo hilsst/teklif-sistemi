@@ -26,7 +26,8 @@ from teklif.ingest.step_props import (
     ocp_available,
 )
 from teklif.library import Library, LibraryError
-from teklif.library.editor import Change, set_values
+from teklif.library.editor import Change
+from teklif.library.overlay import save_values
 from teklif.storage.catalog import (
     CAD_KINDS,
     Catalog,
@@ -89,7 +90,7 @@ def _badge(source: str) -> str:
 # --- wage rates ----------------------------------------------------------------------
 
 
-def _wages_tab(lib: Library, lib_dir: str) -> None:
+def _wages_tab(lib: Library, lib_dir: str, overlay: Path | None = None) -> None:
     wc = lib.work_centers
     eng_rate = wc.engineer_rate
     st.caption(
@@ -132,7 +133,7 @@ def _wages_tab(lib: Library, lib_dir: str) -> None:
             st.warning("Mühendis saat ücreti sıfırdan büyük olmalı.")
         else:
             try:
-                set_values(lib_dir, changes, reason)
+                save_values(lib_dir, changes, reason, overlay)
             except (LibraryError, KeyError, ValueError) as exc:
                 st.error(f"Kaydedilmedi: {exc}")
             else:
@@ -706,13 +707,13 @@ def _excel_tab(cat: Catalog, lib: Library) -> None:
 # --- entry point -----------------------------------------------------------------------
 
 
-def render(lib: Library, lib_dir: str, catalog_path: Path) -> None:
+def render(lib: Library, lib_dir: str, catalog_path: Path, overlay: Path | None = None) -> None:
     cat = Catalog(catalog_path)
     wages, upload, tools, parts, excel = st.tabs(
         ["Saat ücretleri", "STEP yükle", "Master model / Kalıp", "Parça", "Excel geçmişi"]
     )
     with wages:
-        _wages_tab(lib, lib_dir)
+        _wages_tab(lib, lib_dir, overlay)
     with upload:
         _upload_tab(cat)
     with tools:

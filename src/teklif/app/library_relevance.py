@@ -10,6 +10,7 @@ from __future__ import annotations
 import itertools
 
 from teklif.common.models import Source
+from teklif.costing.consumable_suggest import SUGGESTED
 from teklif.costing.engine import QuoteInputError, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
 from teklif.library import Library
@@ -62,7 +63,7 @@ def needed_paths(lib: Library, process: str) -> set[str]:
 
 
 def is_needed(v: EditableValue, needed: set[str]) -> bool:
-    if ".consumables[" in v.path and v.path.endswith(".qty"):
+    if v.path.endswith(".qty") and any(f".consumables[{m}]." in v.path for m in SUGGESTED):
         return False  # proposed from geometry and approved on the quote screen
     return f"{v.file}:{v.path}" in needed or (
         v.file == "materials.yaml" and v.path.endswith(_ALWAYS_SUFFIXES)

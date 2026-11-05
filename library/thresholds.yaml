@@ -15,10 +15,10 @@ costing:
   learning_curve_ratio: {value: null, unit: ratio, desc: "Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_ref × (n/ref)^log2(LC)"}
   # Proses şablonundaki standart sürelerin hangi parça sırasına ait olduğu (1 = ilk parça süresi, T_1).
   learning_reference_unit: {value: 1, unit: part, source: user, desc: "Standart sürelerin referans parça sırası"}
-  overhead_ratio: {value: 0.0, unit: ratio, desc: "Genel gider oranı (overhead_basis üzerine)", source: user}
+  overhead_ratio: {value: null, unit: ratio, desc: "Genel gider oranı (overhead_basis üzerine)"}
   # direct_cost: malzeme + sarf + işçilik + makine + autoclave üzerine; labor: yalnız işçilik üzerine.
   overhead_basis: direct_cost
-  margin_ratio: {value: 0.0, unit: ratio, desc: "Kâr oranı (margin_basis'e göre)", source: user}
+  margin_ratio: {value: null, unit: ratio, desc: "Kâr oranı (margin_basis'e göre)"}
   # markup: fiyat = maliyet × (1 + oran); margin: fiyat = maliyet / (1 - oran).
   margin_basis: markup
   consumable_waste_ratio: {value: null, unit: ratio, desc: "Sarf malzeme kesim/bindirme payı"}

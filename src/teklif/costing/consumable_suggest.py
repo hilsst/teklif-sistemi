@@ -126,3 +126,6 @@ def suggest(i: ConsumableInputs) -> list[Suggestion]:
             "kalıp (MEOP) çevresi boyunca; sıra sayısı sizin girdiğiniz",
         ),
     ]
+
+
+SUGGESTED = frozenset(x.material for x in suggest(ConsumableInputs(skins=1)))
