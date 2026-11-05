@@ -40,12 +40,54 @@ class MeshFace:
     normals: NDArray[np.float64]  # (m, 3) unit normals per triangle
     tri_areas: NDArray[np.float64]  # (m,)
     edges: list[tuple[int, float]] = field(default_factory=list)  # (edge key, length mm)
+    edge_polys: dict[int, NDArray[np.float64]] = field(default_factory=dict)  # key -> (n, 3)
 
     @property
     def mean_normal(self) -> Vec:
         w = (self.normals * self.tri_areas[:, None]).sum(axis=0)
         n = float(np.linalg.norm(w))
         return w / n if n > 0 else w
+
+
+@dataclass(frozen=True)
+class Outline:
+    loops: list[NDArray[np.float64]]  # every boundary loop of the selection (EOP)
+    outer: int  # index of the outer rim in ``loops``
+    ring: NDArray[np.float64] | None  # outer envelope on the surface (flange root)
+    offset: NDArray[np.float64] | None  # MEOP: the envelope pushed out by the flange
+
+
+def _chain_loops(segs: list[NDArray[np.float64]], tol: float = 0.05) -> list[NDArray[np.float64]]:
+    """Join edge polylines end to end into closed loops (open chains are kept as they are)."""
+
+    def key(p: NDArray[np.float64]) -> tuple[int, int, int]:
+        q = np.round(p / tol).astype(int)
+        return int(q[0]), int(q[1]), int(q[2])
+
+    ends: dict[tuple[int, int, int], list[int]] = {}
+    for i, sg in enumerate(segs):
+        for p in (sg[0], sg[-1]):
+            ends.setdefault(key(p), []).append(i)
+    used = [False] * len(segs)
+    loops: list[NDArray[np.float64]] = []
+    for start in range(len(segs)):
+        if used[start]:
+            continue
+        used[start] = True
+        chain = [segs[start]]
+        head = key(segs[start][-1])
+        while head != key(chain[0][0]):
+            nxt = next((j for j in ends.get(head, []) if not used[j]), None)
+            if nxt is None:
+                break
+            used[nxt] = True
+            sg = segs[nxt]
+            if key(sg[0]) != head:
+                sg = sg[::-1]
+            chain.append(sg)
+            head = key(sg[-1])
+        loops.append(np.vstack([c[:-1] for c in chain] + [chain[-1][-1:]]))
+    return [lp[:-1] if len(lp) > 2 and key(lp[0]) == key(lp[-1]) else lp for lp in loops]
 
 
 @dataclass
@@ -66,26 +108,45 @@ class FaceMesh:
         hull = _convex_hull(xy)
         return float(np.linalg.norm(np.diff(np.vstack([hull, hull[:1]]), axis=0), axis=1).sum())
 
-    def flange_rings(
-        self, ids: list[int], pull: Vec, flange_mm: float
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64]] | None:
-        """EOP and MEOP outlines in 3D: the selection's outline seen along pull (convex hull,
-        vertices on the surface) and that outline pushed out by ``flange_mm`` at the same height."""
+    def boundary_loops(self, ids: list[int]) -> list[NDArray[np.float64]]:
+        """Closed 3D polylines of the selection's boundary: the rim, cut-outs, holes, channels."""
+        chosen = set(ids)
+        owners: dict[int, int] = {}
+        polys: dict[int, NDArray[np.float64]] = {}
+        for i in chosen:
+            for key, _ in self.faces[i].edges:
+                owners[key] = owners.get(key, 0) + 1
+            polys.update(self.faces[i].edge_polys)
+        segs = [polys[k] for k, n in owners.items() if n == 1 and k in polys and len(polys[k]) > 1]
+        return _chain_loops(segs)
+
+    def outline(self, ids: list[int], pull: Vec, flange_mm: float) -> Outline | None:
+        """EOP loops (all boundary loops of the selection) and the MEOP outline: the largest loop's
+        outer envelope seen along pull, pushed out by ``flange_mm`` at the same height."""
+        loops = self.boundary_loops(ids)
+        if not loops:
+            return None
         d = _unit(np.asarray(pull, dtype=float))
-        pts = np.vstack([self.faces[i].vertices for i in ids if len(self.faces[i].vertices)])
         a = np.cross(d, [1.0, 0.0, 0.0] if abs(d[0]) < 0.9 else [0.0, 1.0, 0.0])
         a /= np.linalg.norm(a)
         b = np.cross(d, a)
+
+        def area2d(lp: NDArray[np.float64]) -> float:
+            x, y = lp @ a, lp @ b
+            return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2)
+
+        outer = max(range(len(loops)), key=lambda i: area2d(loops[i]))
+        pts = loops[outer]
         xy = np.c_[pts @ a, pts @ b]
-        lookup: dict[tuple[float, float], NDArray[np.float64]] = {}
         rounded = cast(list[list[float]], np.round(xy, 2).tolist())
+        lookup: dict[tuple[float, float], NDArray[np.float64]] = {}
         for q, xyz in zip(rounded, list(pts), strict=True):
             old = lookup.get((q[0], q[1]))
-            if old is None or float(xyz @ d) > float(old @ d):  # same outline point: top rim
+            if old is None or float(xyz @ d) > float(old @ d):
                 lookup[(q[0], q[1])] = xyz
         hull = _convex_hull(np.unique(np.round(xy, 2), axis=0).astype(np.float64))
         if len(hull) < 3:
-            return None
+            return Outline(loops, outer, None, None)
         ring = np.array([lookup[(round(float(h[0]), 2), round(float(h[1]), 2))] for h in hull])
         cen = hull.mean(axis=0)
         n = len(hull)
@@ -105,7 +166,7 @@ class FaceMesh:
             if ml > 2.0:  # sharp corner: cap the miter spike
                 m = m * (2.0 / ml)
             out[i] = ring[i] + flange_mm * (m[0] * a + m[1] * b)
-        return ring, out
+        return Outline(loops, outer, ring, out)
 
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
@@ -154,9 +215,10 @@ def load_face_mesh(
     """Read a STEP file and tessellate every face (needs OCP)."""
     try:
         from OCP.BRep import BRep_Tool
-        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
         from OCP.BRepGProp import BRepGProp
         from OCP.BRepMesh import BRepMesh_IncrementalMesh
+        from OCP.GCPnts import GCPnts_QuasiUniformDeflection
         from OCP.GeomAbs import GeomAbs_Plane
         from OCP.GProp import GProp_GProps
         from OCP.IMeshTools import IMeshTools_Parameters
@@ -204,6 +266,7 @@ def load_face_mesh(
         props = GProp_GProps()
         BRepGProp.SurfaceProperties_s(face, props)
         edges: list[tuple[int, float]] = []
+        polys: dict[int, NDArray[np.float64]] = {}
         ex = TopExp_Explorer(face, TopAbs_EDGE)
         seen: set[int] = set()
         while ex.More():
@@ -214,6 +277,9 @@ def load_face_mesh(
             if key not in seen:
                 seen.add(key)
                 edges.append((key, lp.Mass()))
+                polys[key] = _edge_polyline(
+                    BRepAdaptor_Curve(_as_edge(ed)), GCPnts_QuasiUniformDeflection, deflection_mm
+                )
             else:  # seam: used twice by this face, never a boundary
                 edges.append((key, lp.Mass()))
                 edges.append((key, lp.Mass()))
@@ -228,6 +294,7 @@ def load_face_mesh(
                 normals=normals,
                 tri_areas=lens / 2,
                 edges=edges,
+                edge_polys=polys,
             )
         )
     if not faces:
@@ -235,9 +302,27 @@ def load_face_mesh(
     return FaceMesh(faces)
 
 
+def _edge_polyline(curve: Any, sampler: Any, deflection_mm: float) -> NDArray[np.float64]:
+    try:
+        g = sampler(curve, max(deflection_mm / 2, 0.2))
+        if not g.IsDone():
+            raise RuntimeError
+        pts = [g.Value(i + 1) for i in range(g.NbPoints())]
+    except Exception:  # degenerate edge: fall back to its two ends
+        pts = [curve.Value(curve.FirstParameter()), curve.Value(curve.LastParameter())]
+    return np.array([(p.X(), p.Y(), p.Z()) for p in pts], dtype=float)
+
+
 def _empty_face(face_id: int) -> MeshFace:
     z3 = np.zeros((0, 3))
     return MeshFace(face_id, 0.0, False, z3, np.zeros((0, 3), dtype=np.int64), z3, np.zeros(0))
+
+
+def _as_edge(shape: Any) -> Any:
+    from OCP.TopoDS import TopoDS
+
+    cast_ = getattr(TopoDS, "Edge_s", None) or TopoDS.Edge
+    return cast_(shape)
 
 
 def _as_face(shape: Any) -> Any:

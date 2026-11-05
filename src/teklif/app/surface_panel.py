@@ -26,6 +26,7 @@ from teklif.geometry.surface_select import (
     VIEW_ANGLE_DEG,
     VIEW_DEFLECTION_MM,
     FaceMesh,
+    Outline,
     draft_angles_deg,
     faces_facing,
     load_face_mesh,
@@ -92,6 +93,7 @@ def triangle_colors(
 _VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).parent / "viewer"))
 _PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
 FLANGE_COLOR_IDX = 5
+FILL_COLOR_IDX = 6
 
 
 def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
@@ -105,24 +107,39 @@ def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
     )
 
 
-def flange_geometry(
-    ring: NDArray[np.float64], out: NDArray[np.float64]
-) -> tuple[NDArray[np.float64], list[dict[str, Any]]]:
-    """Flange triangles between the EOP and MEOP outlines + the two outlines as lines."""
-    n = len(ring)
-    tris = []
-    for i in range(n):
-        j = (i + 1) % n
-        tris += [[ring[i], ring[j], out[j]], [ring[i], out[j], out[i]]]
+Extra = tuple[NDArray[np.float64], list[int], list[dict[str, Any]]]
+
+
+def mold_extras(outline: Outline) -> Extra:
+    """Mold additions around the selected surface: the flange (root envelope -> MEOP), fill over
+    every hole/channel loop, and the EOP (all loops) and MEOP lines."""
+    tris: list[list[NDArray[np.float64]]] = []
+    colors: list[int] = []
+    ring, out = outline.ring, outline.offset
+    if ring is not None and out is not None:
+        n = len(ring)
+        for i in range(n):
+            j = (i + 1) % n
+            tris += [[ring[i], ring[j], out[j]], [ring[i], out[j], out[i]]]
+            colors += [FLANGE_COLOR_IDX] * 2
+    for k, lp in enumerate(outline.loops):
+        if k == outline.outer or len(lp) < 3:
+            continue
+        c = lp.mean(axis=0)  # hole/channel: the mold runs over it
+        for i in range(len(lp)):
+            tris.append([lp[i], lp[(i + 1) % len(lp)], c])
+            colors.append(FILL_COLOR_IDX)
 
     def flat(r: NDArray[np.float64]) -> list[float]:
         return list(map(float, np.round(np.vstack([r, r[:1]]), 1).ravel()))
 
-    lines = [
-        {"hex": 0xC000C0, "label": "EOP", "pts": flat(ring)},
-        {"hex": 0xE06000, "label": "MEOP", "pts": flat(out)},
+    lines: list[dict[str, Any]] = [
+        {"hex": 0xC000C0, "label": "EOP" if k == outline.outer else "", "pts": flat(lp)}
+        for k, lp in enumerate(outline.loops)
     ]
-    return np.array(tris), lines
+    if out is not None:
+        lines.append({"hex": 0xE06000, "label": "MEOP", "pts": flat(out)})
+    return (np.array(tris) if tris else np.zeros((0, 3, 3))), colors, lines
 
 
 def viewer_payload(
@@ -130,7 +147,7 @@ def viewer_payload(
     colors: list[str],
     key: str,
     pull: tuple[float, float, float] | None = None,
-    flange: tuple[NDArray[np.float64], list[dict[str, Any]]] | None = None,
+    extra: Extra | None = None,
 ) -> dict[str, Any]:
     """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index."""
     pos = np.round(
@@ -140,11 +157,12 @@ def viewer_payload(
     tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
     color_idx = [_PALETTE_IDX[c] for c in colors]
     lines: list[dict[str, Any]] = []
-    if flange is not None:
-        ftris, lines = flange
-        pos = np.vstack([pos, np.round(ftris.reshape(-1, 3), 1)])
-        tri_face += [-1] * len(ftris)
-        color_idx += [FLANGE_COLOR_IDX] * len(ftris)
+    if extra is not None:
+        ftris, fcolors, lines = extra
+        if len(ftris):
+            pos = np.vstack([pos, np.round(ftris.reshape(-1, 3), 1)])
+            tri_face += [-1] * len(ftris)
+            color_idx += fcolors
     return {
         "lines": lines,
         "mesh_key": key,
@@ -305,8 +323,8 @@ def render_surface_panel(
     if right is not None and pull is not None:
         with right:
             sub = mold_submesh(view, selected)
-            rings = view.flange_rings(selected, np.array(pull), flange_mm)
-            flange = flange_geometry(*rings) if rings else None
+            outline = view.outline(selected, np.array(pull), flange_mm)
+            flange = mold_extras(outline) if outline else None
             mold_key = (
                 f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull), flange_mm))}"
             )
@@ -330,9 +348,10 @@ def render_surface_panel(
                 default=None,
             )
             st.caption(
-                "**Kalıp şekli**: seçili yüzey + flanş (turuncu alan). Mor çizgi **EOP** "
-                f"(parça kenarı / trim çizgisi), turuncu çizgi **MEOP** (kalıp kenarı, "
-                f"{flange_mm:.0f} mm flanş dışı). Döndürebilirsiniz."
+                "**Kalıp şekli**: seçili yüzey + flanş (turuncu alan). Mor çizgiler **EOP**: dış "
+                "kenar, delikler ve kanallar (açık mavi: kalıbın delik/kanalın üstünden geçtiği "
+                f"alan). Turuncu çizgi **MEOP** (kalıp kenarı, {flange_mm:.0f} mm flanş dışı). "
+                "Döndürebilirsiniz."
             )
     last = f"{key}_lastclick"
     ident = (click.get("n"), click.get("t")) if click else None
