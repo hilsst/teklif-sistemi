@@ -190,6 +190,10 @@ class UndercutThresholds(_Strict):
     core_max_area_ratio: Param
 
 
+class TrimRules(_Strict):
+    trim_all_openings: Param
+
+
 class TessellationThresholds(_Strict):
     max_angular_deflection_deg: Param
 
@@ -215,6 +219,7 @@ class AcceptanceThresholds(_Strict):
 class Thresholds(_Strict):
     draft: DraftThresholds
     undercut: UndercutThresholds
+    trim: TrimRules
     tessellation: TessellationThresholds
     costing: CostingDefaults
     acceptance: AcceptanceThresholds

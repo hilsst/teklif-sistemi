@@ -16,8 +16,11 @@ from typing import Any
 
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 
 from teklif.geometry.surface_select import (
+    ANGULAR_DEFLECTION_DEG,
+    LINEAR_DEFLECTION_MM,
     VIEW_ANGLE_DEG,
     VIEW_DEFLECTION_MM,
     FaceMesh,
@@ -49,6 +52,10 @@ class SurfaceSelection:
     undercut_ratio: float
     ok_ratio: float
 
+    def trim_m(self, all_openings: bool) -> float:
+        """Trim length: whole boundary when every opening is trimmed, else the outer rim only."""
+        return self.boundary_m if all_openings else self.outer_m
+
     def note(self) -> str:
         return (
             f"kalıp yüzeyi kullanıcı seçimi: {len(self.face_ids)} yüz, {self.area_m2:.3f} m², "
@@ -78,6 +85,26 @@ def triangle_colors(
         else:
             out += [BLUE] * len(f.triangles)
     return out
+
+
+_VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).parent / "viewer"))
+_PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
+
+
+def viewer_payload(mesh: FaceMesh, colors: list[str], key: str) -> dict[str, Any]:
+    """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index."""
+    pos = np.round(
+        np.vstack([f.vertices[f.triangles].reshape(-1, 3) for f in mesh.faces if len(f.triangles)]),
+        1,
+    )
+    tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
+    return {
+        "mesh_key": key,
+        "pos": pos.ravel().tolist(),
+        "tri_face": tri_face,
+        "tri_color": [_PALETTE_IDX[c] for c in colors],
+        "faces": [[f.id, round(f.area_mm2 / 1e6, 4)] for f in mesh.faces],
+    }
 
 
 def build_figure(mesh: FaceMesh, colors: list[str]) -> Any:
@@ -127,25 +154,31 @@ def build_figure(mesh: FaceMesh, colors: list[str]) -> Any:
     return fig
 
 
+def _load(data: bytes, deflection_mm: float, angle_deg: float) -> FaceMesh:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "part.step"
+        path.write_bytes(data)
+        return load_face_mesh(path, deflection_mm, angle_deg)
+
+
 def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelection | None:
     key = f"{key}_{hashlib.sha256(data).hexdigest()[:16]}"  # new file -> new mesh and selection
     mk = f"{key}_mesh"
-    if mk not in st.session_state:
+    vk = mk + "v"
+    if vk not in st.session_state:
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "part.step"
-                path.write_bytes(data)
-                full = load_face_mesh(path)
-                coarse = load_face_mesh(path, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG)
-            st.session_state[mk + "v"] = coarse
-            st.session_state[mk] = full
+            with st.spinner("3B model hazırlanıyor (büyük parçada birkaç saniye sürer)..."):
+                st.session_state[vk] = _load(data, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG)
         except Exception as exc:
             st.warning(f"3B ekran açılamadı ({exc}); trim çevresi elle girilebilir.")
             return None
-    mesh: FaceMesh = st.session_state[mk]
-    view: FaceMesh = st.session_state[mk + "v"]
+    view: FaceMesh = st.session_state[vk]
+    mesh: FaceMesh = view  # replaced by the fine analysis mesh once something is selected
     sk = f"{key}_sel"
     st.session_state.setdefault(sk, [])
+    pending = st.session_state.pop(f"{key}_pending", None)
+    if pending is not None:  # a click in the 3D view toggles the face
+        st.session_state[sk] = sorted(set(st.session_state[sk]) ^ {pending})
     min_ok = float(thresholds.draft.min_ok_deg.value)
     warn_min = float(thresholds.draft.warn_min_deg.value)
 
@@ -158,7 +191,7 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     tol = h2.number_input("Tolerans [°]", 1.0, 90.0, 30.0, key=f"{key}_tol")
 
     def _add() -> None:
-        ids = faces_facing(mesh, np.array(AXES[axis]), float(tol))
+        ids = faces_facing(view, np.array(AXES[axis]), float(tol))
         st.session_state[sk] = sorted(set(st.session_state[sk]) | set(ids))
 
     def _all() -> None:
@@ -182,6 +215,10 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     pull_label = ""
     cand = None
     if selected:
+        if mk not in st.session_state:
+            with st.spinner("Seçim için ince analiz ağı hazırlanıyor..."):
+                st.session_state[mk] = _load(data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG)
+        mesh = st.session_state[mk]
         cands = suggest_pull_directions(mesh, selected, warn_min, min_ok)
         names = [c.label for c in cands]  # stable labels so the choice survives reruns
         st.caption(
@@ -207,11 +244,22 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
         else:
             cand = cands[names.index(pick)]
             pull, pull_label = cand.direction, cand.label
-    fig = build_figure(view, triangle_colors(view, selected, pull, min_ok, warn_min))
-    st.plotly_chart(fig, use_container_width=True, key=f"{key}_fig")
+    colors = triangle_colors(view, selected, pull, min_ok, warn_min)
+    click = _VIEWER(
+        **viewer_payload(view, colors, key), height=560, key=f"{key}_viewer", default=None
+    )
+    last = f"{key}_lastclick"
+    if click and click.get("n", 0) != st.session_state.get(last):
+        st.session_state[last] = click["n"]
+        # the multiselect already exists in this run: apply the toggle at the top of the next one
+        st.session_state[f"{key}_pending"] = int(click["face"])
+        st.rerun()
+    if st.checkbox("Eski görünüm (Plotly)", False, key=f"{key}_plotly"):
+        st.plotly_chart(build_figure(view, colors), width="stretch", key=f"{key}_fig")
     st.caption(
         f"Renkler (seçili yüzler): yeşil ≥ {min_ok:g}° çekme açısı, sarı {warn_min:g}–{min_ok:g}°, "
-        "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil."
+        "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil. "
+        "Yüze tıklayarak seçip bırakabilirsiniz."
     )
     if not selected or pull is None:
         return None

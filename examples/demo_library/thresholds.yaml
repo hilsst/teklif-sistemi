@@ -16,6 +16,13 @@ undercut:
     unit: ratio
     source: user
     desc: Ters açı bölgesi alanı / kalıp alanı bu orandan küçükse maça
+trim:
+  trim_all_openings:
+    value: 1
+    unit: ratio
+    source: user
+    desc: '1: parça üzerindeki tüm boşluk, delik ve kenarlar trimlenir (trim çevresi
+      = kalıp yüzeyinin tüm sınırı); 0: yalnız dış kenar'
 tessellation:
   max_angular_deflection_deg:
     value: 0.5
