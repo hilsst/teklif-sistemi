@@ -7,6 +7,8 @@ touches stay hidden in the default library view, so the user is not asked for th
 
 from __future__ import annotations
 
+import itertools
+
 from teklif.common.models import Source
 from teklif.costing.engine import QuoteInputError, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
@@ -22,7 +24,6 @@ def needed_paths(lib: Library, process: str) -> set[str]:
     autoclave and cure-cycle choices, all optional operations)."""
     tpl = lib.processes[process]
     optional = [op.id for op in tpl.operations if op.optional]
-    cx = next(iter(lib.thresholds.complexity_factors))
     geom = PartGeometry(
         part_area_m2=1.0,
         part_perimeter_m=1.0,
@@ -36,7 +37,7 @@ def needed_paths(lib: Library, process: str) -> set[str]:
     out: set[str] = set()
     for mat in lib.materials.prepregs:
         for ac in lib.autoclaves.autoclaves:
-            for cure in tpl.cure_cycles:
+            for cure, cx in itertools.product(tpl.cure_cycles, lib.thresholds.complexity_factors):
                 inp = QuoteInput(
                     quote_no="probe",
                     part_no="probe",

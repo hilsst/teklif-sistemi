@@ -8,7 +8,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f4f5f7;font-family:sa
 </style></head>
 <body>
 <canvas id="c"></canvas><div id="tip"></div>
-<div id="hint">Sürükle: döndür · tekerlek: yakınlaştır · sağ tuş: kaydır · tıkla: yüzü seç/bırak</div>
+<div id="hint" style="display:block">Sürükle: döndür · tekerlek: yakınlaştır · sağ tuş: kaydır · tıkla: yüzü seç/bırak</div>
 <script src="three.min.js"></script>
 <script src="OrbitControls.js"></script>
 <script>
@@ -78,10 +78,11 @@ function build(a){
     mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({vertexColors:true,side:THREE.DoubleSide,flatShading:true,roughness:0.9,metalness:0}));
     scene.add(mesh); geo.computeBoundingSphere(); const s=geo.boundingSphere;
     controls.target.copy(s.center);
+    camera.up.set(0,0,1);
     if(a.view_dir){const vd=new THREE.Vector3(...a.view_dir).normalize();
-      camera.up.set(Math.abs(vd.z)>0.9?0:0,Math.abs(vd.z)>0.9?1:0,Math.abs(vd.z)>0.9?0:1);
+      if(Math.abs(vd.z)>0.95){vd.y-=0.15;vd.normalize();} // keep Z as up: OrbitControls reads up once
       camera.position.copy(s.center).add(vd.multiplyScalar(s.radius*2.6));}
-    else{camera.up.set(0,0,1);camera.position.copy(s.center).add(new THREE.Vector3(1.1,-1.4,0.9).multiplyScalar(s.radius*2.4));}
+    else{camera.position.copy(s.center).add(new THREE.Vector3(1.1,-1.4,0.9).multiplyScalar(s.radius*2.4));}
     camera.near=s.radius/100; camera.far=s.radius*50; camera.updateProjectionMatrix(); fitted=key;
   }
   const col=geo.attributes.color.array, c=new THREE.Color();
@@ -90,6 +91,7 @@ function build(a){
 }
 window.addEventListener('message',ev=>{
   if(ev.data.type!=='streamlit:render')return; args=ev.data.args; if(!renderer)init();
+  document.getElementById('hint').textContent=args.readonly?'Sürükle: döndür · tekerlek: yakınlaştır':document.getElementById('hint').textContent;
   resize(args.height||520); build(args);
 });
 send('streamlit:componentReady',{apiVersion:1});

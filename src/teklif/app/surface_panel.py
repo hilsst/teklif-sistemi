@@ -288,8 +288,9 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
                 "Döndürebilirsiniz; renkler soldaki ile aynı."
             )
     last = f"{key}_lastclick"
-    if click and click.get("n", 0) != st.session_state.get(last):
-        st.session_state[last] = click["n"]
+    ident = (click.get("n"), click.get("t")) if click else None
+    if click and ident != st.session_state.get(last):  # n restarts when the iframe is rebuilt
+        st.session_state[last] = ident
         # the multiselect already exists in this run: apply the toggle at the top of the next one
         st.session_state[f"{key}_pending"] = int(click["face"])
         st.rerun()

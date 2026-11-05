@@ -642,6 +642,16 @@ CHOICE_LABELS = {
 }
 
 
+def _lib_stamp(lib_dir: str) -> float:
+    root = Path(lib_dir)
+    return max((p.stat().st_mtime for p in root.rglob("*.yaml")), default=0.0)
+
+
+@st.cache_data(show_spinner=False)
+def _needed_cached(lib_dir: str, process: str, _lib: Library, stamp: float = 0.0) -> set[str]:
+    return needed_paths(_lib, process)
+
+
 def _library_tab(lib: Library, lib_dir: str) -> None:
     st.subheader("Kâr ve genel gider")
     st.caption(
@@ -703,7 +713,7 @@ def _library_tab(lib: Library, lib_dir: str) -> None:
     )
     all_values = editable_values(lib)
     if mode == "need":
-        needed = needed_paths(lib, process)
+        needed = _needed_cached(lib_dir, process, lib, _lib_stamp(lib_dir))
         rows = [v for v in all_values if v.value is None and is_needed(v, needed)]
         st.caption(
             f"{process} teklifi için gereken ve boş olan {len(rows)} değer gösteriliyor; "
