@@ -415,7 +415,8 @@ def render_surface_panel(
             st.caption(
                 "**Kalıp profili** (EOP'den dışa): yüzey EOP'nin "
                 f"{prof.to_meop_mm:.0f} mm ötesine uzanır (**MEOP**), {prof.to_turn_mm:.0f} mm "
-                f"daha gider, sonra flanş çekme yönüne dik düzlemde {prof.flange_mm:.0f} mm gider. Mor: "
+                "daha gider, sonra flanş çekme yönüne dik düzlemde "
+                f"{prof.flange_mm:.0f} mm gider. Mor: "
                 "**EOP** (dış kenar, delikler, kanallar; açık mavi: kalıbın delik/kanal üstünden "
                 "geçtiği alan), açık yeşil: yüzey uzantısı, turuncu: flanş."
             )
