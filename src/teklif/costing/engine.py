@@ -348,6 +348,7 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
         for use in op.consumables:
             mat_c = consumables[use.material]
             d = drivers[use.driver]
+            q_override = inp.consumable_qty.get(use.material)
             consumable_lines.append(
                 out.add(
                     _line(
@@ -357,8 +358,12 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
                         {
                             "driver": (d.param, d.path),
                             "qty": (
-                                use.qty,
-                                _p(tfile, f"operations[{op.id}].consumables[{mat_c.id}].qty"),
+                                (q_override, None)
+                                if q_override is not None
+                                else (
+                                    use.qty,
+                                    _p(tfile, f"operations[{op.id}].consumables[{mat_c.id}].qty"),
+                                )
                             ),
                             "waste": (
                                 costing.consumable_waste_ratio,

@@ -98,3 +98,11 @@ def lib_copy(tmp_path: Path) -> Path:
 @pytest.fixture
 def example_input() -> QuoteInput:
     return QuoteInput.model_validate(yaml.safe_load(EXAMPLE_INPUT.read_text(encoding="utf-8")))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_data_dir(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Never let a test read or write the real data folder (library_values.json lives there)."""
+    monkeypatch.setenv("TEKLIF_DB", str(tmp_path_factory.mktemp("data") / "teklif.sqlite"))

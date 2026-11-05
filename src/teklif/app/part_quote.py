@@ -13,7 +13,9 @@ import pandas as pd
 import streamlit as st
 
 from teklif.app.surface_panel import render_surface_panel
-from teklif.common.models import Price, Source
+from teklif.common.models import Param, Price, Source
+from teklif.costing.consumable_suggest import ConsumableInputs
+from teklif.costing.consumable_suggest import suggest as suggest_consumables
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
 from teklif.costing.partial import fill_missing
@@ -179,7 +181,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         "Trim çevresi, kalıp yüzeyini seçince otomatik hesaplanır; seçmezseniz aşağıya elle girin."
     )
     with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
-        sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf")
+        sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf", FLANGE_MM)
     trim_all = (lib.thresholds.trim.trim_all_openings.value or 0) >= 0.5
     trim_sel = sel.trim_m(trim_all) if sel else 0.0
     rule = "tüm dış kenar, boşluk ve delikler" if trim_all else "yalnız dış kenar"
@@ -359,6 +361,117 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         },
         key=f"pq_plies_{auto_plies}",
     )
+    cons_override: dict[str, Param] = {}
+    cons_notes: list[str] = []
+    missing_use = {
+        u.material: u
+        for op in template.operations
+        if op.id not in exclude and (not op.optional or op.id in include)
+        for u in op.consumables
+        if u.qty.value is None
+    }
+    if missing_use:
+        st.markdown(
+            "**Sarf miktarları** (parça ve kalıp geometrisinden önerilir, siz onaylarsınız)"
+        )
+        g1, g2, g3, g4 = st.columns(4)
+        core_fire = g1.number_input("Çekirdek fire [%]", 0.0, 100.0, 0.0, key="pq_cfire") / 100
+        film_fire = (
+            g2.number_input("Film yapıştırıcı fire [%]", 0.0, 100.0, 0.0, key="pq_ffire") / 100
+        )
+        bag_extra = (
+            g3.number_input("Vakum torba pile payı [%]", 0.0, 300.0, 0.0, key="pq_bag") / 100
+        )
+        tape_rows = int(g4.number_input("Bant sıra sayısı", 1, 5, 1, key="pq_tape"))
+        g5, g6, g7 = st.columns(3)
+        peel_layers = int(g5.number_input("Peel ply kat/yüzey", 1, 5, 1, key="pq_peel"))
+        sep_l = g6.number_input(
+            "Kalıp ayırıcı [L/m² / kat] (veri sayfası)",
+            0.0,
+            value=0.0,
+            format="%.3f",
+            key="pq_sepl",
+        )
+        sep_coats = int(g7.number_input("Ayırıcı kat sayısı", 1, 20, 1, key="pq_sepc"))
+        sug = [
+            x
+            for x in suggest_consumables(
+                ConsumableInputs(
+                    skins=skins,
+                    core_fire=core_fire,
+                    film_fire=film_fire,
+                    peel_ply_layers_per_skin=peel_layers,
+                    bag_extra=bag_extra,
+                    tape_rows=tape_rows,
+                    separator_l_per_m2_per_coat=sep_l or None,
+                    separator_coats=sep_coats,
+                )
+            )
+            if x.material in missing_use
+        ]
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "sarf": x.label,
+                        "miktar": x.qty,
+                        "birim": f"{x.unit} ({x.driver})",
+                        "formül": x.formula,
+                        "dayanak": x.basis,
+                    }
+                    for x in sug
+                ]
+            ),
+            hide_index=True,
+        )
+        st.caption(
+            "Miktarlar geometrik en az değerdir (alanı/çevreyi kaplayan miktar); fire, pile ve "
+            "sarfiyat payları sizin girdiğiniz değerlerdir, varsayılan 0. Genel sarf fire payı "
+            "(consumable_waste_ratio) ayrıca kütüphaneden uygulanır."
+        )
+        choice = st.radio(
+            "Bu sarf miktarlarını onaylıyor musunuz?",
+            ["Önerileri onaylıyorum", "Elle gireceğim"],
+            index=None,
+            horizontal=True,
+            key="pq_cons_choice",
+        )
+        if choice == "Önerileri onaylıyorum":
+            for x in sug:
+                prm = x.param(Source.DERIVED, f"{x.formula}; kullanıcı onayladı ({x.basis})")
+                if prm is not None:
+                    cons_override[x.material] = prm
+            cons_notes.append(
+                "sarf miktarları geometriden önerildi, kullanıcı onayladı: "
+                + ", ".join(f"{k} {v.value:g} {v.unit}" for k, v in cons_override.items())
+            )
+            if len(cons_override) < len(sug):
+                st.warning("Kalıp ayırıcı sarfiyatı girilmedi: bu kalem hesaba katılmıyor.")
+        elif choice == "Elle gireceğim":
+            ed = st.data_editor(
+                pd.DataFrame([{"sarf": x.label, "birim": x.unit, "miktar": x.qty} for x in sug]),
+                hide_index=True,
+                disabled=["sarf", "birim"],
+                key="pq_cons_manual",
+            )
+            why = st.text_input("Elle giriş gerekçesi", key="pq_cons_why")
+            for x, (_, r) in zip(sug, ed.iterrows(), strict=True):
+                if pd.notna(r["miktar"]):
+                    cons_override[x.material] = Param(
+                        value=float(r["miktar"]),
+                        unit=x.unit,
+                        source=Source.USER,
+                        desc=x.label,
+                        note=f"elle girildi: {why}" if why else "elle girildi",
+                    )
+            cons_notes.append(
+                "sarf miktarları kullanıcı tarafından elle girildi"
+                + (f" ({why})" if why else " (gerekçe yok)")
+            )
+        else:
+            st.info(
+                "Sarf miktarlarını onaylayana ya da elle girene kadar sarf maliyeti eksik kalır."
+            )
     st.markdown("**Kalıp ve model (teklif onaylanınca üretilir; maliyet ürün başına dağıtılır)**")
     mest = estimate_model_cost()
     n1, n2, n3 = st.columns(3)
@@ -493,7 +606,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             nre_quantity=int(nre_qty),
             nest_efficiency=nest_eff if nest_changed else None,
             fire_ratio=fire,
-            review_notes=notes,
+            consumable_qty=cons_override,
+            review_notes=[*notes, *cons_notes],
         )
         result = compute_quote(inp, lib)
         partial = None
