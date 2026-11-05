@@ -99,9 +99,29 @@ def _price_breakdown_table(result: QuoteResult) -> None:
         column_config={frame.columns[1]: st.column_config.NumberColumn(format="%.2f")},
     )
     if "price.share_tooling" not in keys:
-        st.caption(
-            "Kalıp ve model fiyata yedirilmedi: NRE ayrı kalem olarak sipariş toplamına eklenir."
-        )
+        _separate_nre_summary(result, keys)
+
+
+def _separate_nre_summary(result: QuoteResult, keys: set[str]) -> None:
+    """NRE as its own cost: first order pays it, repeat orders only the unit price."""
+    parts = []
+    for key, label in (("nre.tooling", "kalıp"), ("nre.master", "model")):
+        if key in keys:
+            parts.append(f"{label} {result.value(key):,.2f}")
+    nre_key = "price.nre_priced" if "price.nre_priced" in keys else "nre.total"
+    nre_key = nre_key if nre_key in keys else "nre.tooling"
+    nre_total = result.value(nre_key)
+    unit = result.value("price.unit_final")
+    first = result.value("price.order_total")
+    if nre_total is None or unit is None or first is None:
+        return
+    cost_txt = " + ".join(parts)
+    st.markdown(
+        f"**NRE (tek seferlik): {nre_total:,.2f} {result.currency}** "
+        f"(maliyet: {cost_txt}; kâr eklendiyse satış bedeli). Tekrar siparişlerde kalıp ve model "
+        f"hazır olduğu için yalnız ürün başı fiyat ({unit:,.2f} {result.currency}) geçerlidir. "
+        f"İlk sipariş toplamı: **{first:,.2f} {result.currency}**."
+    )
 
 
 def render(lib: Library, store: Store, show_result: Any) -> None:
@@ -204,8 +224,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     )
     a1, a2 = st.columns(2)
     amortize = a1.checkbox(
-        "Kalıp ve modeli ürün fiyatına yedir",
-        True,
+        "Kalıp ve modeli ürün fiyatına yedir (varsayılan: ayrı NRE)",
+        False,
         key="pq_amort",
         help="Kapalıysa kalıp ve model ayrı kalem (NRE) olarak teklif edilir.",
     )
