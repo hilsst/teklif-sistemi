@@ -191,6 +191,31 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         )
     est = estimate_tool_cost(tool_part_area)
     _estimate_card(est)
+    core_choice: str | None = "yok"
+    core_cost = 0.0
+    if sel and sel.undercut_ratio > 0:
+        st.warning(
+            f"Seçilen çekme yönünde ters açı var (yüzeyin %{sel.undercut_ratio * 100:.1f}'i). "
+            "Bu bölge tek parça kalıptan çıkmaz."
+        )
+        core_choice = st.radio(
+            "Ters açı için maça (veya bölünmüş kalıp) kullanacak mısınız?",
+            [
+                "Evet, maça kullanacağım",
+                "Evet, bölünmüş kalıp kullanacağım",
+                "Hayır, ters açıyı başka şekilde çözeceğim",
+            ],
+            key="pq_core",
+            index=None,
+        )
+        if core_choice and not core_choice.startswith("Hayır"):
+            core_cost = st.number_input(
+                f"Maça / bölünme ek maliyeti [{est.currency}] (bize maliyet)",
+                0.0,
+                step=100.0,
+                key="pq_core_cost",
+                help="Kalıp maliyetine eklenir. Bilmiyorsanız 0 bırakın; teklif taslak kalır.",
+            )
     fx, fy = tool_footprint_mm(m.props)
     st.caption(f"Kalıp izi tahmini: {fx:.0f} × {fy:.0f} mm ({FLANGE_SOURCE}).")
 
@@ -383,10 +408,21 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
                 f"trim çevresi seçimden ({trim_sel:.2f} m) farklı girildi: {perimeter:.2f} m"
             )
         if sel.undercut_ratio > 0:
-            notes.append(
-                f"seçilen çekme yönünde ters açı var (%{sel.undercut_ratio * 100:.1f}): "
-                "maça/bölünmüş kalıp incelenmeli"
-            )
+            ratio = f"%{sel.undercut_ratio * 100:.1f}"
+            if core_choice is None:
+                notes.append(f"ters açı var ({ratio}): maça/bölünmüş kalıp kararı verilmedi")
+            elif core_choice.startswith("Hayır"):
+                notes.append(
+                    f"ters açı var ({ratio}): maça/bölünmüş kalıp kullanılmayacak, incelenmeli"
+                )
+            elif core_cost <= 0:
+                notes.append(
+                    f"ters açı var ({ratio}): {core_choice.lower()} ama maliyeti girilmedi"
+                )
+            else:
+                notes.append(
+                    f"ters açı ({ratio}): {core_choice.lower()}, ek maliyet {core_cost:,.0f}"
+                )
     if (
         process == "sandvic_toplu"
         and not TOPLU_AREA_RANGE[0] <= f.one_side_area_m2 <= TOPLU_AREA_RANGE[1]
@@ -436,11 +472,14 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             wage_factor=float(wage),
             wage_factor_reason=wage_reason,
             tooling_nre=Price(
-                value=tool_cost,
+                value=tool_cost + core_cost,
                 currency=est.currency,
                 per="pcs",
-                source=Source.DERIVED if abs(tool_cost - est.value) < 0.01 else Source.USER,
-                note=est.note if abs(tool_cost - est.value) < 0.01 else "kullanıcı girişi",
+                source=Source.DERIVED
+                if abs(tool_cost - est.value) < 0.01 and core_cost == 0
+                else Source.USER,
+                note=(est.note if abs(tool_cost - est.value) < 0.01 else "kullanıcı girişi")
+                + (f" + maça/bölünme {core_cost:,.0f}" if core_cost else ""),
             ),
             master_nre=Price(
                 value=model_cost,

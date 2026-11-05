@@ -8,6 +8,7 @@ length (full boundary: outer edge, cut-outs and holes are all trimmed) and the p
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import tempfile
 from dataclasses import dataclass
@@ -89,6 +90,17 @@ def triangle_colors(
 
 _VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).parent / "viewer"))
 _PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
+
+
+def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
+    """Only the selected faces, renumbered 0..n-1 (the read-only mold-surface view)."""
+    chosen = set(selected)
+    return FaceMesh(
+        [
+            dataclasses.replace(f, id=i)
+            for i, f in enumerate(f for f in mesh.faces if f.id in chosen)
+        ]
+    )
 
 
 def viewer_payload(
@@ -248,12 +260,37 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
             cand = cands[names.index(pick)]
             pull, pull_label = cand.direction, cand.label
     colors = triangle_colors(view, selected, pull, min_ok, warn_min)
-    click = _VIEWER(
-        **viewer_payload(view, colors, key, pull), height=560, key=f"{key}_viewer", default=None
-    )
+    show_mold = bool(selected) and pull is not None
+    left, right = st.columns([3, 2]) if show_mold else (st.container(), None)
+    with left:
+        click = _VIEWER(
+            **viewer_payload(view, colors, key, pull), height=560, key=f"{key}_viewer", default=None
+        )
+    if right is not None and pull is not None:
+        with right:
+            sub = mold_submesh(view, selected)
+            mold_key = f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull)))}"
+            _VIEWER(
+                **viewer_payload(
+                    sub,
+                    triangle_colors(sub, list(range(len(sub.faces))), pull, min_ok, warn_min),
+                    mold_key,
+                    pull,
+                ),
+                view_dir=list(pull),
+                readonly=True,
+                height=560,
+                key=f"{key}_moldviewer",
+                default=None,
+            )
+            st.caption(
+                "**Kalıp yüzeyi**: seçili yüzler, çekme yönünden (kalıbın üstünden) bakış. "
+                "Döndürebilirsiniz; renkler soldaki ile aynı."
+            )
     last = f"{key}_lastclick"
-    if click and click.get("n", 0) != st.session_state.get(last):
-        st.session_state[last] = click["n"]
+    ident = (click.get("n"), click.get("t")) if click else None
+    if click and ident != st.session_state.get(last):  # n restarts when the iframe is rebuilt
+        st.session_state[last] = ident
         # the multiselect already exists in this run: apply the toggle at the top of the next one
         st.session_state[f"{key}_pending"] = int(click["face"])
         st.rerun()
