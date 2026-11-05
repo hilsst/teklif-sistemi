@@ -15,6 +15,7 @@ import streamlit as st
 import yaml
 
 from teklif.app import data_entry, learning_tab, part_quote
+from teklif.app.library_relevance import is_needed, needed_paths
 from teklif.common.models import Override, Price, Source
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
@@ -684,9 +685,37 @@ def _library_tab(lib: Library, lib_dir: str) -> None:
         ]
         _save(lib_dir, changes, reason)
 
-    st.subheader("Tüm kütüphane değerleri")
-    only_todo = st.toggle("Yalnız eksik (TODO) değerler", value=True)
-    rows = [v for v in editable_values(lib) if not only_todo or v.value is None]
+    st.subheader("Kütüphane değerleri")
+    modes = {
+        "need": "Seçili proses için gereken eksikler",
+        "todo": "Tüm eksik (TODO) değerler",
+        "all": "Tüm değerler",
+    }
+    m1, m2 = st.columns([2, 1])
+    mode = m1.radio("Göster", list(modes), format_func=modes.get, horizontal=True, key="lib_mode")
+    procs = list(lib.processes)
+    process = m2.selectbox(
+        "Proses",
+        procs,
+        index=procs.index("sandvic_toplu") if "sandvic_toplu" in procs else 0,
+        key="lib_proc",
+        disabled=mode != "need",
+    )
+    all_values = editable_values(lib)
+    if mode == "need":
+        needed = needed_paths(lib, process)
+        rows = [v for v in all_values if v.value is None and is_needed(v, needed)]
+        st.caption(
+            f"{process} teklifi için gereken ve boş olan {len(rows)} değer gösteriliyor; "
+            f"diğer {sum(v.value is None for v in all_values) - len(rows)} eksik değer bu proseste "
+            "kullanılmadığı için gizli. Kalıp/model maliyeti, maça ve nest ayarları teklif "
+            "ekranından girilir."
+        )
+    elif mode == "todo":
+        rows = [v for v in all_values if v.value is None]
+    else:
+        rows = all_values
+    only_todo = mode != "all"
     base = pd.DataFrame(
         [
             {
@@ -712,7 +741,7 @@ def _library_tab(lib: Library, lib_dir: str) -> None:
             "para birimi": st.column_config.SelectboxColumn(options=list(lib.currency.rates)),
             "değer": st.column_config.NumberColumn(format="%.4f"),
         },
-        key="lib_editor",
+        key=f"lib_editor_{mode}_{process}",
         height=420,
     )
     reason_all = st.text_input("Gerekçe (ör. 2026 fiyat listesi)", key="values_reason")
