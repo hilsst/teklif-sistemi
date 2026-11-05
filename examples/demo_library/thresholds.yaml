@@ -30,6 +30,17 @@ tessellation:
     source: user
     desc: Tessellation açısal sapma üst sınırı
 costing:
+  nest_efficiency:
+    value: 0.8
+    unit: ratio
+    source: user
+    desc: 'Kumaş nest verimi (kullanılan alan / harcanan alan); harcanan = 1 / verim.
+      Kemal 2026-11-05: %80'
+  fire_ratio:
+    value: 0.0
+    unit: ratio
+    source: default
+    desc: Nest dışı ek fire payı (kullanıcı teklifte girer)
   nesting_scrap_ratio:
     value: 0.35
     unit: ratio

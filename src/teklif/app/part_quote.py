@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,7 @@ from teklif.app.surface_panel import render_surface_panel
 from teklif.common.models import Price, Source
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
+from teklif.costing.partial import fill_missing
 from teklif.geometry.plate_features import PlateFeatures, extract_plate_features
 from teklif.ingest.step_props import StepProps, StepUnavailableError, extract_step_props
 from teklif.library import Library
@@ -130,6 +132,30 @@ def _separate_nre_summary(result: QuoteResult, keys: set[str]) -> None:
     )
 
 
+def _partial_view(result: QuoteResult, filled: list[str]) -> None:
+    """Price from the entered factors only; missing library values count as 0."""
+    st.error(
+        "KISMİ FİYAT (teklif değildir): kütüphanede değeri girilmemiş kalemler 0 sayılarak "
+        "hesaplandı, gerçek fiyat bundan farklı olacaktır "
+        "(genellikle daha yüksek; kur eksikse 1:1 alınır). Eksikleri girdikçe fiyat tamamlanır."
+    )
+    cols = st.columns(4)
+    for col, key, label in zip(
+        cols,
+        ["cost.unit", "price.unit_final", "nre.total", "price.order_total"],
+        ["Kısmi birim maliyet", "Kısmi birim fiyat", "NRE", "Kısmi sipariş toplamı"],
+        strict=True,
+    ):
+        try:
+            v = result.value(key)
+        except KeyError:
+            v = None
+        col.metric(f"{label} [{result.currency}]", "—" if v is None else f"{v:,.2f}")
+    _price_breakdown_table(result)
+    with st.expander(f"Eksik (0 sayılan) değerler: {len(filled)}"):
+        st.dataframe(pd.DataFrame({"kütüphane değeri": filled}), hide_index=True)
+
+
 def render(lib: Library, store: Store, show_result: Any) -> None:
     st.markdown(
         "Yalnız **parça STEP'ini** yükleyin. Alan, kalınlık ve delik sayısı ölçülür; kalıp "
@@ -212,16 +238,101 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         [op.id for op in template.operations],
         key="pq_exc",
     )
-    st.markdown("**Ply grupları** (düz desen alanı, fire hariç; varsayılan: parça alanı × 1)")
+    st.markdown("**Kumaş, kat sayısı ve nest**")
+    mat_cpt = next(p for p in lib.materials.prepregs if p.id == material).cured_ply_thickness
+    sandwich = "sandvic" in process
+    k1, k2, k3, k4 = st.columns(4)
+    cpt = k1.number_input(
+        "Cured ply thickness [mm]",
+        0.0,
+        value=float(mat_cpt.value or 0.0),
+        step=0.01,
+        format="%.3f",
+        help="Seçilen kumaşın kütüphane değeri; değiştirebilirsiniz."
+        + (" Kütüphanede boş, elle girin." if mat_cpt.value is None else ""),
+        key=f"pq_cpt_{material}",
+    )
+    lam_default = 0.0 if sandwich else round(f.mean_thickness_mm, 2)
+    lam_t = k2.number_input(
+        "Laminat kalınlığı [mm]" + (" (sandviçte bir yüzey kabuğu)" if sandwich else ""),
+        0.0,
+        value=lam_default,
+        step=0.1,
+        help="Sandviçte ölçülen kalınlık çekirdeği de içerir, bu yüzden kabuk kalınlığını girin."
+        if sandwich
+        else "Varsayılan: STEP'ten ölçülen ortalama kalınlık.",
+        key=f"pq_lamt_{process}_{upload.name}_{upload.size}",
+    )
+    skins = int(
+        k3.number_input(
+            "Yüzey (kabuk) sayısı", 1, value=2 if sandwich else 1, key=f"pq_skin_{process}"
+        )
+    )
+    plies_each = math.ceil(lam_t / cpt - 1e-9) if cpt > 0 and lam_t > 0 else 0
+    auto_plies = plies_each * skins
+    k4.metric("Otomatik kat sayısı", auto_plies if auto_plies else "—")
+    if auto_plies:
+        st.caption(
+            f"Kat sayısı = ⌈{lam_t:g} ÷ {cpt:g}⌉ = {plies_each} kat × {skins} yüzey = "
+            f"{auto_plies}; yukarı yuvarlanır. Aşağıdaki tabloda değiştirebilirsiniz."
+        )
+    else:
+        st.info(
+            "Kat sayısı için cured ply thickness ve laminat kalınlığını girin (şimdilik 1 kat)."
+        )
+    lib_eff = lib.thresholds.costing.nest_efficiency.value or 0.8
+    lib_fire = lib.thresholds.costing.fire_ratio.value or 0.0
+    e1, e2 = st.columns(2)
+    nest_eff = (
+        e1.number_input(
+            "Nest verimi [%]",
+            1.0,
+            100.0,
+            round(lib_eff * 100, 1),
+            step=1.0,
+            help="Kumaşı kalıba %100 yerleştiremezsiniz. Harcanan kumaş = kullanılan ÷ verim "
+            "(%80 verimde 1 m için 1,25 m).",
+            key="pq_nest",
+        )
+        / 100
+    )
+    fire = (
+        e2.number_input(
+            "Ek fire payı [%]",
+            0.0,
+            100.0,
+            round(lib_fire * 100, 1),
+            step=1.0,
+            help="Nest dışında ek fire (kesim artığı, hatalı kesim). Harcanan × (1 + fire).",
+            key="pq_fire",
+        )
+        / 100
+    )
+    nest_changed = abs(nest_eff - lib_eff) > 1e-9 or abs(fire - lib_fire) > 1e-9
+    st.caption(
+        f"Kumaş tüketim çarpanı: {(1 / nest_eff) * (1 + fire):.3f} "
+        f"(1 ÷ {nest_eff:.2f} × (1 + {fire:.2f}))"
+    )
+    st.markdown(
+        "**Ply grupları** (düz desen alanı, fire hariç; varsayılan: parça alanı × kat sayısı)"
+    )
     plies_df = st.data_editor(
-        pd.DataFrame([{"name": "ply", "area_m2": round(f.one_side_area_m2, 4), "count": 1}]),
+        pd.DataFrame(
+            [
+                {
+                    "name": "ply",
+                    "area_m2": round(f.one_side_area_m2, 4),
+                    "count": max(auto_plies, 1),
+                }
+            ]
+        ),
         num_rows="dynamic",
         column_config={
             "name": st.column_config.TextColumn("ad"),
             "area_m2": st.column_config.NumberColumn("alan [m2]", min_value=0.0, format="%.4f"),
             "count": st.column_config.NumberColumn("adet", min_value=1, step=1),
         },
-        key="pq_plies",
+        key=f"pq_plies_{auto_plies}",
     )
     st.markdown("**Kalıp ve model (teklif onaylanınca üretilir; maliyet ürün başına dağıtılır)**")
     mest = estimate_model_cost()
@@ -254,8 +365,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     )
     nre_margin = a2.checkbox("Kalıp ve model maliyetine de kâr ekle", True, key="pq_nremargin")
     if perimeter <= 0:
-        st.info("Teklifi hesaplamak için trim çevresini girin.")
-        return
+        st.warning("Trim çevresi girilmedi: trim süresi 0 hesaplanıyor (kalıp yüzeyi seçin).")
     flange_m = FLANGE_MM / 1000
     outer = sel.outer_m if sel else perimeter  # flange runs along the outer rim only
     notes = [
@@ -264,6 +374,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         f"kalıp izi/alanı: {FLANGE_SOURCE}",
         TRIM_RULE_ALL if trim_all else TRIM_RULE_OUTER,
     ]
+    if perimeter <= 0:
+        notes.append("trim çevresi girilmedi: trim süresi ve flanş alanı 0 hesaplandı")
     if sel:
         notes.append(sel.note())
         if abs(perimeter - trim_sel) > 0.001:
@@ -340,11 +452,23 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             amortize_nre=amortize,
             nre_margin=nre_margin,
             nre_quantity=int(nre_qty),
+            nest_efficiency=nest_eff if nest_changed else None,
+            fire_ratio=fire,
             review_notes=notes,
         )
         result = compute_quote(inp, lib)
+        partial = None
+        if result.value("price.unit_final") is None:
+            flib, filled = fill_missing(lib)
+            try:
+                partial = (compute_quote(inp, flib), filled)
+            except (ArithmeticError, QuoteInputError) as exc:
+                st.warning(f"Kısmi fiyat hesaplanamadı ({exc}); eksik değerleri girin.")
     except (QuoteInputError, ValueError) as exc:
         st.error(f"Girdi hatası: {exc}")
         return
-    _price_breakdown_table(result)
+    if partial is not None:
+        _partial_view(*partial)
+    else:
+        _price_breakdown_table(result)
     show_result(result, lib, store)

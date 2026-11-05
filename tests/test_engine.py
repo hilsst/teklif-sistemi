@@ -297,3 +297,30 @@ def test_nre_without_margin_or_amortization_is_unchanged(
     assert r.value("price.profit") == pytest.approx(
         (r.value("price.unit") or 0) - (r.value("cost.unit") or 0)
     )
+
+
+def test_nest_efficiency_sets_fabric_consumption(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    base = compute_quote(example_input.model_copy(update={"nest_efficiency": 1.0}), filled_lib)
+    eighty = compute_quote(example_input.model_copy(update={"nest_efficiency": 0.8}), filled_lib)
+    fire = compute_quote(
+        example_input.model_copy(update={"nest_efficiency": 0.8, "fire_ratio": 0.1}), filled_lib
+    )
+    m0, m80, mf = (r.value("material.total") or 0 for r in (base, eighty, fire))
+    assert m80 == pytest.approx(m0 * 1.25)  # 1 m of fabric needs 1 / 0.8 = 1.25 m
+    assert mf == pytest.approx(m0 * 1.25 * 1.1)
+
+
+def test_partial_price_fills_todo_values_and_lists_them(
+    lib: Library, example_input: QuoteInput
+) -> None:
+    from teklif.costing.partial import fill_missing
+
+    assert compute_quote(example_input, lib).value("price.unit_final") is None
+    filled, items = fill_missing(lib)
+    assert items and all(isinstance(i, str) for i in items)
+    part = compute_quote(example_input, filled)
+    assert part.value("price.unit_final") is not None
+    # the real library is untouched
+    assert compute_quote(example_input, lib).value("price.unit_final") is None

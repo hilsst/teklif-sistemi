@@ -200,6 +200,15 @@ class TessellationThresholds(_Strict):
 
 class CostingDefaults(_Strict):
     nesting_scrap_ratio: Param
+    nest_efficiency: Param = Param(
+        value=0.8,
+        unit="ratio",
+        source=Source.USER,
+        desc="Kumaş nest verimi (kullanılan alan / harcanan alan); harcanan = 1 / verim",
+    )
+    fire_ratio: Param = Param(
+        value=0.0, unit="ratio", source=Source.DEFAULT, desc="Nest dışı ek fire payı"
+    )
     learning_curve_ratio: Param
     learning_reference_unit: Param
     overhead_ratio: Param
