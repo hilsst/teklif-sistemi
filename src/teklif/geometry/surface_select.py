@@ -245,6 +245,65 @@ class FaceMesh:
             tangent[i] = v / ln if ln > 1e-9 else out_dir[i] / (np.linalg.norm(out_dir[i]) or 1.0)
         return Outline(loops, open_chains, outer, ring, tangent, out_dir)
 
+    def trim_lengths_mm(self, ids: list[int], pull: Vec) -> tuple[float, float]:
+        """(all boundary loops, outer loop) trim lengths, mm. A rim of a shell has an inner and an
+        outer edge on the planar cap face next to the selection (wall thickness); the longer of the
+        two is used, as the trim runs along the part's open edge."""
+        loops, _ = self.boundary_loops(ids)
+        if not loops:
+            return self.boundary_length_mm(ids), self.outer_perimeter_mm(ids, pull)
+
+        def length(lp: NDArray[np.float64]) -> float:
+            return float(np.linalg.norm(lp - np.roll(lp, -1, axis=0), axis=1).sum())
+
+        chosen = set(ids)
+        owners: dict[int, int] = {}
+        for i in chosen:
+            for key, _ in self.faces[i].edges:
+                owners[key] = owners.get(key, 0) + 1
+        rim_keys = {k for k, n in owners.items() if n == 1}
+        caps = [
+            f.id
+            for f in self.faces
+            if f.id not in chosen and f.planar and any(k in rim_keys for k, _ in f.edges)
+        ]
+        cap_loops: list[NDArray[np.float64]] = []
+        for c in caps:
+            cap_loops += self.boundary_loops([c])[0]
+
+        def extra(lp: NDArray[np.float64]) -> float:
+            """How much longer the twin edge is than this rim (0 if it is not longer)."""
+            own = length(lp)
+            best = own
+            if not cap_loops:
+                return 0.0
+            match = min(
+                cap_loops,
+                key=lambda c: float(
+                    np.linalg.norm(c[:: max(1, len(c) // 20), None] - lp[None, ::7], axis=2)
+                    .min(axis=0)
+                    .mean()
+                ),
+            )
+            probe = lp[:: max(1, len(lp) // 20)]
+            if float(np.linalg.norm(match[None] - probe[:, None], axis=2).min(axis=1).max()) > 1.0:
+                return 0.0  # no cap loop coincides with this rim
+            for c in cap_loops:
+                if c is match:
+                    continue
+                gap = float(np.linalg.norm(c[None] - probe[:, None], axis=2).min(axis=1).max())
+                if gap <= 100.0:  # the other edge of the same wall
+                    best = max(best, length(c))
+            return best - own
+
+        adds = [extra(lp) for lp in loops]
+        oi = self.outline(ids, pull)
+        outer_add = adds[oi.outer] if oi is not None else 0.0
+        return (
+            self.boundary_length_mm(ids) + sum(adds),
+            self.outer_perimeter_mm(ids, pull) + outer_add,
+        )
+
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
         chosen = set(ids)
