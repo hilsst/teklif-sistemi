@@ -56,6 +56,14 @@ class QuoteInput(_Strict):
     )
     tooling_exists: bool = Field(False, description="Tool already exists, no NRE")
     amortize_nre: bool = False
+    nre_margin: bool = Field(
+        False, description="Apply the profit margin to the tool and model cost as well"
+    )
+    nre_quantity: int | None = Field(
+        None,
+        ge=1,
+        description="Quantity the NRE is spread over when amortized (default: order quantity)",
+    )
     quote_currency: str | None = None
     wage_factor: float = Field(
         1.0, gt=0, description="Strategic factor on all labor rates (e.g. 0.9 to win a bid)"

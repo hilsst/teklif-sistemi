@@ -397,13 +397,35 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
     use_min = apply_min_order and (min_order.value is None or min_order.value > 0)
     total_key = "price.order_raw" if use_min else "price.order_total"
     total_desc = "Sipariş toplamı (minimum öncesi)" if use_min else "Sipariş toplamı"
-    if inp.amortize_nre and nre is not None:
+    nre_qty = _user(
+        inp.nre_quantity or inp.quantity, "part", "Quantity the NRE is spread over when amortized"
+    )
+    nre_priced = nre
+    if nre is not None and inp.nre_margin:
+        nre_priced = out.add(
+            _line(
+                "price.nre_priced",
+                f"Kalıp + model satış bedeli ({costing.margin_basis})",
+                price_formula.replace("cost", "nre"),
+                {
+                    "nre": _from_line(nre),
+                    "margin": (
+                        costing.margin_ratio,
+                        _p("thresholds.yaml", "costing.margin_ratio"),
+                    ),
+                },
+                lambda v: f.price_from_cost(v["nre"], v["margin"], costing.margin_basis),
+                ccy,
+                "price",
+            )
+        )
+    if inp.amortize_nre and nre_priced is not None:
         final = out.add(
             _line(
                 "price.unit_final",
                 "Birim fiyat (NRE yedirilmiş)",
-                "price.unit + nre / qty",
-                {"price": _from_line(unit_price), "nre": _from_line(nre), "qty": qty},
+                "price.unit + nre / nre_qty",
+                {"price": _from_line(unit_price), "nre": _from_line(nre_priced), "qty": nre_qty},
                 lambda v: v["price"] + v["nre"] / v["qty"],
                 ccy,
                 "price",
@@ -425,9 +447,10 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
         )
         total_inputs = {"unit": _from_line(final), "qty": qty}
         total_formula = "price.unit_final × qty"
-        if nre is not None:
-            total_inputs["nre"] = _from_line(nre)
+        if nre_priced is not None:
+            total_inputs["nre"] = _from_line(nre_priced)
             total_formula += " + nre"
+    _price_breakdown(out, inp, unit_cost, final, nre_qty, ccy)
     order = out.add(
         _line(
             total_key,
@@ -673,6 +696,66 @@ def min_order_topup_line(
         lambda v: max(0.0, v["min_order"] * v["fx"] - v["raw"]),
         raw.unit,
         "price",
+    )
+
+
+def _price_breakdown(
+    out: _Lines,
+    inp: QuoteInput,
+    unit_cost: CostLine,
+    final: CostLine,
+    nre_qty: Param,
+    ccy: str,
+) -> None:
+    """Per-unit price split: part cost + tool/model share + profit (profit is the remainder)."""
+    part = out.add(
+        _line(
+            "price.part_cost",
+            "Ürün başı: parça maliyeti",
+            "cost.unit",
+            {"cost": _from_line(unit_cost)},
+            lambda v: v["cost"],
+            ccy,
+            "price",
+        )
+    )
+    shares = [part]
+    if inp.amortize_nre and not inp.tooling_exists:
+        by_key = {ln.key: ln for ln in out.lines}
+        for key, label in (
+            ("nre.master", "Ürün başı: model payı"),
+            ("nre.tooling", "Ürün başı: kalıp payı"),
+        ):
+            src = by_key.get(key)
+            if src is None or src.result is None:
+                continue
+            if key == "nre.tooling" and "nre.master" not in by_key:
+                label = "Ürün başı: kalıp + model payı"
+            shares.append(
+                out.add(
+                    _line(
+                        key.replace("nre.", "price.share_"),
+                        label,
+                        f"{key} / nre_qty",
+                        {"nre": _from_line(src), "qty": nre_qty},
+                        lambda v: v["nre"] / v["qty"],
+                        ccy,
+                        "price",
+                    )
+                )
+            )
+    inputs: dict[str, LibValue] = {"price": _from_line(final)}
+    inputs.update({f"s{i}": _from_line(ln) for i, ln in enumerate(shares)})
+    out.add(
+        _line(
+            "price.profit",
+            "Ürün başı: kâr",
+            "price.unit_final − (" + " + ".join(ln.key for ln in shares) + ")",
+            inputs,
+            lambda v: v["price"] - sum(x for k, x in v.items() if k != "price"),
+            ccy,
+            "price",
+        )
     )
 
 
