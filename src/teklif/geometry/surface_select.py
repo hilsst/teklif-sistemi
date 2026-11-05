@@ -54,8 +54,9 @@ class Outline:
     loops: list[NDArray[np.float64]]  # every closed boundary loop of the selection (EOP)
     open_chains: list[NDArray[np.float64]]  # boundary pieces that did not close (not filled)
     outer: int  # index of the outer rim in ``loops``
-    ring: NDArray[np.float64] | None  # outer envelope on the surface (flange root)
-    offset: NDArray[np.float64] | None  # MEOP: the envelope pushed out by the flange
+    ring: NDArray[np.float64] | None  # outer envelope on the surface (EOP of the tool profile)
+    tangent: NDArray[np.float64] | None  # per ring point: unit direction the surface continues
+    out_dir: NDArray[np.float64] | None  # per ring point: outward direction in the pull plane
 
 
 def _cluster_points(pts: NDArray[np.float64], tol: float) -> list[int]:
@@ -168,9 +169,10 @@ class FaceMesh:
         ]
         return _chain_loops(segs, ends)
 
-    def outline(self, ids: list[int], pull: Vec, flange_mm: float) -> Outline | None:
-        """EOP loops (all boundary loops of the selection) and the MEOP outline: the largest loop's
-        outer envelope seen along pull, pushed out by ``flange_mm`` at the same height."""
+    def outline(self, ids: list[int], pull: Vec) -> Outline | None:
+        """EOP loops (all boundary loops of the selection) and the tool profile frame: the largest
+        loop's outer envelope seen along pull, with, per point, the direction the surface continues
+        past the edge and the outward direction."""
         loops, open_chains = self.boundary_loops(ids)
         if not loops:
             return None
@@ -183,7 +185,11 @@ class FaceMesh:
             x, y = lp @ a, lp @ b
             return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2)
 
-        outer = max(range(len(loops)), key=lambda i: area2d(loops[i]))
+        areas = [area2d(lp) for lp in loops]
+        # largest outline seen along pull; walls parallel to the pull give equal areas at both
+        # rims, then the rim towards the mold opening (smallest position along pull) is the EOP
+        tied = [i for i, a_ in enumerate(areas) if a_ >= 0.9 * max(areas)]
+        outer = min(tied, key=lambda i: float((loops[i] @ d).mean()))
         pts = loops[outer]
         xy = np.c_[pts @ a, pts @ b]
         rounded = cast(list[list[float]], np.round(xy, 2).tolist())
@@ -194,7 +200,7 @@ class FaceMesh:
                 lookup[(q[0], q[1])] = xyz
         hull = _convex_hull(np.unique(np.round(xy, 2), axis=0).astype(np.float64))
         if len(hull) < 3:
-            return Outline(loops, open_chains, outer, None, None)
+            return Outline(loops, open_chains, outer, None, None, None)
         ring = np.array([lookup[(round(float(h[0]), 2), round(float(h[1]), 2))] for h in hull])
         cen = hull.mean(axis=0)
         n = len(hull)
@@ -206,15 +212,38 @@ class FaceMesh:
             if np.dot(nn, (hull[i] + hull[(i + 1) % n]) / 2 - cen) < 0:
                 nn = -nn
             edge_n.append(nn)
-        out = np.empty_like(ring)
+        out_dir = np.empty_like(ring)
         for i in range(n):
             n1, n2 = edge_n[i - 1], edge_n[i]
             m = (n1 + n2) / (1 + float(np.dot(n1, n2)))
             ml = float(np.linalg.norm(m))
             if ml > 2.0:  # sharp corner: cap the miter spike
                 m = m * (2.0 / ml)
-            out[i] = ring[i] + flange_mm * (m[0] * a + m[1] * b)
-        return Outline(loops, open_chains, outer, ring, out)
+            out_dir[i] = m[0] * a + m[1] * b
+        # the surface continues past its edge the way it runs towards it: from the nearby
+        # interior (triangle centres) to the edge point
+        cents = np.vstack(
+            [
+                self.faces[i].vertices[self.faces[i].triangles].mean(axis=1)
+                for i in ids
+                if len(self.faces[i].triangles)
+            ]
+        )
+        tangent = np.empty_like(ring)
+        rim = loops[outer]
+        for i in range(n):
+            dist = np.linalg.norm(cents - ring[i], axis=1)
+            near = cents[np.argsort(dist)[: min(12, len(cents))]]
+            v = ring[i] - near.mean(axis=0)
+            # direction of the rim here: drop the part of v that runs along the edge
+            k = int(np.argmin(np.linalg.norm(rim - ring[i], axis=1)))
+            e = rim[(k + 1) % len(rim)] - rim[k - 1]
+            en = float(np.linalg.norm(e))
+            if en > 1e-9:
+                v = v - float(v @ (e / en)) * (e / en)
+            ln = float(np.linalg.norm(v))
+            tangent[i] = v / ln if ln > 1e-9 else out_dir[i] / (np.linalg.norm(out_dir[i]) or 1.0)
+        return Outline(loops, open_chains, outer, ring, tangent, out_dir)
 
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
@@ -287,7 +316,7 @@ def load_face_mesh(
     BRepMesh_IncrementalMesh(shape, params)
 
     faces: list[MeshFace] = []
-    sampled: set[int] = set()
+    poly_cache: dict[int, NDArray[np.float64]] = {}
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while explorer.More():
         face = _as_face(explorer.Current())
@@ -330,11 +359,11 @@ def load_face_mesh(
                 edges.append((key, lp.Mass()))
                 if with_edges:
                     edge = _as_edge(ed)
-                    if key not in sampled:
-                        sampled.add(key)
-                        polys[key] = _edge_polyline(
+                    if key not in poly_cache:  # sampled once, given to every face on the edge
+                        poly_cache[key] = _edge_polyline(
                             edge, BRepAdaptor_Curve, GCPnts_QuasiUniformDeflection, deflection_mm
                         )
+                    polys[key] = poly_cache[key]
             else:  # seam: used twice by this face, never a boundary
                 edges.append((key, lp.Mass()))
                 edges.append((key, lp.Mass()))
