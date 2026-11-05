@@ -40,12 +40,94 @@ class MeshFace:
     normals: NDArray[np.float64]  # (m, 3) unit normals per triangle
     tri_areas: NDArray[np.float64]  # (m,)
     edges: list[tuple[int, float]] = field(default_factory=list)  # (edge key, length mm)
+    edge_polys: dict[int, NDArray[np.float64]] = field(default_factory=dict)  # key -> (n, 3)
 
     @property
     def mean_normal(self) -> Vec:
         w = (self.normals * self.tri_areas[:, None]).sum(axis=0)
         n = float(np.linalg.norm(w))
         return w / n if n > 0 else w
+
+
+@dataclass(frozen=True)
+class Outline:
+    loops: list[NDArray[np.float64]]  # every closed boundary loop of the selection (EOP)
+    open_chains: list[NDArray[np.float64]]  # boundary pieces that did not close (not filled)
+    outer: int  # index of the outer rim in ``loops``
+    ring: NDArray[np.float64] | None  # outer envelope on the surface (flange root)
+    offset: NDArray[np.float64] | None  # MEOP: the envelope pushed out by the flange
+
+
+def _cluster_points(pts: NDArray[np.float64], tol: float) -> list[int]:
+    """Cluster id per point: points closer than ``tol`` end up together (STEP files often carry
+    separate vertex copies at the same place, so edges cannot be joined by vertex identity)."""
+    n = len(pts)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    cells: dict[tuple[int, int, int], list[int]] = {}
+    for i, p in enumerate(pts):
+        c = tuple(int(v) for v in np.floor(p / tol))
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for j in cells.get((c[0] + dx, c[1] + dy, c[2] + dz), []):
+                        if float(np.linalg.norm(pts[j] - p)) <= tol:
+                            parent[find(i)] = find(j)
+        cells.setdefault((c[0], c[1], c[2]), []).append(i)
+    return [find(i) for i in range(n)]
+
+
+def _chain_loops(
+    segs: list[NDArray[np.float64]], ends: list[tuple[object, object]]
+) -> tuple[list[NDArray[np.float64]], list[NDArray[np.float64]]]:
+    """Join edge polylines end to end by their end-vertex keys: (closed loops, open chains)."""
+    at: dict[object, list[int]] = {}
+    for i, (ka, kb) in enumerate(ends):
+        at.setdefault(ka, []).append(i)
+        if kb != ka:
+            at.setdefault(kb, []).append(i)
+    used = [False] * len(segs)
+
+    def grow(head: object, chain: list[NDArray[np.float64]]) -> object:
+        while True:
+            nxt = next((j for j in at.get(head, []) if not used[j]), None)
+            if nxt is None:
+                return head
+            used[nxt] = True
+            sg = segs[nxt]
+            ka, kb = ends[nxt]
+            if ka == head:
+                head = kb
+            else:
+                sg, head = sg[::-1], ka
+            chain.append(sg)
+            if head == start_key:
+                return head
+
+    closed: list[NDArray[np.float64]] = []
+    opened: list[NDArray[np.float64]] = []
+    for start in range(len(segs)):
+        if used[start]:
+            continue
+        used[start] = True
+        chain = [segs[start]]
+        start_key = ends[start][0]
+        head = grow(ends[start][1], chain)
+        if head == start_key:
+            closed.append(np.vstack([c[:-1] for c in chain]))
+        else:  # walk the other way from the start to pick up the rest of an open path
+            back: list[NDArray[np.float64]] = []
+            start_key = None
+            grow(ends[start][0], back)
+            pts = [c[::-1] for c in reversed(back)] + chain if back else chain
+            opened.append(np.vstack(pts))
+    return closed, opened
 
 
 @dataclass
@@ -66,26 +148,53 @@ class FaceMesh:
         hull = _convex_hull(xy)
         return float(np.linalg.norm(np.diff(np.vstack([hull, hull[:1]]), axis=0), axis=1).sum())
 
-    def flange_rings(
-        self, ids: list[int], pull: Vec, flange_mm: float
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64]] | None:
-        """EOP and MEOP outlines in 3D: the selection's outline seen along pull (convex hull,
-        vertices on the surface) and that outline pushed out by ``flange_mm`` at the same height."""
+    def boundary_loops(
+        self, ids: list[int]
+    ) -> tuple[list[NDArray[np.float64]], list[NDArray[np.float64]]]:
+        """Closed 3D polylines of the selection's boundary: the rim, cut-outs, holes, channels."""
+        chosen = set(ids)
+        owners: dict[int, int] = {}
+        polys: dict[int, NDArray[np.float64]] = {}
+        for i in chosen:
+            for key, _ in self.faces[i].edges:
+                owners[key] = owners.get(key, 0) + 1
+            polys.update(self.faces[i].edge_polys)
+        keys = [k for k, n in owners.items() if n == 1 and k in polys and len(polys[k]) > 1]
+        segs = [polys[k] for k in keys]
+        pts = np.array([p for sg in segs for p in (sg[0], sg[-1])])
+        ids_ = _cluster_points(pts, 0.1)
+        ends: list[tuple[object, object]] = [
+            (ids_[2 * i], ids_[2 * i + 1]) for i in range(len(segs))
+        ]
+        return _chain_loops(segs, ends)
+
+    def outline(self, ids: list[int], pull: Vec, flange_mm: float) -> Outline | None:
+        """EOP loops (all boundary loops of the selection) and the MEOP outline: the largest loop's
+        outer envelope seen along pull, pushed out by ``flange_mm`` at the same height."""
+        loops, open_chains = self.boundary_loops(ids)
+        if not loops:
+            return None
         d = _unit(np.asarray(pull, dtype=float))
-        pts = np.vstack([self.faces[i].vertices for i in ids if len(self.faces[i].vertices)])
         a = np.cross(d, [1.0, 0.0, 0.0] if abs(d[0]) < 0.9 else [0.0, 1.0, 0.0])
         a /= np.linalg.norm(a)
         b = np.cross(d, a)
+
+        def area2d(lp: NDArray[np.float64]) -> float:
+            x, y = lp @ a, lp @ b
+            return float(abs(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) / 2)
+
+        outer = max(range(len(loops)), key=lambda i: area2d(loops[i]))
+        pts = loops[outer]
         xy = np.c_[pts @ a, pts @ b]
-        lookup: dict[tuple[float, float], NDArray[np.float64]] = {}
         rounded = cast(list[list[float]], np.round(xy, 2).tolist())
+        lookup: dict[tuple[float, float], NDArray[np.float64]] = {}
         for q, xyz in zip(rounded, list(pts), strict=True):
             old = lookup.get((q[0], q[1]))
-            if old is None or float(xyz @ d) > float(old @ d):  # same outline point: top rim
+            if old is None or float(xyz @ d) > float(old @ d):
                 lookup[(q[0], q[1])] = xyz
         hull = _convex_hull(np.unique(np.round(xy, 2), axis=0).astype(np.float64))
         if len(hull) < 3:
-            return None
+            return Outline(loops, open_chains, outer, None, None)
         ring = np.array([lookup[(round(float(h[0]), 2), round(float(h[1]), 2))] for h in hull])
         cen = hull.mean(axis=0)
         n = len(hull)
@@ -105,7 +214,7 @@ class FaceMesh:
             if ml > 2.0:  # sharp corner: cap the miter spike
                 m = m * (2.0 / ml)
             out[i] = ring[i] + flange_mm * (m[0] * a + m[1] * b)
-        return ring, out
+        return Outline(loops, open_chains, outer, ring, out)
 
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
@@ -150,13 +259,16 @@ def load_face_mesh(
     path: Path | str,
     deflection_mm: float = LINEAR_DEFLECTION_MM,
     angle_deg: float = ANGULAR_DEFLECTION_DEG,
+    with_edges: bool = False,
 ) -> FaceMesh:
-    """Read a STEP file and tessellate every face (needs OCP)."""
+    """Read a STEP file and tessellate every face (needs OCP). ``with_edges`` also samples the
+    edge polylines (only the 3D view needs them)."""
     try:
         from OCP.BRep import BRep_Tool
-        from OCP.BRepAdaptor import BRepAdaptor_Surface
+        from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
         from OCP.BRepGProp import BRepGProp
         from OCP.BRepMesh import BRepMesh_IncrementalMesh
+        from OCP.GCPnts import GCPnts_QuasiUniformDeflection
         from OCP.GeomAbs import GeomAbs_Plane
         from OCP.GProp import GProp_GProps
         from OCP.IMeshTools import IMeshTools_Parameters
@@ -175,6 +287,7 @@ def load_face_mesh(
     BRepMesh_IncrementalMesh(shape, params)
 
     faces: list[MeshFace] = []
+    sampled: set[int] = set()
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while explorer.More():
         face = _as_face(explorer.Current())
@@ -204,6 +317,7 @@ def load_face_mesh(
         props = GProp_GProps()
         BRepGProp.SurfaceProperties_s(face, props)
         edges: list[tuple[int, float]] = []
+        polys: dict[int, NDArray[np.float64]] = {}
         ex = TopExp_Explorer(face, TopAbs_EDGE)
         seen: set[int] = set()
         while ex.More():
@@ -214,6 +328,13 @@ def load_face_mesh(
             if key not in seen:
                 seen.add(key)
                 edges.append((key, lp.Mass()))
+                if with_edges:
+                    edge = _as_edge(ed)
+                    if key not in sampled:
+                        sampled.add(key)
+                        polys[key] = _edge_polyline(
+                            edge, BRepAdaptor_Curve, GCPnts_QuasiUniformDeflection, deflection_mm
+                        )
             else:  # seam: used twice by this face, never a boundary
                 edges.append((key, lp.Mass()))
                 edges.append((key, lp.Mass()))
@@ -228,6 +349,7 @@ def load_face_mesh(
                 normals=normals,
                 tri_areas=lens / 2,
                 edges=edges,
+                edge_polys=polys,
             )
         )
     if not faces:
@@ -235,9 +357,33 @@ def load_face_mesh(
     return FaceMesh(faces)
 
 
+def _edge_polyline(
+    edge: Any, adaptor: Any, sampler: Any, deflection_mm: float
+) -> NDArray[np.float64]:
+    try:
+        curve = adaptor(edge)
+        try:
+            g = sampler(curve, max(deflection_mm / 2, 0.2))
+            if not g.IsDone():
+                raise RuntimeError("sampling failed")
+            pts = [g.Value(i + 1) for i in range(g.NbPoints())]
+        except Exception:  # fall back to the two ends
+            pts = [curve.Value(curve.FirstParameter()), curve.Value(curve.LastParameter())]
+        return np.array([(p.X(), p.Y(), p.Z()) for p in pts], dtype=float)
+    except Exception:  # an edge that cannot be sampled must not fail the whole load
+        return np.zeros((0, 3))
+
+
 def _empty_face(face_id: int) -> MeshFace:
     z3 = np.zeros((0, 3))
     return MeshFace(face_id, 0.0, False, z3, np.zeros((0, 3), dtype=np.int64), z3, np.zeros(0))
+
+
+def _as_edge(shape: Any) -> Any:
+    from OCP.TopoDS import TopoDS
+
+    cast_ = getattr(TopoDS, "Edge_s", None) or TopoDS.Edge
+    return cast_(shape)
 
 
 def _as_face(shape: Any) -> Any:
@@ -315,3 +461,38 @@ def faces_facing(mesh: FaceMesh, direction: Vec, tol_deg: float) -> list[int]:
     d = _unit(np.asarray(direction, dtype=float))
     lim = math.cos(math.radians(tol_deg))
     return [f.id for f in mesh.faces if float(f.mean_normal @ d) >= lim]
+
+
+def triangulate_polygon(xy: NDArray[np.float64]) -> list[tuple[int, int, int]]:
+    """Ear clipping of a simple polygon (any orientation). Empty when it cannot be done."""
+    n = len(xy)
+    if n < 3 or n > 600:
+        return []
+    x, y = xy[:, 0], xy[:, 1]
+    sign = 1.0 if float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1))) > 0 else -1.0
+    idx = list(range(n))
+    out: list[tuple[int, int, int]] = []
+
+    def cross(a: int, b: int, c: int) -> float:
+        return float((x[b] - x[a]) * (y[c] - y[a]) - (y[b] - y[a]) * (x[c] - x[a])) * sign
+
+    def inside(p: int, a: int, b: int, c: int) -> bool:
+        return cross(a, b, p) >= 0 and cross(b, c, p) >= 0 and cross(c, a, p) >= 0
+
+    guard = 0
+    while len(idx) > 3 and guard < 10 * n:
+        guard += 1
+        for k in range(len(idx)):
+            a, b, c = idx[k - 1], idx[k], idx[(k + 1) % len(idx)]
+            if cross(a, b, c) <= 1e-12:
+                continue
+            if any(inside(p, a, b, c) for p in idx if p not in (a, b, c)):
+                continue
+            out.append((a, b, c))
+            idx.pop(k)
+            break
+        else:
+            return []
+    if len(idx) == 3:
+        out.append((idx[0], idx[1], idx[2]))
+    return out

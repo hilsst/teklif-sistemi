@@ -38,11 +38,16 @@ def test_mold_submesh_renumbers() -> None:
     assert [f.id for f in sub.faces] == [0]
 
 
-def test_flange_rings_offset_by_flange() -> None:
+def test_outline_has_eop_loops_for_holes_and_flange_only_on_outer_rim() -> None:
     import numpy as np
 
     from teklif.geometry.surface_select import FaceMesh, MeshFace
 
+    def square(x0: float, y0: float, w: float, h: float) -> list[np.ndarray]:
+        c = np.array([[x0, y0, 0], [x0 + w, y0, 0], [x0 + w, y0 + h, 0], [x0, y0 + h, 0]], float)
+        return [np.array([c[i], c[(i + 1) % 4]]) for i in range(4)]
+
+    polys = {k: p for k, p in enumerate(square(0, 0, 100, 50) + square(40, 20, 10, 10))}
     v = np.array([[0, 0, 0], [100, 0, 0], [100, 50, 0], [0, 50, 0]], dtype=float)
     f = MeshFace(
         0,
@@ -52,9 +57,53 @@ def test_flange_rings_offset_by_flange() -> None:
         np.array([[0, 1, 2], [0, 2, 3]]),
         np.tile([0, 0, 1.0], (2, 1)),
         np.array([2500.0, 2500.0]),
+        edges=[(k, 10.0) for k in polys],
+        edge_polys=polys,
     )
-    rings = FaceMesh([f]).flange_rings([0], np.array([0.0, 0.0, 1.0]), 150.0)
-    assert rings is not None
-    ring, out = rings
-    assert len(ring) == 4
-    assert np.allclose(np.ptp(out[:, 0]), 100 + 300) and np.allclose(np.ptp(out[:, 1]), 50 + 300)
+    ol = FaceMesh([f]).outline([0], np.array([0.0, 0.0, 1.0]), 150.0)
+    assert ol is not None
+    assert len(ol.loops) == 2 and len(ol.loops[ol.outer]) == 4  # rim + the hole
+    assert ol.ring is not None and ol.offset is not None
+    assert np.isclose(np.ptp(ol.offset[:, 0]), 100 + 300)
+    assert np.isclose(np.ptp(ol.offset[:, 1]), 50 + 300)
+
+
+def test_triangulate_concave_polygon_covers_its_area() -> None:
+    import numpy as np
+
+    from teklif.geometry.surface_select import triangulate_polygon
+
+    # L shape, area 3
+    xy = np.array([[0, 0], [2, 0], [2, 1], [1, 1], [1, 2], [0, 2]], dtype=float)
+    tris = triangulate_polygon(xy)
+    area = sum(
+        abs(
+            (xy[b][0] - xy[a][0]) * (xy[c][1] - xy[a][1])
+            - (xy[b][1] - xy[a][1]) * (xy[c][0] - xy[a][0])
+        )
+        / 2
+        for a, b, c in tris
+    )
+    assert len(tris) == 4 and np.isclose(area, 3.0)
+
+
+def test_chain_loops_by_vertex_keys_and_open_chains() -> None:
+    import numpy as np
+
+    from teklif.geometry.surface_select import _chain_loops
+
+    def seg(a: tuple[float, float], b: tuple[float, float]) -> np.ndarray:
+        return np.array([[*a, 0.0], [*b, 0.0]])
+
+    # a triangle given with one reversed edge (vertex keys 1,2,3) + a loose open path (7-8-9)
+    segs = [
+        seg((0, 0), (1, 0)),
+        seg((0, 1), (1, 0)),
+        seg((0, 1), (0, 0)),
+        seg((5, 0), (6, 0)),
+        seg((6, 0), (7, 0)),
+    ]
+    ends: list[tuple[object, object]] = [(1, 2), (3, 2), (3, 1), (7, 8), (8, 9)]
+    closed, opened = _chain_loops(segs, ends)
+    assert len(closed) == 1 and len(closed[0]) == 3
+    assert len(opened) == 1 and len(opened[0]) == 4
