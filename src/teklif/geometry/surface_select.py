@@ -23,8 +23,11 @@ from numpy.typing import NDArray
 from teklif.ingest.step_props import StepUnavailableError, load_step_shape
 
 Vec = NDArray[np.float64]
-LINEAR_DEFLECTION_MM = 0.5
-ANGULAR_DEFLECTION_RAD = math.radians(0.5)  # tessellation <= 0.5 deg (thresholds.yaml)
+LINEAR_DEFLECTION_MM = 2.0
+# 3 deg keeps a 2-5 m2 panel under ~5 s (0.5 deg took minutes); facet normals are good to ~1.5 deg
+ANGULAR_DEFLECTION_DEG = 3.0
+VIEW_DEFLECTION_MM = 5.0  # coarse mesh for the browser view only
+VIEW_ANGLE_DEG = 10.0
 
 
 @dataclass
@@ -71,7 +74,11 @@ def _unit(v: Vec) -> Vec:
     return v / n
 
 
-def load_face_mesh(path: Path | str) -> FaceMesh:
+def load_face_mesh(
+    path: Path | str,
+    deflection_mm: float = LINEAR_DEFLECTION_MM,
+    angle_deg: float = ANGULAR_DEFLECTION_DEG,
+) -> FaceMesh:
     """Read a STEP file and tessellate every face (needs OCP)."""
     try:
         from OCP.BRep import BRep_Tool
@@ -89,8 +96,8 @@ def load_face_mesh(path: Path | str) -> FaceMesh:
 
     shape, _ = load_step_shape(path)
     params = IMeshTools_Parameters()
-    params.Deflection = LINEAR_DEFLECTION_MM
-    params.Angle = ANGULAR_DEFLECTION_RAD
+    params.Deflection = deflection_mm
+    params.Angle = math.radians(angle_deg)
     params.Relative = False
     params.InParallel = True
     BRepMesh_IncrementalMesh(shape, params)
@@ -220,3 +227,10 @@ def suggest_pull_directions(
         out.append(PullCandidate((float(v[0]), float(v[1]), float(v[2])), label, bad, ok))
     out.sort(key=lambda c: (c.undercut_area_ratio, -c.min_ok_ratio))
     return out
+
+
+def faces_facing(mesh: FaceMesh, direction: Vec, tol_deg: float) -> list[int]:
+    """Faces whose mean outward normal is within tol_deg of direction (helper for selection)."""
+    d = _unit(np.asarray(direction, dtype=float))
+    lim = math.cos(math.radians(tol_deg))
+    return [f.id for f in mesh.faces if float(f.mean_normal @ d) >= lim]

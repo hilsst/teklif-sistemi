@@ -11,6 +11,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from teklif.app.surface_panel import render_surface_panel
 from teklif.common.models import Price, Source
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
@@ -25,6 +26,10 @@ from teklif.tooling_rules.cost_estimate import (
 )
 
 TOPLU_AREA_RANGE = (2.4, 4.7)  # area range of the 7 panels behind process sandvic_toplu
+TRIM_RULE = (
+    "varsayım: parça üzerindeki tüm boşluklar, delikler ve kenarlar trimlenir "
+    "(trim çevresi = kalıp yüzeyinin tüm sınırı)"
+)
 FLANGE_MM = 150.0  # typical flange length (Kemal, 2026-11-04); becomes a library value in Faz 3
 FLANGE_SOURCE = "flanş payı 150 mm (tipik değer, kütüphaneye taşınacak)"
 
@@ -146,7 +151,15 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         "Bu değerler STEP'ten türetilmiş tahminlerdir; teklifte 'incelenmeli' işaretiyle taşınır. "
         "Trim çevresi STEP'ten güvenilir çıkmadığı için aşağıya elle girilir."
     )
-    est = estimate_tool_cost(f.one_side_area_m2)
+    with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
+        sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf")
+    tool_part_area = sel.area_m2 if sel else f.one_side_area_m2
+    if sel:
+        st.success(
+            f"Kalıp yüzeyi: {sel.area_m2:.2f} m², trim çevresi {sel.boundary_m:.2f} m "
+            f"(tüm dış kenar, boşluk ve delikler trimlenir), çekme yönü {sel.pull_label}."
+        )
+    est = estimate_tool_cost(tool_part_area)
     _estimate_card(est)
     fx, fy = tool_footprint_mm(m.props)
     st.caption(f"Kalıp izi tahmini: {fx:.0f} × {fy:.0f} mm ({FLANGE_SOURCE}).")
@@ -171,7 +184,13 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     material = c3.selectbox("Ana prepreg", prepregs, key="pq_mat")
     autoclave = c1.selectbox("Autoclave", autoclaves, key="pq_ac")
     cx = c2.selectbox("Karmaşıklık", complexity, key="pq_cx")
-    perimeter = c3.number_input("Trim çevresi [m] (elle)", 0.0, value=0.0, key="pq_per")
+    auto_per = round(sel.boundary_m, 3) if sel else 0.0
+    perimeter = c3.number_input(
+        "Trim çevresi [m]" + (" (seçimden; değiştirirseniz gerekçe düşer)" if sel else " (elle)"),
+        0.0,
+        value=auto_per,
+        key=f"pq_per_{auto_per}",
+    )
     q1, q2, q3 = st.columns(3)
     quantity = q1.number_input("Sipariş adedi", 1, value=1, key="pq_qty")
     batch = q2.number_input("Parti adedi", 1, value=1, key="pq_batch")
@@ -238,7 +257,19 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         "part_area_m2, hole_count: STEP'ten türetilmiş tahmin (levha özellikleri)",
         f"kalıp maliyeti: {est.note}",
         f"kalıp izi/alanı: {FLANGE_SOURCE}",
+        TRIM_RULE,
     ]
+    if sel:
+        notes.append(sel.note())
+        if abs(perimeter - sel.boundary_m) > 0.001:
+            notes.append(
+                f"trim çevresi seçimden ({sel.boundary_m:.2f} m) farklı girildi: {perimeter:.2f} m"
+            )
+        if sel.undercut_ratio > 0:
+            notes.append(
+                f"seçilen çekme yönünde ters açı var (%{sel.undercut_ratio * 100:.1f}): "
+                "maça/bölünmüş kalıp incelenmeli"
+            )
     if (
         process == "sandvic_toplu"
         and not TOPLU_AREA_RANGE[0] <= f.one_side_area_m2 <= TOPLU_AREA_RANGE[1]
@@ -275,7 +306,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
                 part_area_m2=f.one_side_area_m2,
                 part_perimeter_m=perimeter,
                 hole_count=f.hole_count,
-                tool_area_m2=f.one_side_area_m2 + flange_m * perimeter,
+                tool_area_m2=tool_part_area + flange_m * perimeter,
                 tool_perimeter_m=perimeter + 2 * 3.14159265 * flange_m,
                 tool_footprint_x_mm=fx,
                 tool_footprint_y_mm=fy,

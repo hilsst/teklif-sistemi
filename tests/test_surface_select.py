@@ -37,7 +37,7 @@ def _plate(tmp: Path, holes: int = 0) -> Path:
 def _bottom_face(mesh) -> int:  # type: ignore[no-untyped-def]
     # the largest face whose normal points to -Z (tool side of a plate lying on the tool)
     best = max((f for f in mesh.faces if f.mean_normal[2] < -0.9), key=lambda f: f.area_mm2)
-    return best.id
+    return int(best.id)
 
 
 def test_plate_bottom_face_area_and_boundary(tmp_path: Path) -> None:
@@ -83,3 +83,18 @@ def test_tilted_wall_draft_is_the_tilt_angle() -> None:
     )
     deg = draft_angles_deg(FaceMesh([face]), [0], np.array([0, 0, 1.0]))[0]
     assert deg[0] == pytest.approx(5.0)
+
+
+def test_panel_helpers(tmp_path: Path) -> None:
+    import numpy as np
+
+    from teklif.app.surface_panel import GREEN, RED, build_figure, triangle_colors
+    from teklif.geometry.surface_select import faces_facing
+
+    mesh = load_face_mesh(_plate(tmp_path))
+    bottom = faces_facing(mesh, np.array([0.0, 0.0, -1.0]), 10)
+    assert bottom
+    up = triangle_colors(mesh, bottom, (0.0, 0.0, 1.0), 2.0, 0.0)
+    down = triangle_colors(mesh, bottom, (0.0, 0.0, -1.0), 2.0, 0.0)
+    assert GREEN in up and RED in down
+    assert len(build_figure(mesh, up).data) >= 2
