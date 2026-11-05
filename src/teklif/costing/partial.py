@@ -48,7 +48,11 @@ def fill_missing(lib: Library) -> tuple[Library, list[str]]:
                 unlimited = (fname == "autoclaves.yaml" and last in _NO_LIMIT) or (
                     last == "debulk_interval_plies"
                 )
-                v.value = 1e6 if unlimited else (1.0 if neutral else 0.0)
+                v.value = (
+                    1e6
+                    if unlimited
+                    else (1000.0 if last == "roll_width" else (1.0 if neutral else 0.0))
+                )
                 note = " (sınırsız)" if unlimited else (" (nötr 1)" if neutral else " (0)")
                 filled.append(f"{fname}: {path}{note}")
     return out, filled

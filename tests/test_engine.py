@@ -324,3 +324,19 @@ def test_partial_price_fills_todo_values_and_lists_them(
     assert part.value("price.unit_final") is not None
     # the real library is untouched
     assert compute_quote(example_input, lib).value("price.unit_final") is None
+
+
+def test_fabric_price_per_metre_uses_roll_width(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    import copy
+
+    base = compute_quote(example_input, filled_lib)
+    lib2 = copy.deepcopy(filled_lib)
+    mat = next(p for p in lib2.materials.prepregs if p.id == example_input.material)
+    per_m2 = mat.price.value or 0.0
+    mat.roll_width.value = 1250.0
+    mat.price.per = "m"
+    mat.price.value = per_m2 * 1.25  # a 1.25 m wide roll: price per metre = 1.25 x price per m2
+    r = compute_quote(example_input, lib2)
+    assert r.value("material.total") == pytest.approx(base.value("material.total"))

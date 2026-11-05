@@ -298,13 +298,18 @@ def _draft_banner(manual_review: bool, n_flags: int) -> None:
         )
 
 
-def _save_buttons(save_draft: Any, save_final: Any, blocked: bool) -> None:
+def _save_buttons(save_draft: Any, save_final: Any, blocked: bool, scope: str = "") -> None:
     """Draft/final save buttons; ``save_*`` are callables that store and return a row."""
     b1, b2 = st.columns(2)
-    if b1.button("Taslak olarak kaydet"):
+    if b1.button("Taslak olarak kaydet", key=f"{scope}save_draft"):
         row = save_draft()
         st.success(f"Taslak kaydedildi: {row.quote_no} rev {row.revision}")
-    if b2.button("Kesinleştir ve kaydet", disabled=blocked, help="Açık bayrak varken kapalı"):
+    if b2.button(
+        "Kesinleştir ve kaydet",
+        disabled=blocked,
+        help="Açık bayrak varken kapalı",
+        key=f"{scope}save_final",
+    ):
         try:
             row = save_final()
         except NotFinalizableError as exc:
@@ -313,10 +318,10 @@ def _save_buttons(save_draft: Any, save_final: Any, blocked: bool) -> None:
             st.success(f"Kesin teklif kaydedildi: {row.quote_no} rev {row.revision}")
 
 
-def _sweep_section(result: QuoteResult, lib: Library) -> None:
+def _sweep_section(result: QuoteResult, lib: Library, scope: str = "") -> None:
     with st.expander("Adet taraması (birim fiyat adetle nasıl değişir)"):
         default = ",".join(str(q) for q in lib.thresholds.costing.sweep_quantities)
-        text = st.text_input("Adetler (virgülle)", default, key="sweep_qtys")
+        text = st.text_input("Adetler (virgülle)", default, key=f"{scope}sweep_qtys")
         try:
             qtys = [int(q) for q in text.split(",") if q.strip()]
             rows = quantity_sweep(result.input, lib, qtys)
@@ -352,10 +357,13 @@ def _sweep_section(result: QuoteResult, lib: Library) -> None:
             "Adet taraması CSV",
             sweep_csv(rows, result.currency).encode("utf-8"),
             f"{result.input.quote_no}_adet_taramasi.csv",
+            key=f"{scope}sweep_csv",
         )
 
 
-def _show_result(result: QuoteResult, lib: Library, store: Store) -> None:
+def _show_result(result: QuoteResult, lib: Library, store: Store, scope: str = "new") -> None:
+    """Result view; ``scope`` keeps widget keys unique when several tabs show a result."""
+    sc = f"{scope}_"
     cols = st.columns(4)
     nre_key = "nre.total" if any(ln.key == "nre.total" for ln in result.lines) else "nre.tooling"
     for col, key, label in zip(
@@ -400,39 +408,51 @@ def _show_result(result: QuoteResult, lib: Library, store: Store) -> None:
     )
     st.dataframe(breakdown_frame(result), hide_index=True, height=480, column_config=NUMBER_COLUMNS)
 
-    st.markdown("**Ezme** (her ezme gerekçesiyle kaydedilir)")
-    keys = [ln.key for ln in result.lines]
-    o1, o2, o3, o4 = st.columns([3, 2, 4, 1])
-    key = o1.selectbox("Kalem", keys, key="ov_key")
-    value = o2.number_input("Yeni değer", value=float(result.value(key) or 0.0), key="ov_val")
-    reason = o3.text_input("Gerekçe", key="ov_reason")
-    if o4.button("Ez"):
-        if not reason.strip():
-            st.warning("Gerekçe zorunlu.")
-        else:
-            st.session_state.setdefault("overrides", {})[key] = Override(
-                value=value, reason=reason.strip()
+    if scope == "new":
+        st.markdown("**Ezme** (her ezme gerekçesiyle kaydedilir)")
+        keys = [ln.key for ln in result.lines]
+        o1, o2, o3, o4 = st.columns([3, 2, 4, 1])
+        key = o1.selectbox("Kalem", keys, key="ov_key")
+        value = o2.number_input("Yeni değer", value=float(result.value(key) or 0.0), key="ov_val")
+        reason = o3.text_input("Gerekçe", key="ov_reason")
+        if o4.button("Ez"):
+            if not reason.strip():
+                st.warning("Gerekçe zorunlu.")
+            else:
+                st.session_state.setdefault("overrides", {})[key] = Override(
+                    value=value, reason=reason.strip()
+                )
+                st.rerun()
+        if st.session_state.get("overrides"):
+            st.write(
+                {k: f"{o.value} ({o.reason})" for k, o in st.session_state["overrides"].items()}
             )
-            st.rerun()
-    if st.session_state.get("overrides"):
-        st.write({k: f"{o.value} ({o.reason})" for k, o in st.session_state["overrides"].items()})
-        if st.button("Ezmeleri temizle"):
-            st.session_state["overrides"] = {}
-            st.rerun()
+            if st.button("Ezmeleri temizle"):
+                st.session_state["overrides"] = {}
+                st.rerun()
 
-    _sweep_section(result, lib)
+    else:
+        st.caption("Ezme (override) yalnız 'Yeni teklif' sekmesinde yapılır.")
+
+    _sweep_section(result, lib, sc)
     _save_buttons(
         lambda: store.save_quote(result, lib),
         lambda: store.save_quote(result, lib, final=True),
         result.has_open_review,
+        sc,
     )
     d1, d2, d3 = st.columns(3)
-    d1.download_button("Excel indir", excel_bytes(result), f"{result.input.quote_no}.xlsx")
-    d2.download_button("PDF indir", pdf_bytes(result), f"{result.input.quote_no}.pdf")
+    d1.download_button(
+        "Excel indir", excel_bytes(result), f"{result.input.quote_no}.xlsx", key=f"{sc}xlsx"
+    )
+    d2.download_button(
+        "PDF indir", pdf_bytes(result), f"{result.input.quote_no}.pdf", key=f"{sc}pdf"
+    )
     d3.download_button(
         "CSV indir (kırılım)",
         breakdown_csv(result).encode("utf-8"),
         f"{result.input.quote_no}.csv",
+        key=f"{sc}csv",
     )
 
 
@@ -750,7 +770,7 @@ def main() -> None:
         ]
     )
     with part_tab:
-        part_quote.render(lib, store, _show_result)
+        part_quote.render(lib, store, lambda r, lb, st_: _show_result(r, lb, st_, scope="part"))
     with new_tab:
         catalog_base = st.session_state.get("catalog_base")
         if catalog_base:
