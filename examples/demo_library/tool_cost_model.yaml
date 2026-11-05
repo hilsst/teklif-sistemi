@@ -13,3 +13,15 @@ tool_cost_model:
   max_residual_ratio: 0.075
   leave_one_out_max_error: 0.093
   source: derived
+
+# Master model maliyeti: parça alanıyla ilişki zayıf (R² 0,34), bu yüzden alana göre değil, 9 geçmiş
+# modelin ortalaması ve aralığı kullanılır. Model maliyeti karmaşıklığa ve malzemeye bağlı görünüyor.
+model_cost_model:
+  currency: EUR
+  mean: 3007.8
+  min: 2051.05
+  max: 3873.5
+  samples: 9
+  r_squared_area: 0.34
+  valid_for: "CES-PO-1522 panelleri (A, B, BA, BB, BC, BD, BX, ALT, DOOR)"
+  source: derived

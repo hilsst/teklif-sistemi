@@ -4,6 +4,8 @@ draft:
   warn_min_deg: {value: 0.0, unit: deg, source: user, desc: "0 ile min_ok arası: uyarı; altı: ters açı"}
 undercut:
   core_max_area_ratio: {value: 0.10, unit: ratio, source: user, desc: "Ters açı bölgesi alanı / kalıp alanı bu orandan küçükse maça"}
+trim:
+  trim_all_openings: {value: 1, unit: ratio, source: user, desc: "1: parça üzerindeki tüm boşluk, delik ve kenarlar trimlenir (trim çevresi = kalıp yüzeyinin tüm sınırı); 0: yalnız dış kenar"}
 tessellation:
   max_angular_deflection_deg: {value: 0.5, unit: deg, source: user, desc: "Tessellation açısal sapma üst sınırı"}
 costing:

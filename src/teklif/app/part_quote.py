@@ -26,7 +26,8 @@ from teklif.tooling_rules.cost_estimate import (
 )
 
 TOPLU_AREA_RANGE = (2.4, 4.7)  # area range of the 7 panels behind process sandvic_toplu
-TRIM_RULE = (
+TRIM_RULE_OUTER = "varsayım: yalnız dış kenar trimlenir (kütüphane: trim.trim_all_openings = 0)"
+TRIM_RULE_ALL = (
     "varsayım: parça üzerindeki tüm boşluklar, delikler ve kenarlar trimlenir "
     "(trim çevresi = kalıp yüzeyinin tüm sınırı)"
 )
@@ -149,15 +150,18 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     c[3].metric("Eğrisel alan", f"{f.curved_area_fraction:.0%}")
     st.caption(
         "Bu değerler STEP'ten türetilmiş tahminlerdir; teklifte 'incelenmeli' işaretiyle taşınır. "
-        "Trim çevresi STEP'ten güvenilir çıkmadığı için aşağıya elle girilir."
+        "Trim çevresi, kalıp yüzeyini seçince otomatik hesaplanır; seçmezseniz aşağıya elle girin."
     )
     with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
         sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf")
+    trim_all = (lib.thresholds.trim.trim_all_openings.value or 0) >= 0.5
+    trim_sel = sel.trim_m(trim_all) if sel else 0.0
+    rule = "tüm dış kenar, boşluk ve delikler" if trim_all else "yalnız dış kenar"
     tool_part_area = sel.area_m2 if sel else f.one_side_area_m2
     if sel:
         st.success(
-            f"Kalıp yüzeyi: {sel.area_m2:.2f} m², trim çevresi {sel.boundary_m:.2f} m "
-            f"(tüm dış kenar, boşluk ve delikler trimlenir), çekme yönü {sel.pull_label}."
+            f"Kalıp yüzeyi: {sel.area_m2:.2f} m², trim çevresi {trim_sel:.2f} m ({rule}), "
+            f"çekme yönü {sel.pull_label}."
         )
     est = estimate_tool_cost(tool_part_area)
     _estimate_card(est)
@@ -184,7 +188,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     material = c3.selectbox("Ana prepreg", prepregs, key="pq_mat")
     autoclave = c1.selectbox("Autoclave", autoclaves, key="pq_ac")
     cx = c2.selectbox("Karmaşıklık", complexity, key="pq_cx")
-    auto_per = round(sel.boundary_m, 3) if sel else 0.0
+    auto_per = round(trim_sel, 3) if sel else 0.0
     perimeter = c3.number_input(
         "Trim çevresi [m]" + (" (seçimden; değiştirirseniz gerekçe düşer)" if sel else " (elle)"),
         0.0,
@@ -258,13 +262,13 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         "part_area_m2, hole_count: STEP'ten türetilmiş tahmin (levha özellikleri)",
         f"kalıp maliyeti: {est.note}",
         f"kalıp izi/alanı: {FLANGE_SOURCE}",
-        TRIM_RULE,
+        TRIM_RULE_ALL if trim_all else TRIM_RULE_OUTER,
     ]
     if sel:
         notes.append(sel.note())
-        if abs(perimeter - sel.boundary_m) > 0.001:
+        if abs(perimeter - trim_sel) > 0.001:
             notes.append(
-                f"trim çevresi seçimden ({sel.boundary_m:.2f} m) farklı girildi: {perimeter:.2f} m"
+                f"trim çevresi seçimden ({trim_sel:.2f} m) farklı girildi: {perimeter:.2f} m"
             )
         if sel.undercut_ratio > 0:
             notes.append(

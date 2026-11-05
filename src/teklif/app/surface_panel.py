@@ -18,6 +18,8 @@ import numpy as np
 import streamlit as st
 
 from teklif.geometry.surface_select import (
+    ANGULAR_DEFLECTION_DEG,
+    LINEAR_DEFLECTION_MM,
     VIEW_ANGLE_DEG,
     VIEW_DEFLECTION_MM,
     FaceMesh,
@@ -48,6 +50,10 @@ class SurfaceSelection:
     pull_label: str
     undercut_ratio: float
     ok_ratio: float
+
+    def trim_m(self, all_openings: bool) -> float:
+        """Trim length: whole boundary when every opening is trimmed, else the outer rim only."""
+        return self.boundary_m if all_openings else self.outer_m
 
     def note(self) -> str:
         return (
@@ -127,23 +133,26 @@ def build_figure(mesh: FaceMesh, colors: list[str]) -> Any:
     return fig
 
 
+def _load(data: bytes, deflection_mm: float, angle_deg: float) -> FaceMesh:
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "part.step"
+        path.write_bytes(data)
+        return load_face_mesh(path, deflection_mm, angle_deg)
+
+
 def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelection | None:
     key = f"{key}_{hashlib.sha256(data).hexdigest()[:16]}"  # new file -> new mesh and selection
     mk = f"{key}_mesh"
-    if mk not in st.session_state:
+    vk = mk + "v"
+    if vk not in st.session_state:
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                path = Path(tmp) / "part.step"
-                path.write_bytes(data)
-                full = load_face_mesh(path)
-                coarse = load_face_mesh(path, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG)
-            st.session_state[mk + "v"] = coarse
-            st.session_state[mk] = full
+            with st.spinner("3B model hazırlanıyor (büyük parçada birkaç saniye sürer)..."):
+                st.session_state[vk] = _load(data, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG)
         except Exception as exc:
             st.warning(f"3B ekran açılamadı ({exc}); trim çevresi elle girilebilir.")
             return None
-    mesh: FaceMesh = st.session_state[mk]
-    view: FaceMesh = st.session_state[mk + "v"]
+    view: FaceMesh = st.session_state[vk]
+    mesh: FaceMesh = view  # replaced by the fine analysis mesh once something is selected
     sk = f"{key}_sel"
     st.session_state.setdefault(sk, [])
     min_ok = float(thresholds.draft.min_ok_deg.value)
@@ -158,7 +167,7 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     tol = h2.number_input("Tolerans [°]", 1.0, 90.0, 30.0, key=f"{key}_tol")
 
     def _add() -> None:
-        ids = faces_facing(mesh, np.array(AXES[axis]), float(tol))
+        ids = faces_facing(view, np.array(AXES[axis]), float(tol))
         st.session_state[sk] = sorted(set(st.session_state[sk]) | set(ids))
 
     def _all() -> None:
@@ -182,6 +191,10 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     pull_label = ""
     cand = None
     if selected:
+        if mk not in st.session_state:
+            with st.spinner("Seçim için ince analiz ağı hazırlanıyor..."):
+                st.session_state[mk] = _load(data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG)
+        mesh = st.session_state[mk]
         cands = suggest_pull_directions(mesh, selected, warn_min, min_ok)
         names = [c.label for c in cands]  # stable labels so the choice survives reruns
         st.caption(
@@ -208,7 +221,7 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
             cand = cands[names.index(pick)]
             pull, pull_label = cand.direction, cand.label
     fig = build_figure(view, triangle_colors(view, selected, pull, min_ok, warn_min))
-    st.plotly_chart(fig, use_container_width=True, key=f"{key}_fig")
+    st.plotly_chart(fig, width="stretch", key=f"{key}_fig")
     st.caption(
         f"Renkler (seçili yüzler): yeşil ≥ {min_ok:g}° çekme açısı, sarı {warn_min:g}–{min_ok:g}°, "
         "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil."
