@@ -20,8 +20,8 @@ _ALWAYS_SUFFIXES = (".areal_weight", ".cured_ply_thickness", ".roll_width")
 
 
 def needed_paths(lib: Library, process: str) -> set[str]:
-    """``file:path`` of every TODO value that a quote for ``process`` flags (all material,
-    autoclave and cure-cycle choices, all optional operations)."""
+    """``file:path`` of every library value that a quote for ``process`` reads, filled or not
+    (all material, autoclave, cure-cycle and complexity choices, all optional operations)."""
     tpl = lib.processes[process]
     optional = [op.id for op in tpl.operations if op.optional]
     geom = PartGeometry(
@@ -57,7 +57,7 @@ def needed_paths(lib: Library, process: str) -> set[str]:
                     res = compute_quote(inp, lib)
                 except (QuoteInputError, ArithmeticError, ValueError):
                     continue
-                out |= {fl.path for _, fl in res.review_items if fl.path}
+                out |= {i.path for ln in res.lines for i in ln.inputs if i.path}
     return out
 
 

@@ -29,6 +29,8 @@ from teklif.costing.sweep import quantity_sweep
 from teklif.library import Library, LibraryError, list_todos, load_library
 from teklif.library.editor import CHOICES, Change, current_choice, editable_values, set_values
 from teklif.library.loader import DEFAULT_LIBRARY_DIR
+from teklif.library.overlay import record as record_overlay
+from teklif.library.overlay import restore as restore_overlay
 from teklif.reporting.csv_export import breakdown_csv, set_breakdown_csv, sweep_csv
 from teklif.reporting.quote_report import (
     CATEGORY_LABELS,
@@ -47,6 +49,7 @@ from teklif.storage.db import NotFinalizableError, Store
 REPO = Path(__file__).resolve().parents[3]
 EXAMPLE = REPO / "examples" / "ornek_parca.yaml"
 DEFAULT_DB = Path(os.environ.get("TEKLIF_DB", REPO / "data" / "teklif.sqlite"))
+_OVERLAY = DEFAULT_DB.parent / "library_values.json"
 
 
 NUMBER_COLUMNS = {
@@ -714,12 +717,15 @@ def _library_tab(lib: Library, lib_dir: str) -> None:
     all_values = editable_values(lib)
     if mode == "need":
         needed = _needed_cached(lib_dir, process, lib, _lib_stamp(lib_dir))
-        rows = [v for v in all_values if v.value is None and is_needed(v, needed)]
+        rows = sorted(
+            (v for v in all_values if is_needed(v, needed)), key=lambda v: v.value is not None
+        )
+        empty = sum(v.value is None for v in rows)
         st.caption(
-            f"{process} teklifi için gereken ve boş olan {len(rows)} değer gösteriliyor; "
-            f"diğer {sum(v.value is None for v in all_values) - len(rows)} eksik değer bu proseste "
-            "kullanılmadığı için gizli. Kalıp/model maliyeti, maça ve nest ayarları teklif "
-            "ekranından girilir."
+            f"{process} teklifinin kullandığı {len(rows)} değer: {empty} boş, "
+            f"{len(rows) - empty} dolu (boşlar üstte). Bu proseste kullanılmayan "
+            f"{sum(v.value is None for v in all_values) - empty} eksik değer gizli. Kalıp/model "
+            "maliyeti, maça, nest ve sarf miktarları teklif ekranından girilir."
         )
     elif mode == "todo":
         rows = [v for v in all_values if v.value is None]
@@ -777,6 +783,7 @@ def _save(lib_dir: str, changes: list[Change], reason: str) -> None:
         return
     try:
         set_values(lib_dir, changes, reason)
+        record_overlay(_OVERLAY, changes)
     except (LibraryError, KeyError, ValueError) as exc:
         st.error(f"Kaydedilmedi, kütüphane değişmedi: {exc}")
         return
@@ -794,6 +801,7 @@ def main() -> None:
     except LibraryError as exc:
         st.error(str(exc))
         return
+    lib = restore_overlay(lib_dir, _OVERLAY, lib)
     st.sidebar.caption(f"Kütüphanede {len(list_todos(lib))} TODO değer var.")
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = Store(db_path)
