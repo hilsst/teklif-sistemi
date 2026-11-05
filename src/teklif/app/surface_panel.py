@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import streamlit as st
 import streamlit.components.v1 as components
+from numpy.typing import NDArray
 
 from teklif.geometry.surface_select import (
     ANGULAR_DEFLECTION_DEG,
@@ -90,6 +91,7 @@ def triangle_colors(
 
 _VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).parent / "viewer"))
 _PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
+FLANGE_COLOR_IDX = 5
 
 
 def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
@@ -103,8 +105,32 @@ def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
     )
 
 
+def flange_geometry(
+    ring: NDArray[np.float64], out: NDArray[np.float64]
+) -> tuple[NDArray[np.float64], list[dict[str, Any]]]:
+    """Flat flange triangles between the EOP and MEOP outlines + the two outlines as lines."""
+    n = len(ring)
+    tris = []
+    for i in range(n):
+        j = (i + 1) % n
+        tris += [[ring[i], ring[j], out[j]], [ring[i], out[j], out[i]]]
+
+    def flat(r: NDArray[np.float64]) -> list[float]:
+        return list(map(float, np.round(np.vstack([r, r[:1]]), 1).ravel()))
+
+    lines = [
+        {"hex": 0xC000C0, "label": "EOP", "pts": flat(ring)},
+        {"hex": 0xE06000, "label": "MEOP", "pts": flat(out)},
+    ]
+    return np.array(tris), lines
+
+
 def viewer_payload(
-    mesh: FaceMesh, colors: list[str], key: str, pull: tuple[float, float, float] | None = None
+    mesh: FaceMesh,
+    colors: list[str],
+    key: str,
+    pull: tuple[float, float, float] | None = None,
+    flange: tuple[NDArray[np.float64], list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index."""
     pos = np.round(
@@ -112,12 +138,20 @@ def viewer_payload(
         1,
     )
     tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
+    color_idx = [_PALETTE_IDX[c] for c in colors]
+    lines: list[dict[str, Any]] = []
+    if flange is not None:
+        ftris, lines = flange
+        pos = np.vstack([pos, np.round(ftris.reshape(-1, 3), 1)])
+        tri_face += [-1] * len(ftris)
+        color_idx += [FLANGE_COLOR_IDX] * len(ftris)
     return {
+        "lines": lines,
         "mesh_key": key,
         "pull": list(pull) if pull else None,
         "pos": pos.ravel().tolist(),
         "tri_face": tri_face,
-        "tri_color": [_PALETTE_IDX[c] for c in colors],
+        "tri_color": color_idx,
         "faces": [[f.id, round(f.area_mm2 / 1e6, 4)] for f in mesh.faces],
     }
 
@@ -176,7 +210,9 @@ def _load(data: bytes, deflection_mm: float, angle_deg: float) -> FaceMesh:
         return load_face_mesh(path, deflection_mm, angle_deg)
 
 
-def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelection | None:
+def render_surface_panel(
+    data: bytes, thresholds: Any, key: str, flange_mm: float = 150.0
+) -> SurfaceSelection | None:
     key = f"{key}_{hashlib.sha256(data).hexdigest()[:16]}"  # new file -> new mesh and selection
     mk = f"{key}_mesh"
     vk = mk + "v"
@@ -269,23 +305,34 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     if right is not None and pull is not None:
         with right:
             sub = mold_submesh(view, selected)
-            mold_key = f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull)))}"
+            rings = view.flange_rings(selected, np.array(pull), flange_mm)
+            flange = flange_geometry(*rings) if rings else None
+            mold_key = (
+                f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull), flange_mm))}"
+            )
+            d = np.array(pull)
+            side = np.cross(d, [0.0, 0.0, 1.0] if abs(d[2]) < 0.9 else [1.0, 0.0, 0.0])
+            side /= np.linalg.norm(side)
+            tilt = d + 0.7 * side + (0.0 if abs(d[2]) > 0.9 else 0.25 * np.array([0, 0, 1.0]))
+            tilt /= np.linalg.norm(tilt)
             _VIEWER(
                 **viewer_payload(
                     sub,
                     triangle_colors(sub, list(range(len(sub.faces))), pull, min_ok, warn_min),
                     mold_key,
                     pull,
+                    flange,
                 ),
-                view_dir=list(pull),
+                view_dir=tilt.tolist(),
                 readonly=True,
                 height=560,
                 key=f"{key}_moldviewer",
                 default=None,
             )
             st.caption(
-                "**Kalıp yüzeyi**: seçili yüzler, çekme yönünden (kalıbın üstünden) bakış. "
-                "Döndürebilirsiniz; renkler soldaki ile aynı."
+                "**Kalıp şekli**: seçili yüzey + flanş (turuncu düz alan). Mor çizgi **EOP** "
+                f"(parça kenarı / trim çizgisi), turuncu çizgi **MEOP** (kalıp kenarı, "
+                f"{flange_mm:.0f} mm flanş dışı). Döndürebilirsiniz."
             )
     last = f"{key}_lastclick"
     ident = (click.get("n"), click.get("t")) if click else None

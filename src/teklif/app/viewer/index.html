@@ -12,8 +12,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f4f5f7;font-family:sa
 <script src="three.min.js"></script>
 <script src="OrbitControls.js"></script>
 <script>
-const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728]; // grey, blue, green, yellow, red
-let axesGroup=null,pullArrow=null,scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={};
+const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728,0xf0b27a]; // grey, blue, green, yellow, red, flange
+let lineGroup=null,axesGroup=null,pullArrow=null,scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={};
 const canvas=document.getElementById('c'),tip=document.getElementById('tip');
 function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data),'*');}
 function init(){
@@ -61,12 +61,19 @@ function arrow(dir,len,hex,txt,origin){
   l.position.copy(origin).add(d.clone().multiplyScalar(len*1.15));g.add(l);return g;
 }
 function overlays(a){
-  for(const o of [axesGroup,pullArrow]){if(!o)continue;scene.remove(o);o.traverse(n=>{if(n.geometry)n.geometry.dispose();if(n.material){if(n.material.map)n.material.map.dispose();n.material.dispose();}});}
+  for(const o of [axesGroup,pullArrow,lineGroup]){if(!o)continue;scene.remove(o);o.traverse(n=>{if(n.geometry)n.geometry.dispose();if(n.material){if(n.material.map)n.material.map.dispose();n.material.dispose();}});}
   const s=geo.boundingSphere,bb=new THREE.Box3().setFromBufferAttribute(geo.attributes.position);
   const L=s.radius*0.45,o=bb.min.clone();
   axesGroup=new THREE.Group();
   axesGroup.add(arrow([1,0,0],L,0xd62728,'X',o),arrow([0,1,0],L,0x1f9d3a,'Y',o),arrow([0,0,1],L,0x1f5fd6,'Z',o));
   scene.add(axesGroup);
+  lineGroup=new THREE.Group();
+  for(const L of (a.lines||[])){
+    const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(new Float32Array(L.pts),3));
+    lineGroup.add(new THREE.Line(g,new THREE.LineBasicMaterial({color:L.hex})));
+    const lb=label(L.label,'#'+L.hex.toString(16).padStart(6,'0'));lb.scale.set(s.radius*0.3,s.radius*0.12,1);
+    lb.position.set(L.pts[0],L.pts[1],L.pts[2]);lineGroup.add(lb);}
+  scene.add(lineGroup);
   if(a.pull){pullArrow=arrow(a.pull,s.radius*0.8,0xc000c0,'çekme',s.center.clone().addScaledVector(new THREE.Vector3(...a.pull),-s.radius*1.0));scene.add(pullArrow);}
 }
 function build(a){

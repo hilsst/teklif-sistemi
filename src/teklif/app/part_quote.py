@@ -179,7 +179,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         "Trim çevresi, kalıp yüzeyini seçince otomatik hesaplanır; seçmezseniz aşağıya elle girin."
     )
     with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
-        sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf")
+        sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf", FLANGE_MM)
     trim_all = (lib.thresholds.trim.trim_all_openings.value or 0) >= 0.5
     trim_sel = sel.trim_m(trim_all) if sel else 0.0
     rule = "tüm dış kenar, boşluk ve delikler" if trim_all else "yalnız dış kenar"

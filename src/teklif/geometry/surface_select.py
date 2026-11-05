@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -65,6 +65,42 @@ class FaceMesh:
         xy = np.unique(np.round(np.c_[pts @ a, pts @ b], 2), axis=0).astype(np.float64)
         hull = _convex_hull(xy)
         return float(np.linalg.norm(np.diff(np.vstack([hull, hull[:1]]), axis=0), axis=1).sum())
+
+    def flange_rings(
+        self, ids: list[int], pull: Vec, flange_mm: float
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]] | None:
+        """EOP and MEOP outlines in 3D: the selection's outline seen along pull (convex hull,
+        vertices on the surface) and that outline pushed out by ``flange_mm`` at the same height."""
+        d = _unit(np.asarray(pull, dtype=float))
+        pts = np.vstack([self.faces[i].vertices for i in ids if len(self.faces[i].vertices)])
+        a = np.cross(d, [1.0, 0.0, 0.0] if abs(d[0]) < 0.9 else [0.0, 1.0, 0.0])
+        a /= np.linalg.norm(a)
+        b = np.cross(d, a)
+        xy = np.c_[pts @ a, pts @ b]
+        lookup: dict[tuple[float, float], NDArray[np.float64]] = {}
+        rounded = cast(list[list[float]], np.round(xy, 2).tolist())
+        for q, xyz in zip(rounded, list(pts), strict=True):
+            lookup.setdefault((q[0], q[1]), xyz)
+        hull = _convex_hull(np.unique(np.round(xy, 2), axis=0).astype(np.float64))
+        if len(hull) < 3:
+            return None
+        ring = np.array([lookup[(round(float(h[0]), 2), round(float(h[1]), 2))] for h in hull])
+        cen = hull.mean(axis=0)
+        n = len(hull)
+        edge_n = []
+        for i in range(n):
+            e = hull[(i + 1) % n] - hull[i]
+            nn = np.array([e[1], -e[0]])
+            nn /= np.linalg.norm(nn) or 1.0
+            if np.dot(nn, (hull[i] + hull[(i + 1) % n]) / 2 - cen) < 0:
+                nn = -nn
+            edge_n.append(nn)
+        out = np.empty_like(ring)
+        for i in range(n):
+            n1, n2 = edge_n[i - 1], edge_n[i]
+            m = (n1 + n2) / (1 + float(np.dot(n1, n2)))
+            out[i] = ring[i] + flange_mm * (m[0] * a + m[1] * b)
+        return ring, out
 
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
