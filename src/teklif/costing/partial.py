@@ -42,7 +42,7 @@ def fill_missing(lib: Library) -> tuple[Library, list[str]]:
     filled: list[str] = []
     for fname, model in out.files().items():
         for path, v in iter_values(model):
-            if v.value is None:
+            if v.value is None and path.rsplit(".", 1)[-1] != "nesting_scrap_ratio":
                 neutral = any(k in path for k in _NEUTRAL_ONE)
                 last = path.rsplit(".", 1)[-1]
                 unlimited = (fname == "autoclaves.yaml" and last in _NO_LIMIT) or (

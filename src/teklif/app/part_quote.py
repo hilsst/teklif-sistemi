@@ -136,7 +136,8 @@ def _partial_view(result: QuoteResult, filled: list[str]) -> None:
     """Price from the entered factors only; missing library values count as 0."""
     st.error(
         "KISMİ FİYAT (teklif değildir): kütüphanede değeri girilmemiş kalemler 0 sayılarak "
-        "hesaplandı, gerçek fiyat bundan YÜKSEKTİR. Eksikleri girdikçe fiyat tamamlanır."
+        "hesaplandı, gerçek fiyat bundan farklı olacaktır "
+        "(genellikle daha yüksek; kur eksikse 1:1 alınır). Eksikleri girdikçe fiyat tamamlanır."
     )
     cols = st.columns(4)
     for col, key, label in zip(
@@ -260,10 +261,12 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         help="Sandviçte ölçülen kalınlık çekirdeği de içerir, bu yüzden kabuk kalınlığını girin."
         if sandwich
         else "Varsayılan: STEP'ten ölçülen ortalama kalınlık.",
-        key=f"pq_lamt_{process}",
+        key=f"pq_lamt_{process}_{upload.name}_{upload.size}",
     )
     skins = int(
-        k3.number_input("Yüzey (kabuk) sayısı", 1, value=2 if sandwich else 1, key="pq_skin")
+        k3.number_input(
+            "Yüzey (kabuk) sayısı", 1, value=2 if sandwich else 1, key=f"pq_skin_{process}"
+        )
     )
     plies_each = math.ceil(lam_t / cpt - 1e-9) if cpt > 0 and lam_t > 0 else 0
     auto_plies = plies_each * skins
@@ -305,6 +308,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         )
         / 100
     )
+    nest_changed = abs(nest_eff - lib_eff) > 1e-9 or abs(fire - lib_fire) > 1e-9
     st.caption(
         f"Kumaş tüketim çarpanı: {(1 / nest_eff) * (1 + fire):.3f} "
         f"(1 ÷ {nest_eff:.2f} × (1 + {fire:.2f}))"
@@ -370,6 +374,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         f"kalıp izi/alanı: {FLANGE_SOURCE}",
         TRIM_RULE_ALL if trim_all else TRIM_RULE_OUTER,
     ]
+    if perimeter <= 0:
+        notes.append("trim çevresi girilmedi: trim süresi ve flanş alanı 0 hesaplandı")
     if sel:
         notes.append(sel.note())
         if abs(perimeter - trim_sel) > 0.001:
@@ -446,7 +452,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             amortize_nre=amortize,
             nre_margin=nre_margin,
             nre_quantity=int(nre_qty),
-            nest_efficiency=nest_eff,
+            nest_efficiency=nest_eff if nest_changed else None,
             fire_ratio=fire,
             review_notes=notes,
         )
@@ -454,7 +460,10 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         partial = None
         if result.value("price.unit_final") is None:
             flib, filled = fill_missing(lib)
-            partial = (compute_quote(inp, flib), filled)
+            try:
+                partial = (compute_quote(inp, flib), filled)
+            except (ArithmeticError, QuoteInputError) as exc:
+                st.warning(f"Kısmi fiyat hesaplanamadı ({exc}); eksik değerleri girin.")
     except (QuoteInputError, ValueError) as exc:
         st.error(f"Girdi hatası: {exc}")
         return

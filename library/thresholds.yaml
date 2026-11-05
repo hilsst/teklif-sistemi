@@ -9,6 +9,8 @@ trim:
 tessellation:
   max_angular_deflection_deg: {value: 0.5, unit: deg, source: user, desc: "Tessellation açısal sapma üst sınırı"}
 costing:
+  nest_efficiency: {value: 0.80, unit: ratio, source: user, desc: "Kumaş nest verimi (kullanılan alan / harcanan alan); harcanan = 1 / verim. Kemal 2026-11-05: %80"}
+  fire_ratio: {value: 0.0, unit: ratio, source: default, desc: "Nest dışı ek fire payı (kullanıcı teklifte girer)"}
   nesting_scrap_ratio: {value: null, unit: ratio, desc: "Varsayılan nesting firesi (fire alanı / net ply alanı)"}
   learning_curve_ratio: {value: null, unit: ratio, desc: "Öğrenme eğrisi oranı LC (örn. 0.85); T_n = T_ref × (n/ref)^log2(LC)"}
   # Proses şablonundaki standart sürelerin hangi parça sırasına ait olduğu (1 = ilk parça süresi, T_1).

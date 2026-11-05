@@ -61,7 +61,7 @@ function arrow(dir,len,hex,txt,origin){
   l.position.copy(origin).add(d.clone().multiplyScalar(len*1.15));g.add(l);return g;
 }
 function overlays(a){
-  if(axesGroup)scene.remove(axesGroup); if(pullArrow)scene.remove(pullArrow);
+  for(const o of [axesGroup,pullArrow]){if(!o)continue;scene.remove(o);o.traverse(n=>{if(n.geometry)n.geometry.dispose();if(n.material){if(n.material.map)n.material.map.dispose();n.material.dispose();}});}
   const s=geo.boundingSphere,bb=new THREE.Box3().setFromBufferAttribute(geo.attributes.position);
   const L=s.radius*0.45,o=bb.min.clone();
   axesGroup=new THREE.Group();
