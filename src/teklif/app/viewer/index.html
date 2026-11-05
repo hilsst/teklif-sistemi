@@ -12,7 +12,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f4f5f7;font-family:sa
 <script src="three.min.js"></script>
 <script src="OrbitControls.js"></script>
 <script>
-const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728,0xf0b27a,0x9ecae1]; // grey, blue, green, yellow, red, flange, fill
+const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728,0xf0b27a,0x9ecae1,0xc7e9c0]; // grey, blue, green, yellow, red, flange, fill, extension
 let lineGroup=null,axesGroup=null,pullArrow=null,scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={};
 const canvas=document.getElementById('c'),tip=document.getElementById('tip');
 function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data),'*');}

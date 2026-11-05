@@ -95,6 +95,7 @@ _VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).pa
 _PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
 FLANGE_COLOR_IDX = 5
 FILL_COLOR_IDX = 6
+EXT_COLOR_IDX = 7
 
 
 def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
@@ -111,18 +112,59 @@ def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
 Extra = tuple[NDArray[np.float64], list[int], list[dict[str, Any]]]
 
 
-def mold_extras(outline: Outline, pull: NDArray[np.float64]) -> Extra:
-    """Mold additions around the selected surface: the flange (root envelope -> MEOP), fill over
-    every hole/channel loop, and the EOP (all loops) and MEOP lines."""
+@dataclass(frozen=True)
+class ToolProfile:
+    """Mold profile outside the part (Kemal 2026-11-05): the surface runs ``to_meop_mm`` past
+    the EOP (trim line) to the MEOP line, ``to_turn_mm`` further, then the flange turns 90°
+    and runs ``flange_mm``."""
+
+    to_meop_mm: float = 20.0
+    to_turn_mm: float = 40.0  # 30-50 mm
+    flange_mm: float = 150.0
+
+
+def profile_rings(
+    outline: Outline, pull: NDArray[np.float64], prof: ToolProfile
+) -> dict[str, NDArray[np.float64]] | None:
+    """EOP / MEOP / flange-turn / flange-edge rings of the tool profile."""
+    if outline.ring is None or outline.tangent is None or outline.out_dir is None:
+        return None
+    ring, t, od = outline.ring, outline.tangent, outline.out_dir
+    d = pull / np.linalg.norm(pull)
+    meop = ring + t * prof.to_meop_mm
+    turn = meop + t * prof.to_turn_mm
+    # 90° turn: outward, perpendicular to the way the surface ran; if that is (almost) the same
+    # as the surface direction (flat part), the flange wall turns back against the pull instead
+    odn = od / np.where(
+        np.linalg.norm(od, axis=1, keepdims=True) > 0,
+        np.linalg.norm(od, axis=1, keepdims=True),
+        1.0,
+    )
+    f = odn - (odn * t).sum(axis=1, keepdims=True) * t
+    ln = np.linalg.norm(f, axis=1, keepdims=True)
+    f = np.where(ln > 0.3, f / np.where(ln > 0, ln, 1.0), -d)
+    edge = turn + f * prof.flange_mm
+    return {"eop": ring, "meop": meop, "turn": turn, "edge": edge}
+
+
+def mold_extras(outline: Outline, pull: NDArray[np.float64], prof: ToolProfile) -> Extra:
+    """Mold additions around the selected surface: surface extension (EOP -> MEOP -> flange turn),
+    the 90° flange, fill over every hole/channel loop, and the EOP / MEOP lines."""
     tris: list[list[NDArray[np.float64]]] = []
     colors: list[int] = []
-    ring, out = outline.ring, outline.offset
-    if ring is not None and out is not None:
-        n = len(ring)
+    rings = profile_rings(outline, pull, prof)
+
+    def strip(a: NDArray[np.float64], b: NDArray[np.float64], color: int) -> None:
+        n = len(a)
         for i in range(n):
             j = (i + 1) % n
-            tris += [[ring[i], ring[j], out[j]], [ring[i], out[j], out[i]]]
-            colors += [FLANGE_COLOR_IDX] * 2
+            tris.extend([[a[i], a[j], b[j]], [a[i], b[j], b[i]]])
+            colors.extend([color] * 2)
+
+    if rings is not None:
+        strip(rings["eop"], rings["meop"], EXT_COLOR_IDX)
+        strip(rings["meop"], rings["turn"], EXT_COLOR_IDX)
+        strip(rings["turn"], rings["edge"], FLANGE_COLOR_IDX)
     for k, lp in enumerate(outline.loops):
         if k == outline.outer or len(lp) < 3:
             continue
@@ -146,8 +188,12 @@ def mold_extras(outline: Outline, pull: NDArray[np.float64]) -> Extra:
         for ch in outline.open_chains
         if len(ch) > 1
     ]
-    if out is not None:
-        lines.append({"hex": 0xE06000, "label": "MEOP", "pts": flat(out)})
+    if rings is not None:
+        lines += [
+            {"hex": 0xE06000, "label": "MEOP", "pts": flat(rings["meop"])},
+            {"hex": 0x607080, "label": "flanş dönüşü", "pts": flat(rings["turn"])},
+            {"hex": 0xE06000, "label": "", "pts": flat(rings["edge"])},
+        ]
     return (np.array(tris) if tris else np.zeros((0, 3, 3))), colors, lines
 
 
@@ -334,10 +380,24 @@ def render_surface_panel(
     if right is not None and pull is not None:
         with right:
             sub = mold_submesh(view, selected)
-            outline = view.outline(selected, np.array(pull), flange_mm)
-            flange = mold_extras(outline, np.array(pull)) if outline else None
+            p1, p2, p3 = st.columns(3)
+            prof = ToolProfile(
+                p1.number_input("EOP→MEOP [mm]", 0.0, 200.0, 20.0, 5.0, key=f"{key}_pm"),
+                p2.number_input(
+                    "MEOP→flanş dönüşü [mm]",
+                    0.0,
+                    200.0,
+                    40.0,
+                    5.0,
+                    key=f"{key}_pt",
+                    help="Genelde 30-50 mm",
+                ),
+                p3.number_input("Flanş [mm]", 0.0, 500.0, flange_mm, 10.0, key=f"{key}_pf"),
+            )
+            outline = view.outline(selected, np.array(pull))
+            flange = mold_extras(outline, np.array(pull), prof) if outline else None
             mold_key = (
-                f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull), flange_mm))}"
+                f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull), prof))}"
             )
             d = np.array(pull)
             side = np.cross(d, [0.0, 0.0, 1.0] if abs(d[2]) < 0.9 else [1.0, 0.0, 0.0])
@@ -359,10 +419,11 @@ def render_surface_panel(
                 default=None,
             )
             st.caption(
-                "**Kalıp şekli**: seçili yüzey + flanş (turuncu alan). Mor çizgiler **EOP**: dış "
-                "kenar, delikler ve kanallar (açık mavi: kalıbın delik/kanalın üstünden geçtiği "
-                f"alan). Turuncu çizgi **MEOP** (kalıp kenarı, {flange_mm:.0f} mm flanş dışı). "
-                "Döndürebilirsiniz."
+                "**Kalıp profili** (EOP'den dışa): yüzey EOP'nin "
+                f"{prof.to_meop_mm:.0f} mm ötesine uzanır (**MEOP**), {prof.to_turn_mm:.0f} mm "
+                f"daha gider, sonra flanş 90° döner ve {prof.flange_mm:.0f} mm gider. Mor: "
+                "**EOP** (dış kenar, delikler, kanallar; açık mavi: kalıbın delik/kanal üstünden "
+                "geçtiği alan), açık yeşil: yüzey uzantısı, turuncu: flanş."
             )
     last = f"{key}_lastclick"
     ident = (click.get("n"), click.get("t")) if click else None

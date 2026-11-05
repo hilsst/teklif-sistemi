@@ -60,12 +60,23 @@ def test_outline_has_eop_loops_for_holes_and_flange_only_on_outer_rim() -> None:
         edges=[(k, 10.0) for k in polys],
         edge_polys=polys,
     )
-    ol = FaceMesh([f]).outline([0], np.array([0.0, 0.0, 1.0]), 150.0)
+    ol = FaceMesh([f]).outline([0], np.array([0.0, 0.0, 1.0]))
     assert ol is not None
     assert len(ol.loops) == 2 and len(ol.loops[ol.outer]) == 4  # rim + the hole
-    assert ol.ring is not None and ol.offset is not None
-    assert np.isclose(np.ptp(ol.offset[:, 0]), 100 + 300)
-    assert np.isclose(np.ptp(ol.offset[:, 1]), 50 + 300)
+    assert ol.ring is not None and ol.tangent is not None
+    # flat sheet: the surface runs on outward in the plane
+    assert np.allclose(np.abs(ol.tangent[:, 2]), 0.0, atol=1e-6)
+    from teklif.app.surface_panel import ToolProfile, profile_rings
+
+    r = profile_rings(ol, np.array([0.0, 0.0, 1.0]), ToolProfile(20.0, 40.0, 150.0))
+    assert r is not None
+    # MEOP = EOP + 20 mm along the tangent, turn = +40 mm more, flange turns 90°
+    assert np.allclose(np.linalg.norm(r["meop"] - r["eop"], axis=1), 20.0)
+    assert np.allclose(np.linalg.norm(r["turn"] - r["meop"], axis=1), 40.0)
+    flange_vec = r["edge"] - r["turn"]
+    tangent_dir = r["turn"] - r["meop"]
+    assert np.allclose((flange_vec * tangent_dir).sum(axis=1), 0.0, atol=1e-6)
+    assert np.allclose(np.linalg.norm(flange_vec, axis=1), 150.0)
 
 
 def test_triangulate_concave_polygon_covers_its_area() -> None:
@@ -107,3 +118,39 @@ def test_chain_loops_by_vertex_keys_and_open_chains() -> None:
     closed, opened = _chain_loops(segs, ends)
     assert len(closed) == 1 and len(closed[0]) == 3
     assert len(opened) == 1 and len(opened[0]) == 4
+
+
+def test_tube_profile_continues_the_wall_towards_the_opening(tmp_path: Path) -> None:
+    pytest = __import__("pytest")
+    pytest.importorskip("OCP")
+    import numpy as np
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+
+    # open-ended wall parallel to the pull: radius 100, x from 0 to 80
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    from teklif.app.surface_panel import ToolProfile, profile_rings
+    from teklif.geometry.surface_select import load_face_mesh
+
+    cyl = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), 100.0, 80.0).Shape()
+    w = STEPControl_Writer()
+    w.Transfer(cyl, STEPControl_AsIs)
+    path = tmp_path / "tube.step"
+    w.Write(str(path))
+    m = load_face_mesh(path, 5.0, 10.0, True)
+    lateral = max(m.faces, key=lambda f: f.area_mm2).id
+    pull = np.array(
+        [1.0, 0.0, 0.0]
+    )  # walls: no draft; the opening is at x = 0 (smallest along pull)
+    ol = m.outline([lateral], pull)
+    assert ol is not None and ol.ring is not None and ol.tangent is not None
+    assert np.allclose(ol.ring[:, 0], 0.0, atol=1e-3)  # EOP at the opening rim
+    assert np.allclose(ol.tangent @ pull, -1.0, atol=0.02)  # the wall goes on past the rim
+    r = profile_rings(ol, pull, ToolProfile(20.0, 40.0, 150.0))
+    assert r is not None
+    assert np.allclose(r["meop"][:, 0], -20.0, atol=0.5) and np.allclose(
+        r["turn"][:, 0], -60.0, atol=1
+    )
+    radial = np.hypot(r["edge"][:, 1], r["edge"][:, 2]) - np.hypot(r["turn"][:, 1], r["turn"][:, 2])
+    assert np.allclose(radial, 150.0, atol=2.0)  # the flange turns 90° and runs out radially
