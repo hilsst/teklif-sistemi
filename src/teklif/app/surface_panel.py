@@ -108,7 +108,7 @@ def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
 def flange_geometry(
     ring: NDArray[np.float64], out: NDArray[np.float64]
 ) -> tuple[NDArray[np.float64], list[dict[str, Any]]]:
-    """Flat flange triangles between the EOP and MEOP outlines + the two outlines as lines."""
+    """Flange triangles between the EOP and MEOP outlines + the two outlines as lines."""
     n = len(ring)
     tris = []
     for i in range(n):
@@ -330,7 +330,7 @@ def render_surface_panel(
                 default=None,
             )
             st.caption(
-                "**Kalıp şekli**: seçili yüzey + flanş (turuncu düz alan). Mor çizgi **EOP** "
+                "**Kalıp şekli**: seçili yüzey + flanş (turuncu alan). Mor çizgi **EOP** "
                 f"(parça kenarı / trim çizgisi), turuncu çizgi **MEOP** (kalıp kenarı, "
                 f"{flange_mm:.0f} mm flanş dışı). Döndürebilirsiniz."
             )

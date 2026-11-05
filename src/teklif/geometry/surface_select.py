@@ -80,7 +80,9 @@ class FaceMesh:
         lookup: dict[tuple[float, float], NDArray[np.float64]] = {}
         rounded = cast(list[list[float]], np.round(xy, 2).tolist())
         for q, xyz in zip(rounded, list(pts), strict=True):
-            lookup.setdefault((q[0], q[1]), xyz)
+            old = lookup.get((q[0], q[1]))
+            if old is None or float(xyz @ d) > float(old @ d):  # same outline point: top rim
+                lookup[(q[0], q[1])] = xyz
         hull = _convex_hull(np.unique(np.round(xy, 2), axis=0).astype(np.float64))
         if len(hull) < 3:
             return None
@@ -99,6 +101,9 @@ class FaceMesh:
         for i in range(n):
             n1, n2 = edge_n[i - 1], edge_n[i]
             m = (n1 + n2) / (1 + float(np.dot(n1, n2)))
+            ml = float(np.linalg.norm(m))
+            if ml > 2.0:  # sharp corner: cap the miter spike
+                m = m * (2.0 / ml)
             out[i] = ring[i] + flange_mm * (m[0] * a + m[1] * b)
         return ring, out
 

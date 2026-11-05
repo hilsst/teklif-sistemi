@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from teklif.common.models import Override, Price, Source
+from teklif.common.models import Override, Param, Price, Source
 
 
 class _Strict(BaseModel):
@@ -72,6 +72,10 @@ class QuoteInput(_Strict):
     )
     fire_ratio: float = Field(
         0.0, ge=0, description="Extra waste on top of nesting (cut-off, setup)"
+    )
+    consumable_qty: dict[str, Param] = Field(
+        default_factory=dict,
+        description="Per-quote consumable quantity (by material id) replacing the library qty",
     )
     quote_currency: str | None = None
     wage_factor: float = Field(

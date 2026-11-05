@@ -62,6 +62,8 @@ def needed_paths(lib: Library, process: str) -> set[str]:
 
 
 def is_needed(v: EditableValue, needed: set[str]) -> bool:
+    if ".consumables[" in v.path and v.path.endswith(".qty"):
+        return False  # proposed from geometry and approved on the quote screen
     return f"{v.file}:{v.path}" in needed or (
         v.file == "materials.yaml" and v.path.endswith(_ALWAYS_SUFFIXES)
     )
