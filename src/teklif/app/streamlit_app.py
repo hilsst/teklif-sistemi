@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 import yaml
 
-from teklif.app import data_entry, part_quote
+from teklif.app import data_entry, learning_tab, part_quote
 from teklif.common.models import Override, Price, Source
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
@@ -759,9 +759,10 @@ def main() -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     store = Store(db_path)
 
-    part_tab, new_tab, set_tab, saved_tab, lib_tab, data_tab = st.tabs(
+    part_tab, learn_tab, new_tab, set_tab, saved_tab, lib_tab, data_tab = st.tabs(
         [
             "Parçadan teklif",
+            "Öğrenme verisi",
             "Yeni teklif",
             "Çok kalemli teklif",
             "Kayıtlı teklifler",
@@ -771,6 +772,8 @@ def main() -> None:
     )
     with part_tab:
         part_quote.render(lib, store, lambda r, lb, st_: _show_result(r, lb, st_, scope="part"))
+    with learn_tab:
+        learning_tab.render(lib, db_path.with_name("katalog.sqlite"))
     with new_tab:
         catalog_base = st.session_state.get("catalog_base")
         if catalog_base:
