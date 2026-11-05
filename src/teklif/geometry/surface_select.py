@@ -295,7 +295,7 @@ def load_face_mesh(
     try:
         from OCP.BRep import BRep_Tool
         from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
-        from OCP.BRepGProp import BRepGProp
+        from OCP.BRepGProp import BRepGProp, BRepGProp_Face
         from OCP.BRepMesh import BRepMesh_IncrementalMesh
         from OCP.GCPnts import GCPnts_QuasiUniformDeflection
         from OCP.GeomAbs import GeomAbs_Plane
@@ -343,6 +343,7 @@ def load_face_mesh(
         cross = np.cross(b - a, c - a)
         lens = np.linalg.norm(cross, axis=1)
         normals = cross / np.where(lens > 0, lens, 1.0)[:, None]
+        normals = _exact_normals(face, tri, trsf, tris, normals, BRepGProp_Face)
         props = GProp_GProps()
         BRepGProp.SurfaceProperties_s(face, props)
         edges: list[tuple[int, float]] = []
@@ -384,6 +385,52 @@ def load_face_mesh(
     if not faces:
         raise StepUnavailableError("STEP file produced no tessellated faces")
     return FaceMesh(faces)
+
+
+def _exact_normals(
+    face: Any,
+    tri: Any,
+    trsf: Any,
+    tris: NDArray[np.int64],
+    facet: NDArray[np.float64],
+    face_props_cls: Any,
+) -> NDArray[np.float64]:
+    """Triangle normals from the true surface (mean of the vertex normals) instead of the flat
+    facet: a cylinder wall tessellated coarsely has facets tilted by up to ~1 deg, which made a
+    true 0 deg wall read as negative draft. Falls back to the facet normal where the surface
+    normal is undefined (cone/sphere apex) or the face has no UV nodes."""
+    if not tri.HasUVNodes():
+        return facet
+    from OCP.gp import gp_Pnt, gp_Vec
+
+    fp = face_props_cls(face)
+    vn = np.zeros((tri.NbNodes(), 3))
+    ok = np.zeros(tri.NbNodes(), dtype=bool)
+    for i in range(tri.NbNodes()):
+        uv = tri.UVNode(i + 1)
+        pnt, vec = gp_Pnt(), gp_Vec()
+        try:
+            fp.Normal(uv.X(), uv.Y(), pnt, vec)
+        except Exception:
+            continue
+        v = np.array([vec.X(), vec.Y(), vec.Z()])
+        n = float(np.linalg.norm(v))
+        if n > 1e-12:
+            vn[i] = v / n
+            ok[i] = True
+    rot = trsf.VectorialPart()
+    m = np.array([[rot.Value(r + 1, c + 1) for c in range(3)] for r in range(3)])
+    vn = vn @ m.T
+    mean = vn[tris].sum(axis=1)
+    lens = np.linalg.norm(mean, axis=1)
+    good = ok[tris].all(axis=1) & (lens > 1e-9)
+    out = facet.copy()
+    if good.any():
+        cand = mean[good] / lens[good][:, None]
+        if float((cand * facet[good]).sum(axis=1).mean()) < 0:
+            cand = -cand
+        out[good] = cand
+    return out
 
 
 def _edge_polyline(
@@ -431,7 +478,12 @@ def draft_angles_deg(mesh: FaceMesh, ids: list[int], pull: Vec) -> dict[int, NDA
     Positive: releases; 0: vertical wall; negative: undercut (blocks release).
     """
     d = _unit(np.asarray(pull, dtype=float))
-    return {i: np.degrees(np.arcsin(np.clip(-(mesh.faces[i].normals @ d), -1.0, 1.0))) for i in ids}
+    # rounded so a true 0 deg wall is not pushed to -1e-14 (and red) by floating point noise
+    return {
+        i: np.round(np.degrees(np.arcsin(np.clip(-(mesh.faces[i].normals @ d), -1.0, 1.0))), 6)
+        + 0.0
+        for i in ids
+    }
 
 
 @dataclass(frozen=True)

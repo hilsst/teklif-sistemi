@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from teklif.app.library_relevance import is_needed, needed_paths
 from teklif.app.surface_panel import mold_submesh
 from teklif.library import load_library
@@ -70,12 +72,11 @@ def test_outline_has_eop_loops_for_holes_and_flange_only_on_outer_rim() -> None:
 
     r = profile_rings(ol, np.array([0.0, 0.0, 1.0]), ToolProfile(20.0, 40.0, 150.0))
     assert r is not None
-    # MEOP = EOP + 20 mm along the tangent, turn = +40 mm more, flange turns 90°
+    # MEOP = EOP + 20 mm along the tangent, turn = +40 mm more, flange perpendicular to pull
     assert np.allclose(np.linalg.norm(r["meop"] - r["eop"], axis=1), 20.0)
     assert np.allclose(np.linalg.norm(r["turn"] - r["meop"], axis=1), 40.0)
     flange_vec = r["edge"] - r["turn"]
-    tangent_dir = r["turn"] - r["meop"]
-    assert np.allclose((flange_vec * tangent_dir).sum(axis=1), 0.0, atol=1e-6)
+    assert np.allclose(flange_vec @ np.array([0.0, 0.0, 1.0]), 0.0, atol=1e-6)  # flange ⟂ pull
     assert np.allclose(np.linalg.norm(flange_vec, axis=1), 150.0)
 
 
@@ -154,3 +155,24 @@ def test_tube_profile_continues_the_wall_towards_the_opening(tmp_path: Path) -> 
     )
     radial = np.hypot(r["edge"][:, 1], r["edge"][:, 2]) - np.hypot(r["turn"][:, 1], r["turn"][:, 2])
     assert np.allclose(radial, 150.0, atol=2.0)  # the flange turns 90° and runs out radially
+
+
+def test_cylinder_wall_draft_is_exactly_zero(tmp_path: Path) -> None:
+    """A coarsely tessellated cylinder wall must read 0 deg, not +-1 deg from facet tilt."""
+    pytest.importorskip("OCP")
+    import numpy as np
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    from teklif.geometry.surface_select import draft_angles_deg, load_face_mesh
+
+    cyl = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0)), 100.0, 80.0).Shape()
+    w = STEPControl_Writer()
+    w.Transfer(cyl, STEPControl_AsIs)
+    path = tmp_path / "cyl.step"
+    w.Write(str(path))
+    mesh = load_face_mesh(path, 5.0, 10.0)
+    side = max(mesh.faces, key=lambda f: f.area_mm2).id
+    ang = draft_angles_deg(mesh, [side], np.array([1.0, 0.0, 0.0]))[side]
+    assert abs(ang).max() < 1e-3

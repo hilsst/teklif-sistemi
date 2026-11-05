@@ -133,16 +133,10 @@ def profile_rings(
     d = pull / np.linalg.norm(pull)
     meop = ring + t * prof.to_meop_mm
     turn = meop + t * prof.to_turn_mm
-    # 90° turn: outward, perpendicular to the way the surface ran; if that is (almost) the same
-    # as the surface direction (flat part), the flange wall turns back against the pull instead
-    odn = od / np.where(
-        np.linalg.norm(od, axis=1, keepdims=True) > 0,
-        np.linalg.norm(od, axis=1, keepdims=True),
-        1.0,
-    )
-    f = odn - (odn * t).sum(axis=1, keepdims=True) * t
+    # the flange always lies in a plane perpendicular to the pull, running outward
+    f = od - (od @ d)[:, None] * d
     ln = np.linalg.norm(f, axis=1, keepdims=True)
-    f = np.where(ln > 0.3, f / np.where(ln > 0, ln, 1.0), -d)
+    f = f / np.where(ln > 0, ln, 1.0)
     edge = turn + f * prof.flange_mm
     return {"eop": ring, "meop": meop, "turn": turn, "edge": edge}
 
@@ -421,7 +415,8 @@ def render_surface_panel(
             st.caption(
                 "**Kalıp profili** (EOP'den dışa): yüzey EOP'nin "
                 f"{prof.to_meop_mm:.0f} mm ötesine uzanır (**MEOP**), {prof.to_turn_mm:.0f} mm "
-                f"daha gider, sonra flanş 90° döner ve {prof.flange_mm:.0f} mm gider. Mor: "
+                "daha gider, sonra flanş çekme yönüne dik düzlemde "
+                f"{prof.flange_mm:.0f} mm gider. Mor: "
                 "**EOP** (dış kenar, delikler, kanallar; açık mavi: kalıbın delik/kanal üstünden "
                 "geçtiği alan), açık yeşil: yüzey uzantısı, turuncu: flanş."
             )
