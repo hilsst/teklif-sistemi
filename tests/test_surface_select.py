@@ -98,3 +98,15 @@ def test_panel_helpers(tmp_path: Path) -> None:
     down = triangle_colors(mesh, bottom, (0.0, 0.0, -1.0), 2.0, 0.0)
     assert GREEN in up and RED in down
     assert len(build_figure(mesh, up).data) >= 2
+
+
+def test_outer_perimeter_ignores_holes_and_seams_not_boundary(tmp_path: Path) -> None:
+    mesh = load_face_mesh(_plate(tmp_path, holes=2))
+    bottom = _bottom_face(mesh)
+    outer = mesh.outer_perimeter_mm([bottom], np.array([0.0, 0.0, 1.0]))
+    assert outer == pytest.approx(1400.0, rel=0.01)
+    assert mesh.boundary_length_mm([bottom]) > outer + 100
+    cyl = load_face_mesh(_write(BRepPrimAPI_MakeCylinder(50, 200).Shape(), tmp_path / "c.step"))
+    side = max(cyl.faces, key=lambda f: f.area_mm2)
+    assert cyl.boundary_length_mm([side.id]) == pytest.approx(2 * 2 * np.pi * 50, rel=0.01)
+    assert cyl.boundary_length_mm([f.id for f in cyl.faces]) == pytest.approx(0.0, abs=1e-6)

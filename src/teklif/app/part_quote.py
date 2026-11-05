@@ -253,6 +253,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         st.info("Teklifi hesaplamak için trim çevresini girin.")
         return
     flange_m = FLANGE_MM / 1000
+    outer = sel.outer_m if sel else perimeter  # flange runs along the outer rim only
     notes = [
         "part_area_m2, hole_count: STEP'ten türetilmiş tahmin (levha özellikleri)",
         f"kalıp maliyeti: {est.note}",
@@ -306,8 +307,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
                 part_area_m2=f.one_side_area_m2,
                 part_perimeter_m=perimeter,
                 hole_count=f.hole_count,
-                tool_area_m2=tool_part_area + flange_m * perimeter,
-                tool_perimeter_m=perimeter + 2 * 3.14159265 * flange_m,
+                tool_area_m2=tool_part_area + flange_m * outer,
+                tool_perimeter_m=outer + 2 * 3.14159265 * flange_m,
                 tool_footprint_x_mm=fx,
                 tool_footprint_y_mm=fy,
                 source=Source.DERIVED,

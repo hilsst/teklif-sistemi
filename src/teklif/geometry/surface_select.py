@@ -55,6 +55,17 @@ class FaceMesh:
     def area_m2(self, ids: list[int]) -> float:
         return sum(self.faces[i].area_mm2 for i in ids) / 1e6
 
+    def outer_perimeter_mm(self, ids: list[int], pull: Vec) -> float:
+        """Perimeter of the selection's outline seen along pull (convex hull; ignores holes)."""
+        d = _unit(np.asarray(pull, dtype=float))
+        pts = np.vstack([self.faces[i].vertices for i in ids if len(self.faces[i].vertices)])
+        a = np.cross(d, [1.0, 0.0, 0.0] if abs(d[0]) < 0.9 else [0.0, 1.0, 0.0])
+        a /= np.linalg.norm(a)
+        b = np.cross(d, a)
+        xy = np.unique(np.round(np.c_[pts @ a, pts @ b], 2), axis=0).astype(np.float64)
+        hull = _convex_hull(xy)
+        return float(np.linalg.norm(np.diff(np.vstack([hull, hull[:1]]), axis=0), axis=1).sum())
+
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
         chosen = set(ids)
@@ -65,6 +76,26 @@ class FaceMesh:
                 per_edge.setdefault(key, []).append(length)
                 owners[key] = owners.get(key, 0) + 1
         return sum(lens[0] for key, lens in per_edge.items() if owners[key] == 1)
+
+
+def _convex_hull(p: NDArray[np.float64]) -> NDArray[np.float64]:
+    pts = sorted(map(tuple, p))
+    if len(pts) < 3:
+        return np.array(pts)
+
+    def half(seq: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        h: list[tuple[float, float]] = []
+        for q in seq:
+            while len(h) >= 2 and (
+                (h[-1][0] - h[-2][0]) * (q[1] - h[-2][1])
+                - (h[-1][1] - h[-2][1]) * (q[0] - h[-2][0])
+                <= 0
+            ):
+                h.pop()
+            h.append(q)
+        return h
+
+    return np.array(half(pts)[:-1] + half(pts[::-1])[:-1])
 
 
 def _unit(v: Vec) -> Vec:
@@ -109,7 +140,8 @@ def load_face_mesh(
         explorer.Next()
         loc = TopLoc_Location()
         tri: Any = BRep_Tool.Triangulation_s(face, loc)
-        if tri is None:
+        if tri is None:  # keep the id aligned with the B-rep face order
+            faces.append(_empty_face(len(faces)))
             continue
         trsf = loc.Transformation()
         verts = np.array(
@@ -136,10 +168,13 @@ def load_face_mesh(
         while ex.More():
             ed = ex.Current()
             key = hash(ed)
+            lp = GProp_GProps()
+            BRepGProp.LinearProperties_s(ed, lp)
             if key not in seen:
                 seen.add(key)
-                lp = GProp_GProps()
-                BRepGProp.LinearProperties_s(ed, lp)
+                edges.append((key, lp.Mass()))
+            else:  # seam: used twice by this face, never a boundary
+                edges.append((key, lp.Mass()))
                 edges.append((key, lp.Mass()))
             ex.Next()
         faces.append(
@@ -157,6 +192,11 @@ def load_face_mesh(
     if not faces:
         raise StepUnavailableError("STEP file produced no tessellated faces")
     return FaceMesh(faces)
+
+
+def _empty_face(face_id: int) -> MeshFace:
+    z3 = np.zeros((0, 3))
+    return MeshFace(face_id, 0.0, False, z3, np.zeros((0, 3), dtype=np.int64), z3, np.zeros(0))
 
 
 def _as_face(shape: Any) -> Any:
@@ -182,7 +222,7 @@ def draft_angles_deg(mesh: FaceMesh, ids: list[int], pull: Vec) -> dict[int, NDA
 class PullCandidate:
     direction: tuple[float, float, float]
     label: str
-    undercut_area_ratio: float  # share of the selection below warn_min_deg
+    undercut_area_ratio: float  # share of the selection with negative draft
     min_ok_ratio: float  # share of the selection at or above min_ok_deg
 
 
@@ -194,7 +234,7 @@ def _score(
         draft_angles_deg(mesh, ids, d).values(), (mesh.faces[i] for i in ids), strict=True
     ):
         total += f.tri_areas.sum()
-        bad += f.tri_areas[deg < warn_min].sum()
+        bad += f.tri_areas[deg < 0.0].sum()
         ok += f.tri_areas[deg >= min_ok].sum()
     return (bad / total if total else 0.0), (ok / total if total else 0.0)
 

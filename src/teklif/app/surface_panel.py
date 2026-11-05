@@ -8,6 +8,7 @@ length (full boundary: outer edge, cut-outs and holes are all trimmed) and the p
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,7 @@ class SurfaceSelection:
     face_ids: list[int]
     area_m2: float
     boundary_m: float
+    outer_m: float
     pull: tuple[float, float, float]
     pull_label: str
     undercut_ratio: float
@@ -126,16 +128,17 @@ def build_figure(mesh: FaceMesh, colors: list[str]) -> Any:
 
 
 def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelection | None:
+    key = f"{key}_{hashlib.sha256(data).hexdigest()[:16]}"  # new file -> new mesh and selection
     mk = f"{key}_mesh"
     if mk not in st.session_state:
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 path = Path(tmp) / "part.step"
                 path.write_bytes(data)
-                st.session_state[mk] = load_face_mesh(path)
-                st.session_state[mk + "v"] = load_face_mesh(
-                    path, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG
-                )
+                full = load_face_mesh(path)
+                coarse = load_face_mesh(path, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG)
+            st.session_state[mk + "v"] = coarse
+            st.session_state[mk] = full
         except Exception as exc:
             st.warning(f"3B ekran açılamadı ({exc}); trim çevresi elle girilebilir.")
             return None
@@ -180,11 +183,14 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     cand = None
     if selected:
         cands = suggest_pull_directions(mesh, selected, warn_min, min_ok)
-        names = [
-            f"{c.label} · ters açı %{c.undercut_area_ratio * 100:.1f} · yeterli çekme "
-            f"%{c.min_ok_ratio * 100:.0f}"
-            for c in cands
-        ]
+        names = [c.label for c in cands]  # stable labels so the choice survives reruns
+        st.caption(
+            "Öneriler (ters açı payı / yeterli çekme payı): "
+            + "; ".join(
+                f"{c.label} %{c.undercut_area_ratio * 100:.1f}/%{c.min_ok_ratio * 100:.0f}"
+                for c in cands[:4]
+            )
+        )
         pick = st.selectbox(
             "Çekme yönü (en iyi öneri başta)", [*names, "Elle gir"], key=f"{key}_pull"
         )
@@ -216,6 +222,7 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
         face_ids=list(selected),
         area_m2=mesh.area_m2(selected),
         boundary_m=mesh.boundary_length_mm(selected) / 1000,
+        outer_m=mesh.outer_perimeter_mm(selected, np.array(pull)) / 1000,
         pull=pull,
         pull_label=pull_label,
         undercut_ratio=bad,
