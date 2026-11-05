@@ -45,17 +45,24 @@ def _to_eur(lib: Library):  # type: ignore[no-untyped-def]
 
 
 def _case_form(cat: Catalog, lib: Library) -> None:
+    gen = st.session_state.setdefault("lr_gen", 0)  # bumped after a save to reset the form
+    if flash := st.session_state.pop("lr_flash", None):
+        st.success(flash)
     st.markdown("### 1. Parça")
-    part_file = st.file_uploader("Parça STEP dosyası", type=["step", "stp"], key="lr_part")
+    part_file = st.file_uploader("Parça STEP dosyası", type=["step", "stp"], key=f"lr_{gen}_part")
     c1, c2, c3 = st.columns(3)
-    part_no = c1.text_input("Parça no", Path(part_file.name).stem if part_file else "", key="lr_pn")
-    customer = c2.text_input("Müşteri", key="lr_cust")
+    part_no = c1.text_input(
+        "Parça no",
+        Path(part_file.name).stem if part_file else "",
+        key=f"lr_{gen}_pn_{part_file.name if part_file else ''}",
+    )
+    customer = c2.text_input("Müşteri", key=f"lr_{gen}_cust")
     procs = list(lib.processes)
     process = c3.selectbox(
         "Üretim prosesi",
         procs,
         index=procs.index("sandvic_toplu") if "sandvic_toplu" in procs else 0,
-        key="lr_proc",
+        key=f"lr_{gen}_proc",
     )
 
     st.markdown("### 2. Bilinen işçilik saatleri")
@@ -79,7 +86,7 @@ def _case_form(cat: Catalog, lib: Library) -> None:
         seed,
         num_rows="dynamic",
         hide_index=True,
-        key=f"lr_ops_{process}",
+        key=f"lr_{gen}_ops_{process}",
         column_config={
             "tür": st.column_config.SelectboxColumn(options=["gerçekleşen", "tahmin"]),
             "süre [adam-saat]": st.column_config.NumberColumn(min_value=0.0, format="%.2f"),
@@ -90,24 +97,30 @@ def _case_form(cat: Catalog, lib: Library) -> None:
     has_step = st.radio(
         "Bu parça için model/kalıp STEP dosyanız var mı?",
         ["Yok, yalnız maliyetleri gireceğim", "Var, STEP dosyalarını da yükleyeceğim"],
-        key="lr_hasstep",
+        key=f"lr_{gen}_hasstep",
         horizontal=True,
     ).startswith("Var")
     tool_step = model_step = None
     if has_step:
         u1, u2 = st.columns(2)
-        tool_step = u1.file_uploader("Kalıp STEP", type=["step", "stp"], key="lr_tool_step")
-        model_step = u2.file_uploader("Model STEP", type=["step", "stp"], key="lr_model_step")
+        tool_step = u1.file_uploader("Kalıp STEP", type=["step", "stp"], key=f"lr_{gen}_tool_step")
+        model_step = u2.file_uploader(
+            "Model STEP", type=["step", "stp"], key=f"lr_{gen}_model_step"
+        )
     k1, k2, k3 = st.columns(3)
-    currency = k1.selectbox("Para birimi", list(lib.currency.rates), key="lr_ccy")
-    tool_cost = k2.number_input("Kalıp maliyeti (bize maliyet)", 0.0, step=100.0, key="lr_tc")
-    model_cost = k3.number_input("Model maliyeti (bize maliyet)", 0.0, step=100.0, key="lr_mc")
-    includes_master = st.checkbox(
-        "Girdiğim kalıp maliyeti modeli de içeriyor", False, key="lr_incl"
+    currency = k1.selectbox("Para birimi", list(lib.currency.rates), key=f"lr_{gen}_ccy")
+    tool_cost = k2.number_input(
+        "Kalıp maliyeti (bize maliyet)", 0.0, step=100.0, key=f"lr_{gen}_tc"
     )
-    done_on = st.date_input("Maliyet tarihi", date.today(), key="lr_date")
+    model_cost = k3.number_input(
+        "Model maliyeti (bize maliyet)", 0.0, step=100.0, key=f"lr_{gen}_mc"
+    )
+    includes_master = st.checkbox(
+        "Girdiğim kalıp maliyeti modeli de içeriyor", False, key=f"lr_{gen}_incl"
+    )
+    done_on = st.date_input("Maliyet tarihi", date.today(), key=f"lr_{gen}_date")
 
-    if st.button("Bu örneği kaydet", type="primary", key="lr_save"):
+    if st.button("Bu örneği kaydet", type="primary", key=f"lr_{gen}_save"):
         if not part_no.strip():
             st.error("Parça no gerekli.")
             return
@@ -143,9 +156,14 @@ def _case_form(cat: Catalog, lib: Library) -> None:
         except CatalogError as exc:
             st.error(str(exc))
             return
-        st.success(f"{part_no} kaydedildi.")
-        for n in result.notes:
-            st.warning(n)
+        except Exception as exc:
+            st.error(f"Kaydedilemedi: {exc}")
+            return
+        st.session_state["lr_flash"] = f"{part_no} kaydedildi." + "".join(
+            f" Not: {n}" for n in result.notes
+        )
+        st.session_state["lr_gen"] = gen + 1
+        st.rerun()
 
 
 def _cases_table(cat: Catalog) -> None:
@@ -236,7 +254,7 @@ def _fits(cat: Catalog, lib: Library) -> None:
                 backup = write_cost_models(
                     DEFAULT_PATH, fit, model_fit, f"öğrenme verisi: {len(samples)} kalıp ({names})"
                 )
-            except ValueError as exc:
+            except (ValueError, OSError) as exc:
                 st.error(str(exc))
             else:
                 st.success(

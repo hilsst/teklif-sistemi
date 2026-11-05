@@ -12,10 +12,11 @@ from __future__ import annotations
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import numpy as np
+import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -104,6 +105,11 @@ def save_case(cat: Catalog, case: CaseInput) -> CaseResult:
     with Session(cat.engine) as s:
         if s.scalar(select(Part).where(Part.part_no == part_no, Part.rev == "A")):
             raise CatalogError(f"part {part_no} (rev A) already exists in the catalog")
+    with Session(cat.engine) as s:
+        if s.scalar(select(MasterModel).where(MasterModel.model_no == f"{part_no} MODEL")):
+            raise CatalogError(f"{part_no} MODEL already exists in the catalog")
+        if s.scalar(select(Tool).where(Tool.tool_no == f"{part_no} KALIP")):
+            raise CatalogError(f"{part_no} KALIP already exists in the catalog")
     notes: list[str] = []
     cad_id: int | None = None
     values: list = []  # type: ignore[type-arg]
@@ -197,9 +203,15 @@ def collect_tool_samples(
         tools = {t.id: t for t in s.scalars(select(Tool))}
         parts = {p.id: p for p in s.scalars(select(Part))}
     seen: set[int] = set()
+    per_tool: dict[int, int] = {}
+    for link in links:
+        per_tool[link.tool_id] = per_tool.get(link.tool_id, 0) + 1
     for link in links:
         tool, part = tools.get(link.tool_id), parts.get(link.part_id)
         if tool is None or part is None or part.id in seen:
+            continue
+        if per_tool[tool.id] > 1:
+            notes.append(f"{tool.tool_no}: birden çok parçaya bağlı kalıp, formüle girmedi")
             continue
         costs = cat.costs("tool", tool.id)
         if not costs:
@@ -296,47 +308,76 @@ def write_cost_models(
     tool: LinearFit,
     model: ModelCostFit | None,
     valid_for: str,
-    r2_area_model: float = 0.0,
 ) -> Path | None:
-    """Rewrite tool_cost_model.yaml from a fit; returns the backup path (None if no old file)."""
+    """Rewrite tool_cost_model.yaml from a fit; returns the backup path (None if no old file).
+
+    The model-cost block is replaced only by a fit of at least three models; otherwise the
+    existing block stays. The new content is validated before it replaces the file, and the old
+    file is kept as a timestamped backup that is never overwritten.
+    """
     if tool.slope < 1.0:  # under 1 EUR per m2 is no relation to area
         raise ValueError("fit has no positive cost per m2; formula not updated")
+    old: dict[str, object] = {}
+    if path.exists():
+        old = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    data: dict[str, object] = {
+        "tool_cost_model": {
+            "basis": "part_one_side_area_m2",
+            "currency": "EUR",
+            "base": round(float(tool.base), 2),
+            "per_m2": round(float(tool.slope), 2),
+            "valid_area_m2": {
+                "min": round(float(tool.x_min), 3),
+                "max": round(float(tool.x_max), 3),
+            },
+            "valid_for": valid_for,
+            "samples": tool.n,
+            "r_squared": round(float(tool.r_squared), 3),
+            "max_residual_ratio": round(float(tool.max_residual_ratio), 3),
+            "leave_one_out_max_error": round(float(tool.loo_max_error), 3),
+            "source": "derived",
+        }
+    }
+    old_model = old.get("model_cost_model")
+    if model is not None and model.n >= 3:
+        r2 = old_model.get("r_squared_area", 0.0) if isinstance(old_model, dict) else 0.0
+        data["model_cost_model"] = {
+            "currency": "EUR",
+            "mean": round(float(model.mean), 2),
+            "min": round(float(model.min), 2),
+            "max": round(float(model.max), 2),
+            "samples": model.n,
+            "r_squared_area": r2,
+            "valid_for": valid_for,
+            "source": "derived",
+        }
+    elif old_model is not None:
+        data["model_cost_model"] = old_model
+    # validate before touching the live file
+    from teklif.tooling_rules.cost_estimate import ModelCostModel, ToolCostModel
+
+    ToolCostModel.model_validate(data["tool_cost_model"])
+    if "model_cost_model" in data:
+        ModelCostModel.model_validate(data["model_cost_model"])
+    header = (
+        "# Kalıp ve model maliyeti tahmini. 'Öğrenme verisi' ekranından, kayıtlı gerçek\n"
+        "# maliyetlerle yeniden hesaplandı. Kalıp: maliyet = base + per_m2 x parça tek yüz alanı,\n"
+        "# yalnız örneklerin alan aralığında geçerli.\n"
+    )
     backup = None
     if path.exists():
-        backup = path.with_name(f"{path.name}.bak-{date.today().isoformat()}")
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = path.with_name(f"{path.name}.bak-{stamp}")
+        n = 1
+        while backup.exists():
+            backup = path.with_name(f"{path.name}.bak-{stamp}-{n}")
+            n += 1
         shutil.copyfile(path, backup)
-    lines = [
-        "# Kaba kalıp maliyeti tahmini: maliyet = base + per_m2 x parça tek yüz alanı.",
-        "# 'Öğrenme verisi' ekranından, kayıtlı gerçek kalıp maliyetleriyle yeniden hesaplandı.",
-        "# Yalnız örneklerin alan aralığında geçerlidir; dışında uyarı verilir.",
-        "tool_cost_model:",
-        "  basis: part_one_side_area_m2",
-        "  currency: EUR",
-        f"  base: {tool.base:.2f}",
-        f"  per_m2: {tool.slope:.2f}",
-        f"  valid_area_m2: {{min: {tool.x_min:.3f}, max: {tool.x_max:.3f}}}",
-        f'  valid_for: "{valid_for}"',
-        f"  samples: {tool.n}",
-        f"  r_squared: {tool.r_squared:.3f}",
-        f"  max_residual_ratio: {tool.max_residual_ratio:.3f}",
-        f"  leave_one_out_max_error: {tool.loo_max_error:.3f}",
-        "  source: derived",
-    ]
-    if model is not None:
-        lines += [
-            "",
-            "# Master model maliyeti: alanla ilişkisi zayıf; geçmiş modellerin ortalaması/aralığı",
-            "model_cost_model:",
-            "  currency: EUR",
-            f"  mean: {model.mean:.2f}",
-            f"  min: {model.min:.2f}",
-            f"  max: {model.max:.2f}",
-            f"  samples: {model.n}",
-            f"  r_squared_area: {r2_area_model:.2f}",
-            f'  valid_for: "{valid_for}"',
-            "  source: derived",
-        ]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(
+        header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    tmp.replace(path)
     return backup
 
 
@@ -358,7 +399,7 @@ def labor_rows(cat: Catalog) -> list[LaborRow]:
         ops = list(s.scalars(select(PartOperation).where(PartOperation.kind == "actual")))
     by_part: dict[int, dict[str, float]] = {}
     for o in ops:
-        hours = o.persons * o.run_min_per_part / 60.0
+        hours = o.persons * (o.run_min_per_part + o.setup_min / max(o.batch_size, 1)) / 60.0
         d = by_part.setdefault(o.part_id, {})
         d[o.operation] = d.get(o.operation, 0.0) + hours
     for p in parts:

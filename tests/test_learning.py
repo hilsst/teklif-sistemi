@@ -97,12 +97,38 @@ def test_write_models_backs_up_and_reloads(tmp_path: Path) -> None:
     path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
     fit = fit_linear([2.5, 3.0, 3.5, 4.0], [7000, 8000, 9000, 10000])
     assert fit is not None
-    backup = write_cost_models(path, fit, fit_model_cost([2000.0, 3000.0]), "test")
+    backup = write_cost_models(path, fit, fit_model_cost([2000.0, 3000.0, 4000.0]), "test")
     assert backup is not None and backup.exists()
     m = load_model(path)
     assert m.base == pytest.approx(2000) and m.per_m2 == pytest.approx(2000)
-    assert load_model_cost(path).mean == pytest.approx(2500)
+    assert load_model_cost(path).mean == pytest.approx(3000)
     flat = fit_linear([2.0, 3.0, 4.0], [5000, 5000, 5000])
     assert flat is not None
     with pytest.raises(ValueError):
         write_cost_models(path, flat, None, "x")
+
+
+def test_second_write_keeps_old_backups_and_model_block(tmp_path: Path) -> None:
+    src = Path(__file__).resolve().parents[1] / "library" / "tool_cost_model.yaml"
+    path = tmp_path / "tool_cost_model.yaml"
+    path.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+    original_model = load_model_cost(path)
+    fit = fit_linear([2.5, 3.0, 3.5, 4.0], [7000, 8000, 9000, 10000])
+    assert fit is not None
+    b1 = write_cost_models(path, fit, None, 'PANEL 24" A\\B')  # quotes/backslash are safe
+    b2 = write_cost_models(path, fit, fit_model_cost([1000.0]), "again")  # one model: too few
+    assert b1 is not None and b2 is not None and b1 != b2 and b1.exists() and b2.exists()
+    assert load_model_cost(path) == original_model  # model block kept
+    assert 'PANEL 24" A\\B' in b2.read_text(encoding="utf-8")
+
+
+def test_tool_shared_by_several_parts_is_left_out(tmp_path: Path) -> None:
+    cat = _cat(tmp_path)
+    a = save_case(cat, CaseInput(part_no="S1", tool_cost=5000))
+    b = save_case(cat, CaseInput(part_no="S2"))
+    cat.set_param("part", a.part_id, "part_area_m2", 3.0, "m2", _src())
+    cat.set_param("part", b.part_id, "part_area_m2", 4.0, "m2", _src())
+    tool = cat.tools_for_part(a.part_id)[0]
+    cat.link_tool_part(tool.id, b.part_id)
+    samples, notes = collect_tool_samples(cat, _eur)
+    assert samples == [] and any("birden çok" in n for n in notes)
