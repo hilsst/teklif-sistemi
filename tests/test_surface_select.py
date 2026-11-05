@@ -110,3 +110,13 @@ def test_outer_perimeter_ignores_holes_and_seams_not_boundary(tmp_path: Path) ->
     side = max(cyl.faces, key=lambda f: f.area_mm2)
     assert cyl.boundary_length_mm([side.id]) == pytest.approx(2 * 2 * np.pi * 50, rel=0.01)
     assert cyl.boundary_length_mm([f.id for f in cyl.faces]) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_viewer_payload_shapes(tmp_path: Path) -> None:
+    from teklif.app.surface_panel import GREY, viewer_payload
+
+    mesh = load_face_mesh(_plate(tmp_path))
+    n = sum(len(f.triangles) for f in mesh.faces)
+    p = viewer_payload(mesh, [GREY] * n, "k")
+    assert len(p["pos"]) == n * 9 and len(p["tri_face"]) == n and len(p["tri_color"]) == n
+    assert len(p["faces"]) == len(mesh.faces)

@@ -1,0 +1,72 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#f4f5f7;font-family:sans-serif}
+#c{width:100%;height:100%;display:block}
+#tip{position:absolute;pointer-events:none;background:#222;color:#fff;font-size:12px;padding:3px 7px;border-radius:4px;display:none}
+#hint{position:absolute;left:8px;bottom:6px;font-size:11px;color:#666}
+</style></head>
+<body>
+<canvas id="c"></canvas><div id="tip"></div>
+<div id="hint">Sürükle: döndür · tekerlek: yakınlaştır · sağ tuş: kaydır · tıkla: yüzü seç/bırak</div>
+<script src="three.min.js"></script>
+<script src="OrbitControls.js"></script>
+<script>
+const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728]; // grey, blue, green, yellow, red
+let scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={};
+const canvas=document.getElementById('c'),tip=document.getElementById('tip');
+function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data),'*');}
+function init(){
+  renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+  scene=new THREE.Scene(); scene.background=new THREE.Color(0xf4f5f7);
+  camera=new THREE.PerspectiveCamera(40,1,1,1e6); camera.up.set(0,0,1);
+  controls=new THREE.OrbitControls(camera,canvas); controls.screenSpacePanning=true;
+  scene.add(new THREE.AmbientLight(0xffffff,0.55));
+  const d1=new THREE.DirectionalLight(0xffffff,0.7); d1.position.set(1,1,2); camera.add(d1); scene.add(camera);
+  const d2=new THREE.DirectionalLight(0xffffff,0.35); d2.position.set(-1,-1,-0.5); camera.add(d2);
+  let down=null;
+  canvas.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];});
+  canvas.addEventListener('pointerup',e=>{
+    if(!down||e.button!==0)return; const moved=Math.hypot(e.clientX-down[0],e.clientY-down[1]); down=null;
+    if(moved>4)return; const f=pick(e); if(f===null)return; clickN++;
+    send('streamlit:setComponentValue',{value:{face:f,n:clickN,t:Date.now()},dataType:'json'});
+  });
+  canvas.addEventListener('pointermove',e=>{
+    const f=pick(e); if(f===null){tip.style.display='none';return;}
+    const i=faceInfo[f]; tip.textContent='Yüz '+f+(i?' · '+i.toFixed(3)+' m²':''); tip.style.display='block';
+    tip.style.left=(e.offsetX+12)+'px'; tip.style.top=(e.offsetY+12)+'px';});
+  canvas.addEventListener('pointerleave',()=>{tip.style.display='none';});
+  (function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera);})();
+}
+const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
+function pick(e){
+  if(!mesh)return null; const r=canvas.getBoundingClientRect();
+  ndc.set(((e.clientX-r.left)/r.width)*2-1,-((e.clientY-r.top)/r.height)*2+1);
+  ray.setFromCamera(ndc,camera); const h=ray.intersectObject(mesh)[0];
+  return h?args.tri_face[h.faceIndex]:null;
+}
+function resize(h){
+  const w=document.body.clientWidth; renderer.setSize(w,h,false); canvas.style.height=h+'px';
+  camera.aspect=w/h; camera.updateProjectionMatrix(); send('streamlit:setFrameHeight',{height:h});
+}
+function build(a){
+  const key=a.mesh_key; const pos=new Float32Array(a.pos);
+  if(fitted!==key){
+    if(mesh){scene.remove(mesh);geo.dispose();}
+    geo=new THREE.BufferGeometry(); geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    geo.setAttribute('color',new THREE.BufferAttribute(new Float32Array(pos.length),3)); geo.computeVertexNormals();
+    mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({vertexColors:true,side:THREE.DoubleSide,flatShading:true,roughness:0.9,metalness:0}));
+    scene.add(mesh); geo.computeBoundingSphere(); const s=geo.boundingSphere;
+    controls.target.copy(s.center); camera.position.copy(s.center).add(new THREE.Vector3(1.1,-1.4,0.9).multiplyScalar(s.radius*2.4));
+    camera.near=s.radius/100; camera.far=s.radius*50; camera.updateProjectionMatrix(); fitted=key;
+  }
+  const col=geo.attributes.color.array, c=new THREE.Color();
+  for(let t=0;t<a.tri_color.length;t++){c.setHex(PALETTE[a.tri_color[t]]);for(let v=0;v<3;v++){const o=(t*3+v)*3;col[o]=c.r;col[o+1]=c.g;col[o+2]=c.b;}}
+  geo.attributes.color.needsUpdate=true; faceInfo={}; for(const [i,ar] of a.faces)faceInfo[i]=ar;
+}
+window.addEventListener('message',ev=>{
+  if(ev.data.type!=='streamlit:render')return; args=ev.data.args; if(!renderer)init();
+  resize(args.height||520); build(args);
+});
+send('streamlit:componentReady',{apiVersion:1});
+</script></body></html>

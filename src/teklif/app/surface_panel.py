@@ -16,6 +16,7 @@ from typing import Any
 
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components
 
 from teklif.geometry.surface_select import (
     ANGULAR_DEFLECTION_DEG,
@@ -84,6 +85,26 @@ def triangle_colors(
         else:
             out += [BLUE] * len(f.triangles)
     return out
+
+
+_VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).parent / "viewer"))
+_PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
+
+
+def viewer_payload(mesh: FaceMesh, colors: list[str], key: str) -> dict[str, Any]:
+    """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index."""
+    pos = np.round(
+        np.vstack([f.vertices[f.triangles].reshape(-1, 3) for f in mesh.faces if len(f.triangles)]),
+        1,
+    )
+    tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
+    return {
+        "mesh_key": key,
+        "pos": pos.ravel().tolist(),
+        "tri_face": tri_face,
+        "tri_color": [_PALETTE_IDX[c] for c in colors],
+        "faces": [[f.id, round(f.area_mm2 / 1e6, 4)] for f in mesh.faces],
+    }
 
 
 def build_figure(mesh: FaceMesh, colors: list[str]) -> Any:
@@ -155,6 +176,9 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
     mesh: FaceMesh = view  # replaced by the fine analysis mesh once something is selected
     sk = f"{key}_sel"
     st.session_state.setdefault(sk, [])
+    pending = st.session_state.pop(f"{key}_pending", None)
+    if pending is not None:  # a click in the 3D view toggles the face
+        st.session_state[sk] = sorted(set(st.session_state[sk]) ^ {pending})
     min_ok = float(thresholds.draft.min_ok_deg.value)
     warn_min = float(thresholds.draft.warn_min_deg.value)
 
@@ -220,11 +244,22 @@ def render_surface_panel(data: bytes, thresholds: Any, key: str) -> SurfaceSelec
         else:
             cand = cands[names.index(pick)]
             pull, pull_label = cand.direction, cand.label
-    fig = build_figure(view, triangle_colors(view, selected, pull, min_ok, warn_min))
-    st.plotly_chart(fig, width="stretch", key=f"{key}_fig")
+    colors = triangle_colors(view, selected, pull, min_ok, warn_min)
+    click = _VIEWER(
+        **viewer_payload(view, colors, key), height=560, key=f"{key}_viewer", default=None
+    )
+    last = f"{key}_lastclick"
+    if click and click.get("n", 0) != st.session_state.get(last):
+        st.session_state[last] = click["n"]
+        # the multiselect already exists in this run: apply the toggle at the top of the next one
+        st.session_state[f"{key}_pending"] = int(click["face"])
+        st.rerun()
+    if st.checkbox("Eski görünüm (Plotly)", False, key=f"{key}_plotly"):
+        st.plotly_chart(build_figure(view, colors), width="stretch", key=f"{key}_fig")
     st.caption(
         f"Renkler (seçili yüzler): yeşil ≥ {min_ok:g}° çekme açısı, sarı {warn_min:g}–{min_ok:g}°, "
-        "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil."
+        "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil. "
+        "Yüze tıklayarak seçip bırakabilirsiniz."
     )
     if not selected or pull is None:
         return None
