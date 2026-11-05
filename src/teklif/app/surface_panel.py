@@ -440,11 +440,12 @@ def render_surface_panel(
     from teklif.geometry.surface_select import _score
 
     bad, ok = _score(mesh, selected, np.array(pull), warn_min, min_ok)
+    boundary_mm, outer_mm = mesh.trim_lengths_mm(selected, np.array(pull))
     return SurfaceSelection(
         face_ids=list(selected),
         area_m2=mesh.area_m2(selected),
-        boundary_m=mesh.boundary_length_mm(selected) / 1000,
-        outer_m=mesh.outer_perimeter_mm(selected, np.array(pull)) / 1000,
+        boundary_m=boundary_mm / 1000,
+        outer_m=outer_mm / 1000,
         pull=pull,
         pull_label=pull_label,
         undercut_ratio=bad,

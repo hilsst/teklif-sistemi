@@ -176,3 +176,29 @@ def test_cylinder_wall_draft_is_exactly_zero(tmp_path: Path) -> None:
     side = max(mesh.faces, key=lambda f: f.area_mm2).id
     ang = draft_angles_deg(mesh, [side], np.array([1.0, 0.0, 0.0]))[side]
     assert abs(ang).max() < 1e-3
+
+
+def test_trim_length_uses_the_longer_edge_of_the_wall(tmp_path: Path) -> None:
+    """Selecting the inner face of a tube: the trim runs along the longer outer edge."""
+    pytest.importorskip("OCP")
+    import numpy as np
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    from teklif.geometry.surface_select import load_face_mesh
+
+    ax = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(1, 0, 0))
+    outer = BRepPrimAPI_MakeCylinder(ax, 100.0, 80.0).Shape()
+    inner = BRepPrimAPI_MakeCylinder(ax, 95.0, 80.0).Shape()
+    w = STEPControl_Writer()
+    w.Transfer(BRepAlgoAPI_Cut(outer, inner).Shape(), STEPControl_AsIs)
+    path = tmp_path / "tube.step"
+    w.Write(str(path))
+    m = load_face_mesh(path, 1.0, 5.0, True)
+    curved = sorted((f for f in m.faces if not f.planar), key=lambda f: f.area_mm2)
+    inner_face = curved[0].id  # smaller radius
+    boundary, outer_len = m.trim_lengths_mm([inner_face], np.array([1.0, 0.0, 0.0]))
+    assert abs(outer_len - 2 * np.pi * 100) < 4.0  # outer circle, not the 2*pi*95 inner one
+    assert boundary > 2 * (2 * np.pi * 95)
