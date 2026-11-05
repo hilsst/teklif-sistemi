@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-app = ["streamlit>=1.38", "pandas>=2.2"]
+app = ["streamlit>=1.38", "pandas>=2.2", "plotly>=5.20"]
 cad = ["cadquery-ocp>=7.7"]
 
 [project.scripts]
