@@ -94,6 +94,29 @@ class _Lines:
         return sorted(set(self._overrides) - self._used)
 
 
+def _fabric_price_per_m2(mat: Prepreg) -> tuple[Price, str]:
+    """Fabric price per m2; a price given per running metre is converted with the roll width."""
+    path = _p("materials.yaml", f"prepregs[{mat.id}].price")
+    if mat.price.per == "m2":
+        return mat.price, path
+    if mat.price.per != "m":
+        raise QuoteInputError(
+            f"prepregs[{mat.id}].price.per must be 'm2' or 'm' (got '{mat.price.per}')"
+        )
+    width = mat.roll_width.value
+    value = mat.price.value / (width / 1000.0) if mat.price.value is not None and width else None
+    return (
+        Price(
+            value=value,
+            currency=mat.price.currency,
+            per="m2",
+            source=Source.DERIVED,
+            note=f"{mat.price.per} fiyatı ÷ rulo eni ({width} mm)",
+        ),
+        path if mat.price.value is None else _p("materials.yaml", f"prepregs[{mat.id}].roll_width"),
+    )
+
+
 def _p(file: str, path: str) -> str:
     return f"{file}:{path}"
 
@@ -295,6 +318,7 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
                 ),
                 _p("thresholds.yaml", "costing.nest_efficiency"),
             )
+        mat_price, price_path = _fabric_price_per_m2(mat)
         material_lines.append(
             out.add(
                 _line(
@@ -305,7 +329,7 @@ def compute_quote(inp: QuoteInput, lib: Library, *, apply_min_order: bool = True
                         "area": _user(ply.area_m2, "m2"),
                         "count": _user(ply.count, "ply"),
                         "scrap": scrap,
-                        "price": (mat.price, _p("materials.yaml", f"prepregs[{mat.id}].price")),
+                        "price": (mat_price, price_path),
                         "fx": fx(mat.price.currency),
                     },
                     lambda v: f.ply_material_cost(
