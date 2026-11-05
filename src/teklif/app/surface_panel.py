@@ -55,6 +55,8 @@ class SurfaceSelection:
     pull_label: str
     undercut_ratio: float
     ok_ratio: float
+    extension_mm: float = 60.0  # EOP -> flange turn along the surface (EOP->MEOP + MEOP->turn)
+    flange_mm: float = 150.0
 
     def trim_m(self, all_openings: bool) -> float:
         """Trim length: whole boundary when every opening is trimmed, else the outer rim only."""
@@ -388,6 +390,7 @@ def render_surface_panel(
                 ),
                 p3.number_input("Flanş [mm]", 0.0, 500.0, flange_mm, 10.0, key=f"{key}_pf"),
             )
+            st.session_state[f"{key}_prof"] = prof
             outline = view.outline(selected, np.array(pull))
             flange = mold_extras(outline, np.array(pull), prof) if outline else None
             mold_key = (
@@ -441,6 +444,7 @@ def render_surface_panel(
 
     bad, ok = _score(mesh, selected, np.array(pull), warn_min, min_ok)
     boundary_mm, outer_mm = mesh.trim_lengths_mm(selected, np.array(pull))
+    prof = st.session_state.get(f"{key}_prof") or ToolProfile(20.0, 40.0, flange_mm)
     return SurfaceSelection(
         face_ids=list(selected),
         area_m2=mesh.area_m2(selected),
@@ -450,4 +454,6 @@ def render_surface_panel(
         pull_label=pull_label,
         undercut_ratio=bad,
         ok_ratio=ok,
+        extension_mm=prof.to_meop_mm + prof.to_turn_mm,
+        flange_mm=prof.flange_mm,
     )
