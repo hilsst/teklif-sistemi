@@ -70,12 +70,11 @@ def test_outline_has_eop_loops_for_holes_and_flange_only_on_outer_rim() -> None:
 
     r = profile_rings(ol, np.array([0.0, 0.0, 1.0]), ToolProfile(20.0, 40.0, 150.0))
     assert r is not None
-    # MEOP = EOP + 20 mm along the tangent, turn = +40 mm more, flange turns 90°
+    # MEOP = EOP + 20 mm along the tangent, turn = +40 mm more, flange perpendicular to pull
     assert np.allclose(np.linalg.norm(r["meop"] - r["eop"], axis=1), 20.0)
     assert np.allclose(np.linalg.norm(r["turn"] - r["meop"], axis=1), 40.0)
     flange_vec = r["edge"] - r["turn"]
-    tangent_dir = r["turn"] - r["meop"]
-    assert np.allclose((flange_vec * tangent_dir).sum(axis=1), 0.0, atol=1e-6)
+    assert np.allclose(flange_vec @ np.array([0.0, 0.0, 1.0]), 0.0, atol=1e-6)  # flange ⟂ pull
     assert np.allclose(np.linalg.norm(flange_vec, axis=1), 150.0)
 
 
