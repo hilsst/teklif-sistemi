@@ -11,16 +11,25 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from teklif.app.surface_panel import render_surface_panel
 from teklif.common.models import Price, Source
-from teklif.costing.engine import QuoteInputError, compute_quote
+from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
 from teklif.geometry.plate_features import PlateFeatures, extract_plate_features
 from teklif.ingest.step_props import StepProps, StepUnavailableError, extract_step_props
 from teklif.library import Library
 from teklif.storage.db import Store
-from teklif.tooling_rules.cost_estimate import ToolCostEstimate, estimate_tool_cost
+from teklif.tooling_rules.cost_estimate import (
+    ToolCostEstimate,
+    estimate_model_cost,
+    estimate_tool_cost,
+)
 
 TOPLU_AREA_RANGE = (2.4, 4.7)  # area range of the 7 panels behind process sandvic_toplu
+TRIM_RULE = (
+    "varsayım: parça üzerindeki tüm boşluklar, delikler ve kenarlar trimlenir "
+    "(trim çevresi = kalıp yüzeyinin tüm sınırı)"
+)
 FLANGE_MM = 150.0  # typical flange length (Kemal, 2026-11-04); becomes a library value in Faz 3
 FLANGE_SOURCE = "flanş payı 150 mm (tipik değer, kütüphaneye taşınacak)"
 
@@ -71,6 +80,55 @@ def _estimate_card(est: ToolCostEstimate) -> None:
     )
 
 
+def _price_breakdown_table(result: QuoteResult) -> None:
+    """Per-unit price split: part cost + model share + tool share + profit = unit price."""
+    rows = [
+        ("price.part_cost", "Parça maliyeti"),
+        ("price.share_master", "Model payı"),
+        ("price.share_tooling", "Kalıp payı"),
+        ("price.profit", "Kâr"),
+        ("price.unit_final", "Müşteriye ürün başı fiyat"),
+    ]
+    keys = {ln.key for ln in result.lines}
+    frame = pd.DataFrame(
+        [
+            {"kalem": label, f"[{result.currency}] ürün başına": result.value(k)}
+            for k, label in rows
+            if k in keys
+        ]
+    )
+    st.markdown("**Ürün başı fiyat kırılımı**")
+    st.dataframe(
+        frame,
+        hide_index=True,
+        column_config={frame.columns[1]: st.column_config.NumberColumn(format="%.2f")},
+    )
+    if "price.share_tooling" not in keys:
+        _separate_nre_summary(result, keys)
+
+
+def _separate_nre_summary(result: QuoteResult, keys: set[str]) -> None:
+    """NRE as its own cost: first order pays it, repeat orders only the unit price."""
+    parts = []
+    for key, label in (("nre.tooling", "kalıp"), ("nre.master", "model")):
+        if key in keys:
+            parts.append(f"{label} {result.value(key):,.2f}")
+    nre_key = "price.nre_priced" if "price.nre_priced" in keys else "nre.total"
+    nre_key = nre_key if nre_key in keys else "nre.tooling"
+    nre_total = result.value(nre_key)
+    unit = result.value("price.unit_final")
+    first = result.value("price.order_total")
+    if nre_total is None or unit is None or first is None:
+        return
+    cost_txt = " + ".join(parts)
+    st.markdown(
+        f"**NRE (tek seferlik): {nre_total:,.2f} {result.currency}** "
+        f"(maliyet: {cost_txt}; kâr eklendiyse satış bedeli). Tekrar siparişlerde kalıp ve model "
+        f"hazır olduğu için yalnız ürün başı fiyat ({unit:,.2f} {result.currency}) geçerlidir. "
+        f"İlk sipariş toplamı: **{first:,.2f} {result.currency}**."
+    )
+
+
 def render(lib: Library, store: Store, show_result: Any) -> None:
     st.markdown(
         "Yalnız **parça STEP'ini** yükleyin. Alan, kalınlık ve delik sayısı ölçülür; kalıp "
@@ -93,7 +151,15 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         "Bu değerler STEP'ten türetilmiş tahminlerdir; teklifte 'incelenmeli' işaretiyle taşınır. "
         "Trim çevresi STEP'ten güvenilir çıkmadığı için aşağıya elle girilir."
     )
-    est = estimate_tool_cost(f.one_side_area_m2)
+    with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
+        sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf")
+    tool_part_area = sel.area_m2 if sel else f.one_side_area_m2
+    if sel:
+        st.success(
+            f"Kalıp yüzeyi: {sel.area_m2:.2f} m², trim çevresi {sel.boundary_m:.2f} m "
+            f"(tüm dış kenar, boşluk ve delikler trimlenir), çekme yönü {sel.pull_label}."
+        )
+    est = estimate_tool_cost(tool_part_area)
     _estimate_card(est)
     fx, fy = tool_footprint_mm(m.props)
     st.caption(f"Kalıp izi tahmini: {fx:.0f} × {fy:.0f} mm ({FLANGE_SOURCE}).")
@@ -118,7 +184,13 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     material = c3.selectbox("Ana prepreg", prepregs, key="pq_mat")
     autoclave = c1.selectbox("Autoclave", autoclaves, key="pq_ac")
     cx = c2.selectbox("Karmaşıklık", complexity, key="pq_cx")
-    perimeter = c3.number_input("Trim çevresi [m] (elle)", 0.0, value=0.0, key="pq_per")
+    auto_per = round(sel.boundary_m, 3) if sel else 0.0
+    perimeter = c3.number_input(
+        "Trim çevresi [m]" + (" (seçimden; değiştirirseniz gerekçe düşer)" if sel else " (elle)"),
+        0.0,
+        value=auto_per,
+        key=f"pq_per_{auto_per}",
+    )
     q1, q2, q3 = st.columns(3)
     quantity = q1.number_input("Sipariş adedi", 1, value=1, key="pq_qty")
     batch = q2.number_input("Parti adedi", 1, value=1, key="pq_batch")
@@ -147,15 +219,58 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         },
         key="pq_plies",
     )
+    st.markdown("**Kalıp ve model (teklif onaylanınca üretilir; maliyet ürün başına dağıtılır)**")
+    mest = estimate_model_cost()
+    n1, n2, n3 = st.columns(3)
+    tool_cost = n1.number_input(
+        f"Kalıp maliyeti [{est.currency}] (tahmin; gerçek teklifiniz varsa değiştirin)",
+        0.0,
+        value=round(est.value, 2),
+        key=f"pq_tool_{round(est.value)}",
+    )
+    model_cost = n2.number_input(
+        f"Model maliyeti [{mest.currency}] (ortalama; gerçek teklifiniz varsa değiştirin)",
+        0.0,
+        value=round(mest.value, 2),
+        key="pq_model",
+    )
+    nre_qty = n3.number_input(
+        "NRE'nin dağıtılacağı adet",
+        1,
+        value=int(quantity),
+        help="Kalıp ve model maliyeti kaç ürüne bölünsün (varsayılan sipariş adedi).",
+        key=f"pq_nreqty_{int(quantity)}",
+    )
+    a1, a2 = st.columns(2)
+    amortize = a1.checkbox(
+        "Kalıp ve modeli ürün fiyatına yedir (varsayılan: ayrı NRE)",
+        False,
+        key="pq_amort",
+        help="Kapalıysa kalıp ve model ayrı kalem (NRE) olarak teklif edilir.",
+    )
+    nre_margin = a2.checkbox("Kalıp ve model maliyetine de kâr ekle", True, key="pq_nremargin")
     if perimeter <= 0:
         st.info("Teklifi hesaplamak için trim çevresini girin.")
         return
     flange_m = FLANGE_MM / 1000
+    outer = sel.outer_m if sel else perimeter  # flange runs along the outer rim only
     notes = [
         "part_area_m2, hole_count: STEP'ten türetilmiş tahmin (levha özellikleri)",
         f"kalıp maliyeti: {est.note}",
         f"kalıp izi/alanı: {FLANGE_SOURCE}",
+        TRIM_RULE,
     ]
+    if sel:
+        notes.append(sel.note())
+        if abs(perimeter - sel.boundary_m) > 0.001:
+            notes.append(
+                f"trim çevresi seçimden ({sel.boundary_m:.2f} m) farklı girildi: {perimeter:.2f} m"
+            )
+        if sel.undercut_ratio > 0:
+            notes.append(
+                f"seçilen çekme yönünde ters açı var (%{sel.undercut_ratio * 100:.1f}): "
+                "maça/bölünmüş kalıp incelenmeli"
+            )
     if (
         process == "sandvic_toplu"
         and not TOPLU_AREA_RANGE[0] <= f.one_side_area_m2 <= TOPLU_AREA_RANGE[1]
@@ -169,6 +284,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         st.warning(msg)
     if not est.in_range:
         notes.append("kalıp maliyeti tahmini kalibrasyon aralığı dışında: güvenilmez")
+    if abs(model_cost - mest.value) < 0.01:
+        notes.append(f"model maliyeti: {mest.note}")
     try:
         inp = QuoteInput(
             quote_no=quote_no,
@@ -190,8 +307,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
                 part_area_m2=f.one_side_area_m2,
                 part_perimeter_m=perimeter,
                 hole_count=f.hole_count,
-                tool_area_m2=f.one_side_area_m2 + flange_m * perimeter,
-                tool_perimeter_m=perimeter + 2 * 3.14159265 * flange_m,
+                tool_area_m2=tool_part_area + flange_m * outer,
+                tool_perimeter_m=outer + 2 * 3.14159265 * flange_m,
                 tool_footprint_x_mm=fx,
                 tool_footprint_y_mm=fy,
                 source=Source.DERIVED,
@@ -203,16 +320,27 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             wage_factor=float(wage),
             wage_factor_reason=wage_reason,
             tooling_nre=Price(
-                value=round(est.value, 2),
+                value=tool_cost,
                 currency=est.currency,
                 per="pcs",
-                source=Source.DERIVED,
-                note=est.note,
+                source=Source.DERIVED if abs(tool_cost - est.value) < 0.01 else Source.USER,
+                note=est.note if abs(tool_cost - est.value) < 0.01 else "kullanıcı girişi",
             ),
+            master_nre=Price(
+                value=model_cost,
+                currency=mest.currency,
+                per="pcs",
+                source=Source.DERIVED if abs(model_cost - mest.value) < 0.01 else Source.USER,
+                note=mest.note if abs(model_cost - mest.value) < 0.01 else "kullanıcı girişi",
+            ),
+            amortize_nre=amortize,
+            nre_margin=nre_margin,
+            nre_quantity=int(nre_qty),
             review_notes=notes,
         )
         result = compute_quote(inp, lib)
     except (QuoteInputError, ValueError) as exc:
         st.error(f"Girdi hatası: {exc}")
         return
+    _price_breakdown_table(result)
     show_result(result, lib, store)

@@ -44,6 +44,49 @@ class ToolCostEstimate(BaseModel):
     note: str
 
 
+class ModelCostModel(BaseModel):
+    """Master model cost: the mean of past models (weak relation to area), with the range."""
+
+    model_config = ConfigDict(frozen=True)
+
+    currency: str
+    mean: float
+    min: float
+    max: float
+    samples: int
+    r_squared_area: float
+    valid_for: str
+
+
+class ModelCostEstimate(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    value: float
+    currency: str
+    low: float
+    high: float
+    note: str
+
+
+def load_model_cost(path: Path | str = DEFAULT_PATH) -> ModelCostModel:
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    return ModelCostModel.model_validate(data["model_cost_model"])
+
+
+def estimate_model_cost(model: ModelCostModel | None = None) -> ModelCostEstimate:
+    m = model or load_model_cost()
+    return ModelCostEstimate(
+        value=m.mean,
+        currency=m.currency,
+        low=m.min,
+        high=m.max,
+        note=(
+            f"mean of {m.samples} past models ({m.valid_for}); relation to area is weak "
+            f"(R2 {m.r_squared_area}), range {m.min:,.0f}-{m.max:,.0f}"
+        ),
+    )
+
+
 def load_model(path: Path | str = DEFAULT_PATH) -> ToolCostModel:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return ToolCostModel.model_validate(data["tool_cost_model"])

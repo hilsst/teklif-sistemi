@@ -38,3 +38,11 @@ def test_examples_load_without_step_files(tmp_path: Path) -> None:
     assert any("no STEP file" in n for n in first.notes)
     again = load_examples(cat, CSV, tmp_path / "none")
     assert again.parts == 0 and len(again.notes) == 9
+
+
+def test_model_cost_is_mean_with_range() -> None:
+    from teklif.tooling_rules.cost_estimate import estimate_model_cost
+
+    est = estimate_model_cost()
+    assert est.low < est.value < est.high
+    assert "weak" in est.note

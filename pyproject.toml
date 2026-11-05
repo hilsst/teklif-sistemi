@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-app = ["streamlit>=1.38", "pandas>=2.2"]
+app = ["streamlit>=1.38", "pandas>=2.2", "plotly>=5.20"]
 cad = ["cadquery-ocp>=7.7"]
 
 [project.scripts]
@@ -55,7 +55,7 @@ mypy_path = "src"
 files = ["src", "tests"]
 
 [[tool.mypy.overrides]]
-module = ["OCP", "OCP.*"]
+module = ["OCP", "OCP.*", "plotly", "plotly.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

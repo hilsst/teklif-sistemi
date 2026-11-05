@@ -256,3 +256,44 @@ def test_toplu_sandwich_uses_person_hours_from_table(
     # table fit stays within 10% of the measured 8.75 person-hours for the 2.64 m2 panel
     assert (r.value("time.serim") or 0) / 60 == pytest.approx(8.75, rel=0.1)
     assert (r.value("autoclave.total") or 0) > 0
+
+
+def test_unit_price_breakdown_sums_to_final_price(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    nre = Price(value=8000.0, currency="EUR", per="pcs", source=Source.USER)
+    master = Price(value=2000.0, currency="EUR", per="pcs", source=Source.USER)
+    inp = example_input.model_copy(
+        update={
+            "tooling_exists": False,
+            "tooling_nre": nre,
+            "master_nre": master,
+            "amortize_nre": True,
+            "nre_margin": True,
+            "quantity": 10,
+            "nre_quantity": 20,
+        }
+    )
+    r = compute_quote(inp, filled_lib)
+    part = r.value("price.part_cost") or 0
+    tool = r.value("price.share_tooling") or 0
+    model = r.value("price.share_master") or 0
+    profit = r.value("price.profit") or 0
+    assert tool == pytest.approx(8000 / 20)  # spread over nre_quantity, not the order quantity
+    assert model == pytest.approx(2000 / 20)
+    assert part + tool + model + profit == pytest.approx(r.value("price.unit_final"))
+    assert profit > 0
+    # margin on tool/model: sold price is above its cost
+    assert (r.value("price.nre_priced") or 0) > 10000
+
+
+def test_nre_without_margin_or_amortization_is_unchanged(
+    filled_lib: Library, example_input: QuoteInput
+) -> None:
+    r = compute_quote(example_input, filled_lib)
+    keys = {ln.key for ln in r.lines}
+    assert "price.nre_priced" not in keys
+    assert "price.share_tooling" not in keys
+    assert r.value("price.profit") == pytest.approx(
+        (r.value("price.unit") or 0) - (r.value("cost.unit") or 0)
+    )
