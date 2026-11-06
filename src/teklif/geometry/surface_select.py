@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -171,8 +171,8 @@ class FaceMesh:
 
     def outline(self, ids: list[int], pull: Vec) -> Outline | None:
         """EOP loops (all boundary loops of the selection) and the tool profile frame: the largest
-        loop's outer envelope seen along pull, with, per point, the direction the surface continues
-        past the edge and the outward direction."""
+        loop itself (the real trim line, not a hull), with, per point, the direction the surface
+        continues past the edge and the outward direction in the pull plane."""
         loops, open_chains = self.boundary_loops(ids)
         if not loops:
             return None
@@ -190,59 +190,11 @@ class FaceMesh:
         # rims, then the rim towards the mold opening (smallest position along pull) is the EOP
         tied = [i for i, a_ in enumerate(areas) if a_ >= 0.9 * max(areas)]
         outer = min(tied, key=lambda i: float((loops[i] @ d).mean()))
-        pts = loops[outer]
-        xy = np.c_[pts @ a, pts @ b]
-        rounded = cast(list[list[float]], np.round(xy, 2).tolist())
-        lookup: dict[tuple[float, float], NDArray[np.float64]] = {}
-        for q, xyz in zip(rounded, list(pts), strict=True):
-            old = lookup.get((q[0], q[1]))
-            if old is None or float(xyz @ d) > float(old @ d):
-                lookup[(q[0], q[1])] = xyz
-        hull = _convex_hull(np.unique(np.round(xy, 2), axis=0).astype(np.float64))
-        if len(hull) < 3:
+        ring = _decimate_loop(loops[outer], a, b)
+        if len(ring) < 3:
             return Outline(loops, open_chains, outer, None, None, None)
-        ring = np.array([lookup[(round(float(h[0]), 2), round(float(h[1]), 2))] for h in hull])
-        cen = hull.mean(axis=0)
-        n = len(hull)
-        edge_n = []
-        for i in range(n):
-            e = hull[(i + 1) % n] - hull[i]
-            nn = np.array([e[1], -e[0]])
-            nn /= np.linalg.norm(nn) or 1.0
-            if np.dot(nn, (hull[i] + hull[(i + 1) % n]) / 2 - cen) < 0:
-                nn = -nn
-            edge_n.append(nn)
-        out_dir = np.empty_like(ring)
-        for i in range(n):
-            n1, n2 = edge_n[i - 1], edge_n[i]
-            m = (n1 + n2) / (1 + float(np.dot(n1, n2)))
-            ml = float(np.linalg.norm(m))
-            if ml > 2.0:  # sharp corner: cap the miter spike
-                m = m * (2.0 / ml)
-            out_dir[i] = m[0] * a + m[1] * b
-        # the surface continues past its edge the way it runs towards it: from the nearby
-        # interior (triangle centres) to the edge point
-        cents = np.vstack(
-            [
-                self.faces[i].vertices[self.faces[i].triangles].mean(axis=1)
-                for i in ids
-                if len(self.faces[i].triangles)
-            ]
-        )
-        tangent = np.empty_like(ring)
-        rim = loops[outer]
-        for i in range(n):
-            dist = np.linalg.norm(cents - ring[i], axis=1)
-            near = cents[np.argsort(dist)[: min(12, len(cents))]]
-            v = ring[i] - near.mean(axis=0)
-            # direction of the rim here: drop the part of v that runs along the edge
-            k = int(np.argmin(np.linalg.norm(rim - ring[i], axis=1)))
-            e = rim[(k + 1) % len(rim)] - rim[k - 1]
-            en = float(np.linalg.norm(e))
-            if en > 1e-9:
-                v = v - float(v @ (e / en)) * (e / en)
-            ln = float(np.linalg.norm(v))
-            tangent[i] = v / ln if ln > 1e-9 else out_dir[i] / (np.linalg.norm(out_dir[i]) or 1.0)
+        out_dir = _outward_dirs(ring, a, b)
+        tangent = self._surface_continuation(ids, ring, loops[outer], out_dir)
         return Outline(loops, open_chains, outer, ring, tangent, out_dir)
 
     def trim_lengths_mm(self, ids: list[int], pull: Vec) -> tuple[float, float]:
@@ -304,6 +256,93 @@ class FaceMesh:
             self.outer_perimeter_mm(ids, pull) + outer_add,
         )
 
+    def _surface_continuation(
+        self,
+        ids: list[int],
+        ring: NDArray[np.float64],
+        rim: NDArray[np.float64],
+        out_dir: NDArray[np.float64],
+    ) -> NDArray[np.float64]:
+        """Per ring point: the unit direction in which the surface goes on past its edge.
+
+        Taken from the triangles that touch the point: from each triangle centre to the point,
+        with the part along the rim removed, so it lies in the surface and is perpendicular to the
+        edge (a wall parallel to the pull continues along the pull, a flat sheet outward)."""
+        a_l, b_l, c_l = [], [], []
+        for i in ids:
+            f = self.faces[i]
+            if len(f.triangles):
+                v = f.vertices[f.triangles]
+                a_l.append(v[:, 0])
+                b_l.append(v[:, 1])
+                c_l.append(v[:, 2])
+        tol = 2.0
+        out = np.empty_like(ring)
+        if not a_l:
+            nn = np.linalg.norm(out_dir, axis=1, keepdims=True)
+            return out_dir / np.where(nn > 0, nn, 1.0)
+        ta, tb, tc = np.vstack(a_l), np.vstack(b_l), np.vstack(c_l)
+        cen = (ta + tb + tc) / 3
+        rad = np.maximum.reduce([np.linalg.norm(x - cen, axis=1) for x in (ta, tb, tc)])
+        nrm = np.cross(tb - ta, tc - ta)
+        area2 = np.linalg.norm(nrm, axis=1)
+        ok_tri = area2 > 1e-12
+        nrm = nrm / np.where(ok_tri, area2, 1.0)[:, None]
+        m = len(rim)
+        for k, p in enumerate(ring):
+            near = np.nonzero(ok_tri & (np.linalg.norm(cen - p, axis=1) <= rad + tol))[0]
+            acc = np.zeros(3)
+            if len(near):
+                n1, a1, b1, c1 = nrm[near], ta[near], tb[near], tc[near]
+                on_plane = np.abs(((p - a1) * n1).sum(axis=1)) <= tol
+                q = p - ((p - a1) * n1).sum(axis=1)[:, None] * n1
+                # barycentric coordinates of the projected point
+                v0, v1, v2 = b1 - a1, c1 - a1, q - a1
+                d00, d01, d11 = (v0 * v0).sum(1), (v0 * v1).sum(1), (v1 * v1).sum(1)
+                d20, d21 = (v2 * v0).sum(1), (v2 * v1).sum(1)
+                den = d00 * d11 - d01 * d01
+                den = np.where(np.abs(den) > 1e-12, den, 1.0)
+                bv = (d11 * d20 - d01 * d21) / den
+                bw = (d00 * d21 - d01 * d20) / den
+                bu = 1 - bv - bw
+                alt = area2[near] / np.maximum.reduce(
+                    [
+                        np.linalg.norm(b1 - a1, axis=1),
+                        np.linalg.norm(c1 - b1, axis=1),
+                        np.linalg.norm(a1 - c1, axis=1),
+                    ]
+                )
+                slack = -tol / np.maximum(alt, 1e-9)
+                inside = on_plane & (np.minimum.reduce([bu, bv, bw]) >= slack)
+                # rim segments around the nearest rim point, used to find the edge direction
+                j = int(np.argmin(np.linalg.norm(rim - p, axis=1)))
+                segs = [rim[j] - rim[j - 1], rim[(j + 1) % m] - rim[j]]
+                for t_i in np.nonzero(inside)[0]:
+                    ti = near[t_i]
+                    e = np.zeros(3)
+                    for sg in segs:
+                        ln = float(np.linalg.norm(sg))
+                        if ln < 1e-9:
+                            continue
+                        sg = sg / ln
+                        # a segment lies in this triangle's plane (it is the triangle's rim edge)
+                        if abs(float(sg @ nrm[ti])) < 0.2:
+                            e = e + (sg if float(e @ sg) >= 0 else -sg)
+                    en = float(np.linalg.norm(e))
+                    v = p - cen[ti]
+                    if en > 1e-9:
+                        v = v - float(v @ (e / en)) * (e / en)
+                    ln = float(np.linalg.norm(v))
+                    if ln > 1e-9:
+                        acc += v / ln * float(area2[ti])
+            ln = float(np.linalg.norm(acc))
+            if ln > 1e-9:
+                out[k] = acc / ln
+            else:
+                od = out_dir[k]
+                out[k] = od / (float(np.linalg.norm(od)) or 1.0)
+        return out
+
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
         chosen = set(ids)
@@ -314,6 +353,61 @@ class FaceMesh:
                 per_edge.setdefault(key, []).append(length)
                 owners[key] = owners.get(key, 0) + 1
         return sum(lens[0] for key, lens in per_edge.items() if owners[key] == 1)
+
+
+def _decimate_loop(
+    loop: NDArray[np.float64], a: NDArray[np.float64], b: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """Loop points without duplicates, thinned: every corner (>5 deg turn in the pull plane) is
+    kept, straight/smooth runs at most every perimeter/300."""
+    pts = [loop[0]]
+    for p in loop[1:]:
+        if float(np.linalg.norm(p - pts[-1])) > 0.05:
+            pts.append(p)
+    if len(pts) > 1 and float(np.linalg.norm(pts[0] - pts[-1])) <= 0.05:
+        pts.pop()
+    arr = np.array(pts)
+    n = len(arr)
+    if n <= 300:
+        return arr
+    xy = np.c_[arr @ a, arr @ b]
+    step = float(np.linalg.norm(xy - np.roll(xy, -1, axis=0), axis=1).sum()) / 300
+    keep = [0]
+    acc = 0.0
+    for i in range(1, n):
+        e1, e2 = xy[i] - xy[i - 1], xy[(i + 1) % n] - xy[i]
+        acc += float(np.linalg.norm(e1))
+        n1, n2 = float(np.linalg.norm(e1)), float(np.linalg.norm(e2))
+        corner = n1 > 0 and n2 > 0 and float(e1 @ e2) / (n1 * n2) < 0.9962  # > 5 deg
+        if corner or acc >= step:
+            keep.append(i)
+            acc = 0.0
+    return arr[keep]
+
+
+def _outward_dirs(
+    ring: NDArray[np.float64], a: NDArray[np.float64], b: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """Outward direction (in the pull plane) at each loop point: mitred mean of the two edge
+    normals, spike capped, outward by the loop's own orientation."""
+    xy = np.c_[ring @ a, ring @ b]
+    n = len(xy)
+    area2 = float(np.dot(xy[:, 0], np.roll(xy[:, 1], -1)) - np.dot(xy[:, 1], np.roll(xy[:, 0], -1)))
+    sign = 1.0 if area2 > 0 else -1.0  # counter-clockwise: outward is to the right of the edge
+    edge_n = []
+    for i in range(n):
+        e = xy[(i + 1) % n] - xy[i]
+        ln = float(np.linalg.norm(e)) or 1.0
+        edge_n.append(sign * np.array([e[1], -e[0]]) / ln)
+    out = np.empty_like(ring)
+    for i in range(n):
+        n1, n2 = edge_n[i - 1], edge_n[i]
+        m = (n1 + n2) / max(1 + float(np.dot(n1, n2)), 1e-6)
+        ml = float(np.linalg.norm(m))
+        if ml > 2.0:
+            m = m * (2.0 / ml)
+        out[i] = m[0] * a + m[1] * b
+    return out
 
 
 def _convex_hull(p: NDArray[np.float64]) -> NDArray[np.float64]:
