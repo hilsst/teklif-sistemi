@@ -300,8 +300,13 @@ def _load(
 
 
 def render_surface_panel(
-    data: bytes, thresholds: Any, key: str, flange_mm: float = 150.0
+    data: bytes,
+    thresholds: Any,
+    key: str,
+    flange_mm: float = 150.0,
+    only_solids: frozenset[int] | None = None,
 ) -> SurfaceSelection | None:
+    """``only_solids``: for an assembly, show and select only these solids (the chosen part)."""
     key = f"{key}_{hashlib.sha256(data).hexdigest()[:16]}"  # new file -> new mesh and selection
     mk = f"{key}_mesh"
     vk = mk + "v"
@@ -314,15 +319,19 @@ def render_surface_panel(
             return None
     view: FaceMesh = st.session_state[vk]
     mesh: FaceMesh = view  # replaced by the fine analysis mesh once something is selected
-    hk = f"{key}_hidden"
+    hk = f"{key}_hidden" + ("_" + ",".join(map(str, sorted(only_solids))) if only_solids else "")
+    base_hidden: frozenset[int] = (
+        frozenset(f.solid for f in view.faces) - only_solids if only_solids else frozenset()
+    )
     hide_face = st.session_state.pop(f"{key}_hide_pending", None)
     if hide_face is not None and 0 <= hide_face < len(view.faces):
         # right click on an element of an assembly hides its whole solid (never the last one)
         solids = {f.solid for f in view.faces}
         gone = set(st.session_state.get(hk, ())) | {view.faces[hide_face].solid}
-        if solids - gone:
+        if solids - gone - set(base_hidden):
             st.session_state[hk] = sorted(gone)
-    hidden = frozenset(st.session_state.get(hk, ()))
+    user_hidden = frozenset(st.session_state.get(hk, ()))
+    hidden = user_hidden | base_hidden
     visible_ids = {f.id for f in view.faces if f.solid not in hidden}
     sk = f"{key}_sel"
     st.session_state.setdefault(sk, [])
@@ -467,7 +476,9 @@ def render_surface_panel(
         else:
             st.session_state[f"{key}_pending"] = int(click["face"])
         st.rerun()
-    if hidden and st.button(f"Gizlenen {len(hidden)} elemanı geri getir", key=f"{key}_unhide"):
+    if user_hidden and st.button(
+        f"Gizlenen {len(user_hidden)} elemanı geri getir", key=f"{key}_unhide"
+    ):
         st.session_state[hk] = []
         st.rerun()
     if st.checkbox("Eski görünüm (Plotly)", False, key=f"{key}_plotly"):

@@ -13,6 +13,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
+from teklif.app.assembly_panel import render_assembly_panel
 from teklif.costing.engine import QuoteInputError, fx_param
 from teklif.library import Library
 from teklif.storage.catalog import Catalog, CatalogError
@@ -50,12 +51,14 @@ def _case_form(cat: Catalog, lib: Library) -> None:
         st.success(flash)
     st.markdown("### 1. Parça")
     part_file = st.file_uploader("Parça STEP dosyası", type=["step", "stp"], key=f"lr_{gen}_part")
+    asm = render_assembly_panel(part_file.getvalue(), f"lr_{gen}_asm") if part_file else None
+    default_no = asm.product if asm else (Path(part_file.name).stem if part_file else "")
+    if asm:
+        st.success(
+            f"Seçili parça: {asm.label} (montajda ×{asm.count}). Ölçüler yalnız bu parçadan alınır."
+        )
     c1, c2, c3 = st.columns(3)
-    part_no = c1.text_input(
-        "Parça no",
-        Path(part_file.name).stem if part_file else "",
-        key=f"lr_{gen}_pn_{part_file.name if part_file else ''}",
-    )
+    part_no = c1.text_input("Parça no", default_no, key=f"lr_{gen}_pn_{default_no}")
     customer = c2.text_input("Müşteri", key=f"lr_{gen}_cust")
     procs = list(lib.processes)
     process = c3.selectbox(
@@ -139,6 +142,7 @@ def _case_form(cat: Catalog, lib: Library) -> None:
         case = CaseInput(
             part_no=part_no,
             part_step=(part_file.getvalue(), part_file.name) if part_file else None,
+            part_solids=asm.solids if asm else (),
             customer=customer,
             process=process,
             ops=ops,

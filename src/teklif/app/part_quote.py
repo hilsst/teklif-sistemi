@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from teklif.app.assembly_panel import render_assembly_panel
 from teklif.app.surface_panel import render_surface_panel
 from teklif.common.models import Param, Price, Source
 from teklif.costing.consumable_suggest import ConsumableInputs
@@ -69,6 +70,20 @@ def features_for_solids(data: bytes, solids: tuple[int, ...]) -> PlateFeatures:
         path = Path(tmp) / "part.step"
         path.write_bytes(data)
         return extract_plate_features(path, solids)
+
+
+def _part_measure(data: bytes, solids: tuple[int, ...]) -> tuple[StepProps, PlateFeatures]:
+    """Envelope/volume and plate features of one part (its solids) of an assembly."""
+    key = "pq_partmeas_" + hashlib.sha256(data).hexdigest() + str(solids)
+    if key not in st.session_state:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "part.step"
+            path.write_bytes(data)
+            st.session_state[key] = (
+                extract_step_props(path, solids),
+                extract_plate_features(path, solids),
+            )
+    return st.session_state[key]  # type: ignore[no-any-return]
 
 
 def _cached(upload: Any) -> Measured | None:
@@ -179,7 +194,17 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     m = _cached(upload)
     if m is None:
         return
+    asm = render_assembly_panel(upload.getvalue(), "pq_asm")
+    only = frozenset(asm.solids) if asm else None
     f = m.features
+    props = m.props
+    if asm:
+        props, f = _part_measure(upload.getvalue(), asm.solids)
+        st.success(
+            f"Seçili parça: {asm.label}, montajda ×{asm.count}"
+            + (f", kalıp grubu: {asm.tool_group}" if asm.tool_group else "")
+            + ". Aşağıdaki ölçüler, kalıp ve fiyat yalnız bu parça (bir adet) içindir."
+        )
     c = st.columns(4)
     c[0].metric("Parça alanı (tek yüz)", f"{f.one_side_area_m2:.2f} m²")
     c[1].metric("Ort. kalınlık", f"{f.mean_thickness_mm:.1f} mm")
@@ -190,8 +215,10 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         "Trim çevresi, kalıp yüzeyini seçince otomatik hesaplanır; seçmezseniz aşağıya elle girin."
     )
     with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
-        sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf", FLANGE_MM)
-    if sel and f.n_solids > 1 and sel.solids:
+        sel = render_surface_panel(
+            upload.getvalue(), lib.thresholds, "pq_surf", FLANGE_MM, only_solids=only
+        )
+    if sel and not asm and f.n_solids > 1 and sel.solids:
         fkey = "pq_solidfeat_" + hashlib.sha256(upload.getvalue()).hexdigest() + str(sel.solids)
         if fkey not in st.session_state:
             st.session_state[fkey] = features_for_solids(upload.getvalue(), sel.solids)
@@ -239,7 +266,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
                 help="Kalıp maliyetine eklenir. Bilmiyorsanız 0 bırakın; teklif taslak kalır.",
             )
     reach_mm = (sel.extension_mm + sel.flange_mm) if sel else FLANGE_MM
-    fx, fy = tool_footprint_mm(m.props, reach_mm)
+    fx, fy = tool_footprint_mm(props, reach_mm)
     st.caption(f"Kalıp izi tahmini: {fx:.0f} × {fy:.0f} mm ({FLANGE_SOURCE}).")
 
     procs = list(lib.processes)
@@ -247,9 +274,9 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     complexity = list(lib.thresholds.complexity_factors)
     autoclaves = [a.id for a in lib.autoclaves.autoclaves]
     c1, c2, c3 = st.columns(3)
-    stem = Path(m.name).stem
-    quote_no = c1.text_input("Teklif no", f"TASLAK-{stem[:24]}", key="pq_qno")
-    part_no = c2.text_input("Parça no", stem, key="pq_pno")
+    stem = asm.product if asm else Path(m.name).stem
+    quote_no = c1.text_input("Teklif no", f"TASLAK-{stem[:24]}", key=f"pq_qno_{stem}")
+    part_no = c2.text_input("Parça no", stem, key=f"pq_pno_{stem}")
     customer = c3.text_input("Müşteri", "", key="pq_cust")
     process = c1.selectbox(
         "Proses",
@@ -578,6 +605,11 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         notes.append("kalıp maliyeti tahmini kalibrasyon aralığı dışında: güvenilmez")
     if abs(model_cost - mest.value) < 0.01:
         notes.append(f"model maliyeti: {mest.note}")
+    if asm:
+        notes.append(
+            f"montajdan parça: {asm.label}, montajda ×{asm.count}"
+            + (f", kalıp grubu: {asm.tool_group}" if asm.tool_group else "")
+        )
     try:
         inp = QuoteInput(
             quote_no=quote_no,

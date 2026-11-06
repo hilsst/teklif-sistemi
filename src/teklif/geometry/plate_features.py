@@ -22,6 +22,8 @@ from teklif.ingest.step_props import (
     StepUnavailableError,
     StepValue,
     load_step_shape,
+    pick_solids,
+    solid_list,
 )
 
 EDGE_WIDTH_FACTOR = 1.5
@@ -132,33 +134,6 @@ def _faces(shape: Any) -> list[_Face]:
     return out
 
 
-def _solid_list(shape: Any) -> list[Any]:
-    from OCP.TopAbs import TopAbs_SOLID
-    from OCP.TopExp import TopExp_Explorer
-
-    out = []
-    ex = TopExp_Explorer(shape, TopAbs_SOLID)
-    while ex.More():
-        out.append(ex.Current())
-        ex.Next()
-    return out
-
-
-def _pick_solids(shape: Any, solids: Collection[int]) -> Any:
-    """Compound of the solids with these indices (same order as the surface mesh)."""
-    from OCP.BRep import BRep_Builder
-    from OCP.TopoDS import TopoDS_Compound
-
-    all_solids = _solid_list(shape)
-    comp = TopoDS_Compound()
-    builder = BRep_Builder()
-    builder.MakeCompound(comp)
-    for i in sorted(set(solids)):
-        if 0 <= i < len(all_solids):
-            builder.Add(comp, all_solids[i])
-    return comp
-
-
 def extract_plate_features(
     path: Path | str, solids: Collection[int] | None = None
 ) -> PlateFeatures:
@@ -172,9 +147,9 @@ def extract_plate_features(
     except ImportError as exc:
         raise StepUnavailableError("OCP (cadquery-ocp) is not installed") from exc
     shape, _units = load_step_shape(path)
-    n_solids = len(_solid_list(shape))
+    n_solids = len(solid_list(shape))
     if solids:
-        shape = _pick_solids(shape, solids)
+        shape = pick_solids(shape, solids)
     vp = GProp_GProps()
     BRepGProp.VolumeProperties_s(shape, vp)
     volume = vp.Mass()
