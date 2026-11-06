@@ -10,7 +10,9 @@ The geometry has to survive real parts: rims that switch between a top plane and
 continuation direction flips there), concave cut-outs tighter than the flange (a plain offset
 folds over itself), and rim pieces running along the pull (zero length seen along the pull).
 So:
-- the continuation is taken per rim *segment* from the mesh triangle that owns that edge,
+- the continuation is taken per rim *segment* from the mesh triangle that owns that edge (found
+  near the segment's ends: the rim is sampled coarser than the mesh, so a chord across a small
+  round lies off the meshed arc in its middle),
 - at a vertex, nearly equal directions are averaged; a convex change (the extensions open a gap)
   becomes a fan of copies of the vertex (a rounded corner), a concave change (they overlap)
   becomes one mitred point, so both offset lines keep their exact distance,
@@ -18,7 +20,9 @@ So:
   the pull are merged into one plan point), rounded the same way at convex plan corners,
 - the flange's outer edge is untangled in the pull plane: where it crosses itself (a cut-out
   tighter than the flange, a notch narrower than two flanges) the loop is cut off and its points
-  collapse to the crossing, so the flange never folds back over the cut-out.
+  collapse to the crossing, so the flange never folds back over the cut-out; points left inside
+  another part's band go onto the envelope (where the bands of two pieces meet), so trimmed
+  corners stay at their exact distance.
 """
 
 from __future__ import annotations
@@ -165,17 +169,31 @@ def segment_continuation(ring: F, edges: tuple[F, F, F, F]) -> F:
     triangle (a wall parallel to the pull continues along the pull, a flat sheet outward)."""
     ea, eb, en, eo = edges
     nxt = np.roll(ring, -1, axis=0)
-    mid = (ring + nxt) / 2
     seg = nxt - ring
     sl = np.linalg.norm(seg, axis=1, keepdims=True)
     seg = seg / np.where(sl > 0, sl, 1.0)
     out = np.zeros_like(ring)
     if len(ea) == 0:
         return out
-    idx, _ = nearest_segment(mid, ea, eb)
+    # the mesh edge that owns the segment: looked up just inside either end of the segment, which
+    # (a sampled point of the true trim curve) the mesh boundary passes through, and the nearer
+    # match kept. Not at the segment's midpoint: the trim edge is sampled far coarser than the
+    # face mesh, so a chord across a small fillet lies up to the sampling deflection (~2 mm on
+    # Kemal's TP0007903) inside the meshed arc, nearer to the far side of a narrow strip
+    eps = np.minimum(0.5, 0.25 * sl)
+    i0, d0 = nearest_segment(ring + eps * seg, ea, eb)
+    i1, d1 = nearest_segment(nxt - eps * seg, ea, eb)
+    idx = np.where(d0 <= d1, i0, i1)
     c = np.cross(seg, en[idx])
     cl = np.linalg.norm(c, axis=1)
-    inward = eo[idx] - mid  # towards the owning triangle's far vertex: inside the surface
+    # inside the surface: from the owning mesh edge towards the triangle's far vertex, measured
+    # across that edge. Not from the ring segment's midpoint: the far vertex of a thin fan
+    # triangle along a meshed arc is itself on the arc, so seen from the chord it can lie on the
+    # wrong side (the continuation then pointed into the part)
+    e_dir = eb[idx] - ea[idx]
+    e_dir = e_dir / np.maximum(np.linalg.norm(e_dir, axis=1, keepdims=True), 1e-12)
+    rel = eo[idx] - ea[idx]
+    inward = rel - (rel * e_dir).sum(axis=1, keepdims=True) * e_dir
     for k in range(len(ring)):
         if cl[k] > 1e-6:
             v = c[k] / cl[k]
@@ -418,7 +436,9 @@ def untangle(p: F, sign: float | None = None, tol: float = 1e-3, max_iter: int =
     Smaller: by area in the ring's own orientation when ``sign`` is given (2D, +1 counter-
     clockwise), else by length (3D; segments only meet where the ring runs in one plane there).
     Point count and order are kept, so the result still pairs point by point with the ring it was
-    offset from."""
+    offset from. This relies on the offset being made from outward directions: a continuation
+    pointing into the part makes a loop as large as the corner it is on, and cutting it collapses
+    that corner (see ``segment_continuation``)."""
     p = np.array(p, dtype=float)
 
     def size(loop: F) -> float:
@@ -505,15 +525,80 @@ def _distinct(off: F, i0: int, step: int) -> F | None:
     return None
 
 
+def _push_out(
+    p: F, base: F, dist: float, tol: float, max_move: float, corner: bool = False
+) -> F | None:
+    """The point nearest to p that is at least ``dist`` from the closed polyline ``base``: pushed
+    straight away from the one segment it is too close to, or onto where the bands of two
+    segments meet (two rounded corners side by side). With ``corner`` the point is a corner of
+    the envelope and is moved, in or out, onto where the bands of its two nearest segments meet.
+    None when that is further than max_move or does not settle."""
+    a, ab = base, np.roll(base, -1, axis=0) - base
+    abab = np.maximum((ab * ab).sum(axis=1), 1e-18)
+    q = np.array(p, dtype=float)
+    for _ in range(16):
+        t = np.clip(((q - a) * ab).sum(axis=1) / abab, 0.0, 1.0)
+        away = q - (a + t[:, None] * ab)
+        dd = np.linalg.norm(away, axis=1)
+        order = np.argsort(dd)
+        if dd[order[0]] < 1e-9:
+            return None
+        # the nearest segment, and a second one where it is in touch as well (with ``corner``:
+        # the nearest other one); two nearly parallel directions (one feature split in pieces)
+        # count as one
+        g = [away[order[0]] / dd[order[0]]]
+        r = [dist - dd[order[0]]]
+        for j in order[1:8].tolist():
+            if dd[j] < 1e-9 or (not corner and dd[j] > dist + tol):
+                break
+            gj = away[j] / dd[j]
+            if abs(float(gj @ g[0])) < 0.999:
+                g.append(gj)
+                r.append(dist - dd[j])
+                break
+        if corner:
+            if len(g) < 2:
+                return None
+            if max(abs(r[0]), abs(r[1])) <= tol / 2:
+                break
+        elif r[0] <= tol / 2:
+            break
+        if len(g) == 1:
+            q = q + g[0] * r[0]
+            continue
+        gm = np.array(g)
+        step, *_ = np.linalg.lstsq(gm @ gm.T, np.array(r), rcond=None)
+        q = q + step @ gm
+        if float(np.linalg.norm(q - p)) > max_move:
+            return None
+    else:
+        return None
+    if float(np.linalg.norm(q - p)) > max_move:
+        return None
+    return q
+
+
 def drop_invalid(off: F, base: F, dist: float) -> F:
     """Offset ring ``off`` with the points that lie closer than ``dist`` to ``base`` (the line
     they were offset from) replaced: such a point sits inside another part's band (the end of a
-    rounded corner next to a short edge, a capped mitre). Each run of them moves to where the
-    offset lines on either side meet (the true offset corner), else onto the straight piece
-    between its neighbours."""
+    rounded corner next to a short edge, a capped mitre). A point short by no more than a fan
+    chord's sag (where ``untangle`` cut two rounded corners' chords) is pushed onto the envelope
+    (``_push_out``); each remaining run moves to where the offset lines on either side meet (the
+    true offset corner), else onto the straight piece between its neighbours."""
     off = np.array(off, dtype=float)
     n = len(off)
-    valid = polyline_distance(off, base) >= dist - max(1e-4, 1e-6 * dist)
+    tol = max(1e-4, 1e-6 * dist)
+    d = polyline_distance(off, base)
+    # a point short by no more than a fan chord's sag (a crossing on the chord of a rounded corner,
+    # just inside its arc) is pushed out onto the envelope, which it is next to already
+    sag = dist * (1.0 - math.cos(math.radians(FAN_STEP_DEG) / 2)) + tol
+    near = (d < dist - tol) & (d >= dist - sag)
+    for i in np.nonzero(near)[0].tolist():
+        q = _push_out(off[i], base, dist, tol, 10 * sag)  # sliding along a band, too
+        if q is not None:
+            off[i] = q
+            d[i] = dist
+    valid = d >= dist - tol
     if valid.all() or not valid.any():
         return off
     start = int(np.argmax(valid))
@@ -535,6 +620,11 @@ def drop_invalid(off: F, base: F, dist: float) -> F:
         chord = off[v1] - off[v0]
         gap = float(np.linalg.norm(chord))
         if x is not None and float(np.linalg.norm(x - off[v0])) <= 3 * (gap + dist):
+            # the lines on either side are chords of rounded corners or straight: where they meet
+            # is near the envelope's corner, which is where the bands of two pieces meet
+            q = _push_out(x, base, dist, tol, 0.1 * dist, corner=True)
+            if q is not None and float(polyline_distance(q[None], base)[0]) >= dist - tol:
+                x = q
             off[run] = x
             continue
         # no corner to meet at (the lines on either side run on in line): the run goes onto the
@@ -550,10 +640,20 @@ def drop_invalid(off: F, base: F, dist: float) -> F:
 def tidy(off: F, base: F, dist: float, sign: float | None = None) -> F:
     """Offset ring without loops (``untangle``), points inside another part's band
     (``drop_invalid``) or reversed pieces (``drop_reversed``)."""
-    out = untangle(off, sign)
+    # in 3D two pieces of the offset that cross on the carried-on surface pass each other at the
+    # small height differences of a not-quite-flat trim line (STEP points ~0.01 mm apart in z on
+    # a plane), so they count as crossing within a tolerance that grows with the distance
+    tol = 1e-3 if sign is not None else max(1e-3, 1e-3 * dist)
+    out = untangle(off, sign, tol)
     out = drop_invalid(out, base, dist)
     out = drop_reversed(out, base)
-    return untangle(out, sign)
+    out = untangle(out, sign, tol)
+    # points the clean-up left a hair apart (a loop cut next to a collapsed run) become one: a
+    # strip quad between them is then empty instead of a sliver turned an arbitrary way
+    for i in range(1, len(out)):
+        if float(np.linalg.norm(out[i] - out[i - 1])) < 5e-3:
+            out[i] = out[i - 1]
+    return out
 
 
 def profile_rings(
