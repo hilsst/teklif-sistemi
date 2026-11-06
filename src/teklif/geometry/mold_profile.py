@@ -36,6 +36,9 @@ PLAN_SMOOTH_DEG = 12.0  # plan corners up to this get a plain mitre for the flan
 MITRE_CAP = 3.0  # longest mitre (x the distance) at a concave corner
 
 
+MAX_RING_POINTS = 1500  # offset clean-up is O(m^2): thin rims with more points than this
+
+
 def plane_frame(pull: F) -> tuple[F, F, F]:
     """(unit pull d, a, b): a and b span the plane perpendicular to the pull."""
     d = np.asarray(pull, dtype=float)
@@ -49,7 +52,7 @@ def signed_area(xy: F) -> float:
     return float(np.dot(xy[:, 0], np.roll(xy[:, 1], -1)) - np.dot(xy[:, 1], np.roll(xy[:, 0], -1)))
 
 
-def decimate_loop(loop: F, max_pts: int = 300) -> F:
+def decimate_loop(loop: F, max_pts: int = 300, corner_deg: float = 5.0) -> F:
     """Loop points without duplicates, thinned: every 3D corner (> 5 deg, which includes the rim
     turning from a plane edge onto a wall edge) is kept, smooth runs at most every perimeter/300."""
     pts = [loop[0]]
@@ -65,7 +68,7 @@ def decimate_loop(loop: F, max_pts: int = 300) -> F:
     e = np.roll(arr, -1, axis=0) - arr
     ln = np.linalg.norm(e, axis=1)
     step = float(ln.sum()) / max_pts
-    cos5 = math.cos(math.radians(5.0))
+    cos5 = math.cos(math.radians(corner_deg))
     keep = [0]
     acc = 0.0
     for i in range(1, n):
@@ -132,8 +135,27 @@ def nearest_segment(q: F, a: F, b: F, k: int = 32) -> tuple[NDArray[np.int64], F
         dd = (diff * diff).sum(axis=2)
         j = np.argmin(dd, axis=1)
         rows = np.arange(len(qq))
-        idx[s : s + step] = cand[rows, j]
-        dist[s : s + step] = np.sqrt(dd[rows, j])
+        best = cand[rows, j]
+        bd = np.sqrt(dd[rows, j])
+        if k < len(a):
+            # exact: a segment outside the k candidates is nearer only if its lower bound is below
+            # the best distance found; those (rare) queries are redone against every segment
+            member = np.zeros(bound.shape, dtype=bool)
+            np.put_along_axis(member, cand, True, axis=1)
+            for r in np.nonzero(((bound < bd[:, None]) & ~member).any(axis=1))[0]:
+                ab_all = b - a
+                rel_all = qq[r] - a
+                t_all = np.clip(
+                    (rel_all * ab_all).sum(axis=1)
+                    / np.maximum((ab_all * ab_all).sum(axis=1), 1e-18),
+                    0.0,
+                    1.0,
+                )
+                d_all = ((rel_all - t_all[:, None] * ab_all) ** 2).sum(axis=1)
+                best[r] = int(np.argmin(d_all))
+                bd[r] = float(np.sqrt(d_all.min()))
+        idx[s : s + step] = best
+        dist[s : s + step] = bd
     return idx, dist
 
 

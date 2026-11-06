@@ -314,3 +314,39 @@ def test_outline_profile_on_a_large_mesh_is_quick() -> None:
     r = profile_rings(ol, np.array([0.0, 0.0, 1.0]), ToolProfile(20.0, 40.0, 150.0))
     assert r is not None
     assert time.perf_counter() - t0 < 4.0
+
+
+def test_nearest_segment_is_exact_with_mixed_segment_lengths() -> None:
+    """Long segments have very small lower bounds; the true nearest short one must still win."""
+    from teklif.geometry import mold_profile as mp
+
+    rng = np.random.default_rng(3)
+    n = 200
+    a = rng.uniform(-500, 500, (n, 3))
+    lens = rng.choice([1.0, 5.0, 300.0], n)
+    d = rng.normal(size=(n, 3))
+    b = a + d / np.linalg.norm(d, axis=1, keepdims=True) * lens[:, None]
+    q = rng.uniform(-500, 500, (60, 3))
+    idx, dist = mp.nearest_segment(q, a, b)
+    ab = b - a
+    for i, p in enumerate(q):
+        t = np.clip(((p - a) * ab).sum(1) / (ab * ab).sum(1), 0, 1)
+        brute = np.sqrt(((p - a - t[:, None] * ab) ** 2).sum(1))
+        assert abs(dist[i] - brute.min()) < 1e-9
+        assert abs(brute[idx[i]] - brute.min()) < 1e-9
+
+
+def test_serrated_rim_ring_stays_small(tmp_path: Path) -> None:
+    """A rim with hundreds of small teeth is thinned so the offset clean-up stays fast."""
+    import time
+
+    pytest.importorskip("OCP")
+    from teklif.geometry import mold_profile as mp
+
+    t = np.linspace(0, 2 * np.pi, 4001)[:-1]
+    r = 1000 + 3 * (np.arange(len(t)) % 2)
+    loop = np.c_[r * np.cos(t), r * np.sin(t), np.zeros(len(t))]
+    start = time.time()
+    rim = mp.decimate_loop(loop, 60, 160.0)
+    assert len(rim) <= 200
+    assert time.time() - start < 2.0
