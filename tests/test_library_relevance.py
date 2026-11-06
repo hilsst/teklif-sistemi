@@ -224,3 +224,44 @@ def test_tube_wall_is_not_counted_as_a_hole(tmp_path: Path) -> None:
     path = tmp_path / "tube.step"
     w.Write(str(path))
     assert extract_plate_features(path).hole_count == 0
+
+
+def test_skirt_profile_continues_down_the_wall_by_exactly_the_distance(tmp_path: Path) -> None:
+    """Plate with skirts parallel to the pull: MEOP is 20 mm straight on along the wall, not
+    sideways, and the rim is the real outline (a notch is kept, not bridged by a hull)."""
+    pytest.importorskip("OCP")
+    import numpy as np
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.gp import gp_Pnt
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+
+    from teklif.app.surface_panel import ToolProfile, profile_rings
+    from teklif.geometry.surface_select import load_face_mesh
+
+    def box(x: float, y: float, z: float, dx: float, dy: float, dz: float) -> object:
+        return BRepPrimAPI_MakeBox(gp_Pnt(x, y, z), dx, dy, dz).Shape()
+
+    shape = BRepAlgoAPI_Cut(box(0, 0, 0, 300, 200, 40), box(5, 5, -1, 290, 190, 36)).Shape()
+    shape = BRepAlgoAPI_Cut(shape, box(100, 150, -1, 100, 60, 60)).Shape()
+    w = STEPControl_Writer()
+    w.Transfer(shape, STEPControl_AsIs)
+    path = tmp_path / "plate.step"
+    w.Write(str(path))
+    m = load_face_mesh(path, 5.0, 10.0, True)
+    # the outer skin: every face reaching the top plane z = 40 (the inner faces stop at z = 35)
+    outer = [f.id for f in m.faces if float(f.vertices[:, 2].max()) > 39.0]
+    pull = np.array([0.0, 0.0, -1.0])
+    ol = m.outline(outer, pull)
+    assert ol is not None and ol.ring is not None and ol.tangent is not None
+    r = profile_rings(ol, pull, ToolProfile(20.0, 40.0, 150.0))
+    assert r is not None
+    dist = np.linalg.norm(r["meop"] - r["eop"], axis=1)
+    assert np.allclose(dist, 20.0, atol=1e-6)
+    # corner points of the outer rim at z = 0: the wall goes on straight down along the pull
+    at_rim = np.isclose(r["eop"][:, 2], 0.0) & (
+        np.isclose(r["eop"][:, 0], 0.0) | np.isclose(r["eop"][:, 0], 300.0)
+    )
+    assert at_rim.any()
+    assert np.allclose(ol.tangent[at_rim] @ pull, 1.0, atol=1e-6)
+    assert len(ol.ring) > 4  # the notch is part of the outline
