@@ -10,6 +10,7 @@ Closed sections and complexity scores are not decided here (metrics only).
 from __future__ import annotations
 
 import math
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,7 @@ class PlateFeatures(BaseModel):
     curved_area_fraction: float
     edge_area_m2: float
     notes: list[str]
+    n_solids: int = 1  # solids in the file (assemblies have several)
     extractor_version: str = EXTRACTOR_VERSION
 
 
@@ -130,14 +132,49 @@ def _faces(shape: Any) -> list[_Face]:
     return out
 
 
-def extract_plate_features(path: Path | str) -> PlateFeatures:
-    """Estimate shell-part features from a solid STEP file."""
+def _solid_list(shape: Any) -> list[Any]:
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+
+    out = []
+    ex = TopExp_Explorer(shape, TopAbs_SOLID)
+    while ex.More():
+        out.append(ex.Current())
+        ex.Next()
+    return out
+
+
+def _pick_solids(shape: Any, solids: Collection[int]) -> Any:
+    """Compound of the solids with these indices (same order as the surface mesh)."""
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+
+    all_solids = _solid_list(shape)
+    comp = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(comp)
+    for i in sorted(set(solids)):
+        if 0 <= i < len(all_solids):
+            builder.Add(comp, all_solids[i])
+    return comp
+
+
+def extract_plate_features(
+    path: Path | str, solids: Collection[int] | None = None
+) -> PlateFeatures:
+    """Estimate shell-part features from a solid STEP file.
+
+    ``solids``: for an assembly, only these solid indices count (area, thickness, holes).
+    """
     try:
         from OCP.BRepGProp import BRepGProp
         from OCP.GProp import GProp_GProps
     except ImportError as exc:
         raise StepUnavailableError("OCP (cadquery-ocp) is not installed") from exc
     shape, _units = load_step_shape(path)
+    n_solids = len(_solid_list(shape))
+    if solids:
+        shape = _pick_solids(shape, solids)
     vp = GProp_GProps()
     BRepGProp.VolumeProperties_s(shape, vp)
     volume = vp.Mass()
@@ -202,6 +239,7 @@ def extract_plate_features(path: Path | str) -> PlateFeatures:
         curved_area_fraction=curved / skin_area,
         edge_area_m2=edge_area / MM2_PER_M2,
         notes=notes,
+        n_solids=n_solids,
     )
 
 

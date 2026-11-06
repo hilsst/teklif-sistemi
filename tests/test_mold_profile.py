@@ -99,25 +99,27 @@ def _opposed_neighbour_quads(a: np.ndarray, b: np.ndarray) -> list[int]:
 def _check_profile(ol: Outline, r: dict[str, np.ndarray], flat_part: bool) -> None:
     assert ol.ring is not None and ol.tangent is not None and ol.out_dir is not None
     eop, meop, turn, edge = r["eop"], r["meop"], r["turn"], r["edge"]
-    assert len(eop) == len(meop) == len(turn) == len(edge)
+    assert len(eop) == len(meop) == len(turn) == len(edge) == len(r["src"])
     assert np.isfinite(np.vstack([meop, turn, edge])).all()
+    tangent = _tangent(ol, r)
+    assert np.allclose(eop, ol.ring[r["src"].astype(int)])
     # straight on (unit tangent, not trimmed at a corner): exactly 20 mm, then 40 mm more
-    unit = np.isclose(np.linalg.norm(ol.tangent, axis=1), 1.0)
-    plain_m = unit & np.isclose(meop, eop + 20.0 * ol.tangent).all(axis=1)
-    plain_t = unit & np.isclose(turn, eop + 60.0 * ol.tangent).all(axis=1)
+    unit = np.isclose(np.linalg.norm(tangent, axis=1), 1.0)
+    plain_m = unit & np.isclose(meop, eop + 20.0 * tangent).all(axis=1)
+    plain_t = unit & np.isclose(turn, eop + 60.0 * tangent).all(axis=1)
     assert plain_m.mean() > 0.6 and plain_t.mean() > 0.5
     assert np.allclose(np.linalg.norm(meop - eop, axis=1)[plain_m], 20.0, atol=1e-6)
     assert np.allclose(np.linalg.norm(turn - meop, axis=1)[plain_m & plain_t], 40.0, atol=1e-6)
     # no line comes closer to the EOP than its distance (mitred and trimmed corners included)
     assert (polyline_distance(meop, eop) >= 20.0 - 1e-3).all()
     assert (polyline_distance(turn, eop) >= 60.0 - 1e-3).all()
-    # flange: perpendicular to the pull everywhere, exactly 150 mm where it was not trimmed
+    # flange: perpendicular to the pull everywhere, never shorter than 150 mm, and exactly 150 mm
+    # for most pairs (straight runs and rounded corners; longer only into a concave corner)
     fl = edge - turn
     assert np.allclose(fl @ PULL, 0.0, atol=1e-6)
-    od_unit = np.isclose(np.linalg.norm(ol.out_dir, axis=1), 1.0)
-    plain_f = od_unit & np.isclose(edge, turn + 150.0 * ol.out_dir).all(axis=1)
-    assert plain_f.mean() > 0.5
-    assert np.allclose(np.linalg.norm(fl, axis=1)[plain_f], 150.0, atol=1e-6)
+    fl_len = np.linalg.norm(fl, axis=1)
+    assert fl_len.min() >= 150.0 - 1e-3
+    assert np.isclose(fl_len, 150.0, atol=1e-3).mean() > 0.5
     # the flange edge never crosses itself, runs the same way round as the EOP, and encloses it
     e2, p2 = _plan(edge), _plan(eop)
     assert _self_crossings(e2) == []
@@ -136,6 +138,13 @@ def _check_profile(ol: Outline, r: dict[str, np.ndarray], flat_part: bool) -> No
                 j = (i + 1) % len(a2)
                 q = np.array([a2[i], a2[j], b2[j], b2[i]])
                 assert s * _area(q) <= 1e-6, (i, _area(q))
+
+
+def _tangent(ol: Outline, r: dict[str, np.ndarray]) -> np.ndarray:
+    """The outline's continuation per profile ring point (the rings repeat ring points)."""
+    assert ol.tangent is not None
+    out: np.ndarray = ol.tangent[r["src"].astype(int)]
+    return out
 
 
 def _runs(p: np.ndarray, tol: float = 1e-6) -> list[list[int]]:
@@ -182,8 +191,8 @@ def _check_envelope(ol: Outline, r: dict[str, np.ndarray]) -> None:
     # the surface goes on outward: in plan the continuation never points into the part
     p2 = _plan(eop)
     outer = _dedup(p2)
-    probe = p2 + 0.5 * _plan(ol.tangent) / np.maximum(
-        np.linalg.norm(_plan(ol.tangent), axis=1, keepdims=True), 1e-12
+    probe = p2 + 0.5 * _plan(_tangent(ol, r)) / np.maximum(
+        np.linalg.norm(_plan(_tangent(ol, r)), axis=1, keepdims=True), 1e-12
     )
     assert not any(_inside(q, outer) for q in probe)
 
@@ -310,8 +319,9 @@ def test_tray_rim_switching_between_top_plane_and_skirt(tmp_path: Path) -> None:
     eop = r["eop"]
     bottom = np.isclose(eop[:, 2], 0.0) & (np.isclose(eop[:, 1], 0.0) | np.isclose(eop[:, 0], 600))
     assert bottom.any()
-    on_wall = bottom & np.isclose(np.linalg.norm(ol.tangent, axis=1), 1.0)
-    assert np.allclose(ol.tangent[on_wall] @ PULL, 1.0, atol=1e-6)
+    tangent = _tangent(ol, r)
+    on_wall = bottom & np.isclose(np.linalg.norm(tangent, axis=1), 1.0)
+    assert np.allclose(tangent[on_wall] @ PULL, 1.0, atol=1e-6)
     # at the gap the plate edge (z = 35) goes on down too; the flange there sits at 35 - 60
     gap = np.isclose(eop[:, 0], 0.0) & (eop[:, 1] > 110) & (eop[:, 1] < 290)
     assert np.allclose(r["turn"][gap, 2], -25.0, atol=1e-6)
@@ -331,7 +341,7 @@ def test_top_plane_meeting_a_wall(tmp_path: Path) -> None:
     ol, r = _profile(m, ids)
     _check_profile(ol, r, flat_part=False)
     assert ol.tangent is not None
-    eop, t = r["eop"], ol.tangent
+    eop, t = r["eop"], _tangent(ol, r)
     top_edge = np.isclose(eop[:, 2], 40.0) & (eop[:, 0] < 590)
     assert top_edge.any() and np.allclose(t[top_edge, 2], 0.0, atol=1e-6)
     # skirt bottom (a straight run keeps only its end points, each with its rounded corner):
@@ -441,6 +451,202 @@ def test_kemal_tp0007903(kemal_mesh: FaceMesh, solid: int, facing: float) -> Non
     assert time.perf_counter() - t0 < 1.0
     _check_profile(ol, r, flat_part=True)
     _check_envelope(ol, r)
+
+
+@pytest.mark.parametrize("pull_z", [-1.0, 1.0], ids=["pull-Z", "pull+Z"])
+@pytest.mark.parametrize(
+    ("solid", "facing"),
+    [(3, 1.0), (3, -1.0), (2, 1.0), (2, -1.0)],
+    ids=["solid3-top", "solid3-bottom", "solid2-top", "solid2-bottom"],
+)
+def test_kemal_tp0007903_flange_is_clean(
+    kemal_mesh: FaceMesh, solid: int, facing: float, pull_z: float
+) -> None:
+    """Kemal 2026-11-06: no zigzag flange beside straight EOP edges, no flange folded in two at
+    a step, no bulging fans between rounded corners. Both pull senses."""
+    from teklif.app.surface_panel import ToolProfile, profile_rings
+    from teklif.geometry.surface_select import faces_facing
+
+    m = kemal_mesh
+    pull = np.array([0.0, 0.0, pull_z])
+    ids = [
+        i for i in faces_facing(m, np.array([0.0, 0.0, facing]), 30.0) if m.faces[i].solid == solid
+    ]
+    ol = m.outline(ids, pull)
+    assert ol is not None
+    r = profile_rings(ol, pull, ToolProfile(20.0, 40.0, 150.0))
+    assert r is not None
+    _check_flange_clean(r, pull, 150.0)
+
+
+@pytest.mark.parametrize(
+    ("solid", "facing"),
+    [(3, 1.0), (3, -1.0), (2, 1.0), (2, -1.0)],
+    ids=["solid3-top", "solid3-bottom", "solid2-top", "solid2-bottom"],
+)
+def test_kemal_tp0007903_with_chamfers_flange_is_clean(
+    kemal_mesh: FaceMesh, solid: int, facing: float
+) -> None:
+    """The selection of Kemal's screenshot: faces within 60 deg of the pull, so the 45 deg
+    chamfers and rounds along the rim come too and the rim climbs and drops between them. The
+    old point-by-point flange went up to 100 mm off the 150 mm line there (a zigzag beside
+    straight edges, corners folded over); now the edge is the exact offset, round at convex
+    corners. Where the turn line itself hooks back seen along the pull (it climbs a chamfer at a
+    jog) a sliver of the strip cannot help folding: it stays a tiny share of the flange."""
+    from teklif.app.surface_panel import ToolProfile, profile_rings
+    from teklif.geometry.surface_select import faces_facing
+
+    m = kemal_mesh
+    ids = [
+        i for i in faces_facing(m, np.array([0.0, 0.0, facing]), 60.0) if m.faces[i].solid == solid
+    ]
+    t0 = time.perf_counter()
+    ol = m.outline(ids, PULL)
+    assert ol is not None
+    r = profile_rings(ol, PULL, ToolProfile(20.0, 40.0, 150.0))
+    assert r is not None
+    assert time.perf_counter() - t0 < 1.0
+    _check_flange_clean(r, PULL, 150.0, fold_frac=1e-3)
+
+
+def _check_flange_clean(
+    r: dict[str, np.ndarray],
+    pull: np.ndarray,
+    dist: float,
+    concave_max: int | None = None,
+    fold_frac: float = 0.0,
+) -> None:
+    """The flange edge seen along the pull is a clean offset of the turn line: every vertex at
+    exactly ``dist`` from it (and no chord much closer), no zigzag (no turn sharper than 90 deg,
+    concave turns only at a few real concave corners), and the strip between the turn line and
+    the edge covers the band once: every triangle turns the same way and their areas add up to
+    the area between the two lines (a fold or an overlap would count twice). ``fold_frac``: the
+    share of that area allowed to be folded where the turn line itself hooks back seen along the
+    pull (then no strip can avoid a fold)."""
+    _, a, b = plane_frame(pull)
+    t2 = np.c_[r["turn"] @ a, r["turn"] @ b]
+    e2 = np.c_[r["edge"] @ a, r["edge"] @ b]
+    s = np.sign(_area(np.c_[r["eop"] @ a, r["eop"] @ b]))
+    assert np.allclose((r["edge"] - r["turn"]) @ pull, 0.0, atol=1e-6)
+    e = _dedup(e2)
+    assert _self_crossings(e) == []
+    d = polyline_distance(e, t2)
+    assert d.min() >= dist - 1e-3 and d.max() <= dist + 1e-3, (d.min(), d.max())
+    mid = (e + np.roll(e, -1, axis=0)) / 2  # chords of rounded corners sag by < 0.6 mm
+    assert polyline_distance(mid, t2).min() >= dist - 0.6
+    seg = np.roll(e, -1, axis=0) - e
+    nxt = np.roll(seg, -1, axis=0)
+    turn_deg = s * np.degrees(
+        np.arctan2(seg[:, 0] * nxt[:, 1] - seg[:, 1] * nxt[:, 0], (seg * nxt).sum(axis=1))
+    )
+    assert np.abs(turn_deg).max() < 90.0, np.abs(turn_deg).max()
+    if concave_max is not None:  # concave corners (runs of concave turns: a concave arc)
+        concave = turn_deg < -0.5
+        groups = int((concave & ~np.roll(concave, 1)).sum())
+        assert groups <= concave_max, (groups, np.round(turn_deg[concave], 2))
+    # the strip: same turning everywhere, and covering the band exactly once
+    n = len(t2)
+    j = (np.arange(n) + 1) % n
+    tri1 = np.stack([t2, t2[j], e2[j]], axis=1)
+    tri2 = np.stack([t2, e2[j], e2], axis=1)
+
+    def areas(tri: np.ndarray) -> np.ndarray:
+        u, v = tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]
+        out: np.ndarray = (u[:, 0] * v[:, 1] - u[:, 1] * v[:, 0]) / 2
+        return out
+
+    ar = s * np.r_[areas(tri1), areas(tri2)]
+    band = abs(_area(e)) - abs(_area(_dedup(t2)))
+    folded = float(ar[ar > 1e-6].sum())
+    assert folded <= fold_frac * band, (folded, band)
+    if fold_frac == 0.0:
+        assert np.isclose(np.abs(ar).sum(), band, rtol=1e-6), (np.abs(ar).sum(), band)
+
+
+def test_flange_of_plate_with_rounded_corner_and_step(tmp_path: Path) -> None:
+    """Straight edges, one rounded corner (r 40) and a step (convex, concave, convex): the
+    flange edge is straight along every straight side (exactly 210 mm out), round at the convex
+    corners, one clean corner at the concave one, and the strip neither zigzags nor folds."""
+    s = _shapes()
+    plate = s.plate([(0, 0), (600, 0), (600, 250), (450, 250), (450, 400), (0, 400)])
+    shape = s.fillet_vertical(plate, 1.0, {(0.0, 400.0): 40.0})
+    m = _mesh(shape, tmp_path / "step_round.step")
+    ol, r = _profile(m, _top(m, 4.0))
+    _check_profile(ol, r, flat_part=True)
+    _check_envelope(ol, r)
+    _check_flange_clean(r, PULL, 150.0, concave_max=1)
+    e = r["edge"]
+    # straight sides: every edge point beside them lies exactly on the 210 mm line
+    for axis, val, lo, hi in (
+        (1, -210.0, 0.0, 600.0),  # bottom
+        (0, 810.0, 0.0, 250.0),  # right, below the step
+        (0, -210.0, 0.0, 360.0),  # left, up to the rounded corner
+        (1, 610.0, 40.0, 450.0),  # top, from the rounded corner to the step
+    ):
+        other = 1 - axis
+        near = (np.abs(e[:, axis] - val) < 5.0) & (e[:, other] > lo) & (e[:, other] < hi)
+        assert near.any(), (axis, val)
+        assert np.allclose(e[near, axis], val, atol=1e-6), (axis, val)
+    # the step (150 mm) is narrower than the offset: its concave corner becomes one sharp point
+    # where the arcs round its two convex corners meet, 210 mm from both
+    _, a, b = plane_frame(PULL)
+    e2 = _dedup(np.c_[e @ a, e @ b])
+    far = [
+        np.hypot(*(e2 - _plan(np.array([[x, y, 4.0]]))[0]).T) for x, y in ((600, 250), (450, 400))
+    ]
+    cusp = np.isclose(far[0], 210.0, atol=1.5) & np.isclose(far[1], 210.0, atol=1.5)
+    assert cusp.sum() == 1
+
+
+def test_noisy_straight_rim_gives_a_straight_flange() -> None:
+    """A rectangular rim sampled every 5 mm with +-1.5 mm noise across it and continuation
+    directions off by up to +-1 deg: the flange edge beside each side stays within the noise of
+    a straight line and never zigzags (Kemal: "düz EOP izlerinin yanında zig zag yapan flanş
+    olmamalı")."""
+    from teklif.geometry.mold_profile import profile_rings
+
+    rng = np.random.default_rng(7)
+    w, h = 600.0, 400.0
+    pts, nrm = [], []
+    for (x0, y0), (x1, y1), nv in (
+        ((0, 0), (w, 0), (0, -1)),
+        ((w, 0), (w, h), (1, 0)),
+        ((w, h), (0, h), (0, 1)),
+        ((0, h), (0, 0), (-1, 0)),
+    ):
+        k = int(max(abs(x1 - x0), abs(y1 - y0)) / 5)
+        for t in np.arange(k) / k:
+            pts.append([x0 + t * (x1 - x0), y0 + t * (y1 - y0), 0.0])
+            nrm.append([nv[0], nv[1], 0.0])
+    ring = np.array(pts)
+    normal = np.array(nrm)
+    ring[:, :2] += normal[:, :2] * rng.uniform(-1.5, 1.5, (len(ring), 1))
+    ang = np.radians(rng.uniform(-1.0, 1.0, len(ring)))
+    c, si = np.cos(ang), np.sin(ang)
+    tangent = np.c_[c * normal[:, 0] - si * normal[:, 1], si * normal[:, 0] + c * normal[:, 1]]
+    tangent = np.c_[tangent, np.zeros(len(ring))]
+    pull = np.array([0.0, 0.0, -1.0])
+    r = profile_rings(ring, tangent, tangent, pull, 20.0, 40.0, 150.0)
+    _check_flange_clean(r, pull, 150.0)
+    e = r["edge"]
+    for axis, val in ((1, -210.0), (0, w + 210.0), (1, h + 210.0), (0, -210.0)):
+        other = 1 - axis
+        span = w if other == 0 else h
+        near = (np.abs(e[:, axis] - val) < 20.0) & (e[:, other] > 10) & (e[:, other] < span - 10)
+        assert near.sum() >= 1
+        # a straight line within the noise (the turn line wanders by ~3 mm across)
+        assert np.ptp(e[near, axis]) <= 6.0, (axis, val, np.ptp(e[near, axis]))
+    _, a, b = plane_frame(pull)
+    e2 = _dedup(np.c_[e @ a, e @ b])
+    seg = np.roll(e2, -1, axis=0) - e2
+    nxt = np.roll(seg, -1, axis=0)
+    turn_deg = np.degrees(
+        np.arctan2(seg[:, 0] * nxt[:, 1] - seg[:, 1] * nxt[:, 0], (seg * nxt).sum(axis=1))
+    )
+    # beside the straight sides only gentle kinks: no zigzag
+    big = np.abs(turn_deg) > 12.0
+    assert big.sum() <= 4 * 10, big.sum()  # the four rounded corners (10 deg steps) only
+    assert (np.abs(turn_deg) < 90.0).all()
 
 
 def test_untangle_cuts_off_loops_and_keeps_the_point_count() -> None:
