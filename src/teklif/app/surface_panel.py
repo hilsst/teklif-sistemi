@@ -368,7 +368,7 @@ def render_surface_panel(
             pull, pull_label = cand.direction, cand.label
     colors = triangle_colors(view, selected, pull, min_ok, warn_min)
     show_mold = bool(selected) and pull is not None
-    left, right = st.columns([3, 2]) if show_mold else (st.container(), None)
+    left, right = st.columns(2) if show_mold else (st.container(), None)
     with left:
         click = _VIEWER(
             **viewer_payload(view, colors, key, pull), height=560, key=f"{key}_viewer", default=None

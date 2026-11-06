@@ -8,19 +8,52 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f4f5f7;font-family:sa
 </style></head>
 <body>
 <canvas id="c"></canvas><div id="tip"></div>
-<div id="hint" style="display:block">Sürükle: döndür · tekerlek: yakınlaştır · sağ tuş: kaydır · tıkla: yüzü seç/bırak</div>
+<div id="hint" style="display:block">Sürükle: her yöne 360° döndür · tekerlek: yakınlaştır · sağ tuş: kaydır · tıkla: yüzü seç/bırak</div>
 <script src="three.min.js"></script>
-<script src="OrbitControls.js"></script>
 <script>
 const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728,0xf0b27a,0x9ecae1,0xc7e9c0]; // grey, blue, green, yellow, red, flange, fill, extension
 let lineGroup=null,axesGroup=null,pullArrow=null,scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={};
 const canvas=document.getElementById('c'),tip=document.getElementById('tip');
 function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data),'*');}
+// Free trackball: no pole limit like OrbitControls, so a part can be turned a full 360 deg in
+// any direction. Left drag rotates about the screen axes, right/middle drag pans, wheel zooms.
+function Trackball(camera,dom){
+  this.target=new THREE.Vector3(); const self=this; let mode=null,last=[0,0];
+  dom.addEventListener('contextmenu',e=>e.preventDefault());
+  dom.addEventListener('pointerdown',e=>{
+    mode=e.button===0?'rot':(e.button===1||e.button===2)?'pan':null; last=[e.clientX,e.clientY];
+    try{dom.setPointerCapture(e.pointerId);}catch(_){}});
+  const end=()=>{mode=null;}; dom.addEventListener('pointerup',end); dom.addEventListener('pointercancel',end);
+  dom.addEventListener('pointermove',e=>{
+    if(!mode)return; const dx=e.clientX-last[0],dy=e.clientY-last[1]; last=[e.clientX,e.clientY];
+    const h=Math.max(dom.clientHeight,1);
+    if(mode==='rot'){
+      const k=2*Math.PI/h, off=camera.position.clone().sub(self.target);
+      const right=new THREE.Vector3().crossVectors(off.clone().negate(),camera.up).normalize();
+      const qx=new THREE.Quaternion().setFromAxisAngle(camera.up.clone().normalize(),-dx*k);
+      const qy=new THREE.Quaternion().setFromAxisAngle(right,-dy*k);
+      const q=qx.multiply(qy); off.applyQuaternion(q); camera.up.applyQuaternion(q).normalize();
+      camera.position.copy(self.target).add(off);
+    }else{
+      const off=camera.position.clone().sub(self.target), dist=off.length();
+      const sc=2*dist*Math.tan(camera.fov*Math.PI/360)/h;
+      const right=new THREE.Vector3().crossVectors(off.clone().negate(),camera.up).normalize();
+      const up=new THREE.Vector3().crossVectors(right,off.clone().negate()).normalize();
+      const mv=right.multiplyScalar(-dx*sc).add(up.multiplyScalar(dy*sc));
+      self.target.add(mv); camera.position.add(mv);
+    }
+  });
+  dom.addEventListener('wheel',e=>{
+    e.preventDefault(); const off=camera.position.clone().sub(self.target);
+    off.multiplyScalar(Math.pow(0.9985,-e.deltaY)); camera.position.copy(self.target).add(off);
+  },{passive:false});
+  this.update=function(){camera.lookAt(self.target);};
+}
 function init(){
   renderer=new THREE.WebGLRenderer({canvas,antialias:true});
   scene=new THREE.Scene(); scene.background=new THREE.Color(0xf4f5f7);
   camera=new THREE.PerspectiveCamera(40,1,1,1e6); camera.up.set(0,0,1);
-  controls=new THREE.OrbitControls(camera,canvas); controls.screenSpacePanning=true;
+  controls=new Trackball(camera,canvas);
   scene.add(new THREE.AmbientLight(0xffffff,0.55));
   const d1=new THREE.DirectionalLight(0xffffff,0.7); d1.position.set(1,1,2); camera.add(d1); scene.add(camera);
   const d2=new THREE.DirectionalLight(0xffffff,0.35); d2.position.set(-1,-1,-0.5); camera.add(d2);
@@ -88,7 +121,6 @@ function build(a){
     controls.target.copy(s.center);
     camera.up.set(0,0,1);
     if(a.view_dir){const vd=new THREE.Vector3(...a.view_dir).normalize();
-      if(Math.abs(vd.z)>0.95){vd.y-=0.15;vd.normalize();} // keep Z as up: OrbitControls reads up once
       camera.position.copy(s.center).add(vd.multiplyScalar(s.radius*3.2));}
     else{camera.position.copy(s.center).add(new THREE.Vector3(1.1,-1.4,0.9).multiplyScalar(s.radius*2.4));}
     camera.near=s.radius/100; camera.far=s.radius*50; camera.updateProjectionMatrix(); fitted=key;
@@ -99,7 +131,7 @@ function build(a){
 }
 window.addEventListener('message',ev=>{
   if(ev.data.type!=='streamlit:render')return; args=ev.data.args; if(!renderer)init();
-  document.getElementById('hint').textContent=args.readonly?'Sürükle: döndür · tekerlek: yakınlaştır':document.getElementById('hint').textContent;
+  document.getElementById('hint').textContent=args.readonly?'Sürükle: her yöne 360° döndür · tekerlek: yakınlaştır':document.getElementById('hint').textContent;
   resize(args.height||520); build(args);
 });
 send('streamlit:componentReady',{apiVersion:1});
