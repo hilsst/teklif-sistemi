@@ -41,6 +41,7 @@ class MeshFace:
     tri_areas: NDArray[np.float64]  # (m,)
     edges: list[tuple[int, float]] = field(default_factory=list)  # (edge key, length mm)
     edge_polys: dict[int, NDArray[np.float64]] = field(default_factory=dict)  # key -> (n, 3)
+    solid: int = 0  # which solid of an assembly the face belongs to (for hiding parts)
 
     @property
     def mean_normal(self) -> Vec:
@@ -454,7 +455,7 @@ def load_face_mesh(
         from OCP.GeomAbs import GeomAbs_Plane
         from OCP.GProp import GProp_GProps
         from OCP.IMeshTools import IMeshTools_Parameters
-        from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
+        from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_SOLID
         from OCP.TopExp import TopExp_Explorer
         from OCP.TopLoc import TopLoc_Location
     except ImportError as exc:
@@ -467,6 +468,17 @@ def load_face_mesh(
     params.Relative = False
     params.InParallel = True
     BRepMesh_IncrementalMesh(shape, params)
+
+    solid_of: dict[int, int] = {}  # face hash -> solid index (assemblies have several solids)
+    sol_ex = TopExp_Explorer(shape, TopAbs_SOLID)
+    n_solid = 0
+    while sol_ex.More():
+        fe = TopExp_Explorer(sol_ex.Current(), TopAbs_FACE)
+        while fe.More():
+            solid_of.setdefault(hash(fe.Current()), n_solid)
+            fe.Next()
+        n_solid += 1
+        sol_ex.Next()
 
     faces: list[MeshFace] = []
     poly_cache: dict[int, NDArray[np.float64]] = {}
@@ -533,6 +545,7 @@ def load_face_mesh(
                 tri_areas=lens / 2,
                 edges=edges,
                 edge_polys=polys,
+                solid=solid_of.get(hash(face), 0),
             )
         )
     if not faces:
