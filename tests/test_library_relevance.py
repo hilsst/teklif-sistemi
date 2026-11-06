@@ -256,8 +256,17 @@ def test_skirt_profile_continues_down_the_wall_by_exactly_the_distance(tmp_path:
     assert ol is not None and ol.ring is not None and ol.tangent is not None
     r = profile_rings(ol, pull, ToolProfile(20.0, 40.0, 150.0))
     assert r is not None
+    from teklif.geometry.mold_profile import polyline_distance
+
+    # straight on (unit tangent, not trimmed at a corner): exactly 20 mm from its EOP point
     dist = np.linalg.norm(r["meop"] - r["eop"], axis=1)
-    assert np.allclose(dist, 20.0, atol=1e-6)
+    plain = np.isclose(np.linalg.norm(ol.tangent, axis=1), 1.0) & np.isclose(
+        r["meop"], ol.ring + 20.0 * ol.tangent
+    ).all(axis=1)
+    assert plain.mean() > 0.7
+    assert np.allclose(dist[plain], 20.0, atol=1e-6)
+    # everywhere (also the mitred notch corners): the MEOP line is 20 mm off the EOP line
+    assert (polyline_distance(r["meop"], r["eop"]) >= 20.0 - 1e-3).all()
     # corner points of the outer rim at z = 0: the wall goes on straight down along the pull
     at_rim = np.isclose(r["eop"][:, 2], 0.0) & (
         np.isclose(r["eop"][:, 0], 0.0) | np.isclose(r["eop"][:, 0], 300.0)

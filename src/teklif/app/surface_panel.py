@@ -20,6 +20,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from numpy.typing import NDArray
 
+from teklif.geometry import mold_profile
 from teklif.geometry.surface_select import (
     ANGULAR_DEFLECTION_DEG,
     LINEAR_DEFLECTION_MM,
@@ -128,19 +129,18 @@ class ToolProfile:
 def profile_rings(
     outline: Outline, pull: NDArray[np.float64], prof: ToolProfile
 ) -> dict[str, NDArray[np.float64]] | None:
-    """EOP / MEOP / flange-turn / flange-edge rings of the tool profile."""
+    """EOP / MEOP / flange-turn / flange-edge rings of the tool profile (equal length)."""
     if outline.ring is None or outline.tangent is None or outline.out_dir is None:
         return None
-    ring, t, od = outline.ring, outline.tangent, outline.out_dir
-    d = pull / np.linalg.norm(pull)
-    meop = ring + t * prof.to_meop_mm
-    turn = meop + t * prof.to_turn_mm
-    # the flange always lies in a plane perpendicular to the pull, running outward
-    f = od - (od @ d)[:, None] * d
-    ln = np.linalg.norm(f, axis=1, keepdims=True)
-    f = f / np.where(ln > 0, ln, 1.0)
-    edge = turn + f * prof.flange_mm
-    return {"eop": ring, "meop": meop, "turn": turn, "edge": edge}
+    return mold_profile.profile_rings(
+        outline.ring,
+        outline.tangent,
+        outline.out_dir,
+        np.asarray(pull, dtype=float),
+        prof.to_meop_mm,
+        prof.to_turn_mm,
+        prof.flange_mm,
+    )
 
 
 def mold_extras(outline: Outline, pull: NDArray[np.float64], prof: ToolProfile) -> Extra:
@@ -185,9 +185,16 @@ def mold_extras(outline: Outline, pull: NDArray[np.float64], prof: ToolProfile) 
         if len(ch) > 1
     ]
     if rings is not None:
+        # the viewer puts a label at a line's first point: start the rings a third of the way
+        # round from each other so the EOP / MEOP / turn labels do not sit on top of each other
+        third = len(rings["meop"]) // 3
         lines += [
-            {"hex": 0xE06000, "label": "MEOP", "pts": flat(rings["meop"])},
-            {"hex": 0x607080, "label": "flanş dönüşü", "pts": flat(rings["turn"])},
+            {"hex": 0xE06000, "label": "MEOP", "pts": flat(np.roll(rings["meop"], -third, 0))},
+            {
+                "hex": 0x607080,
+                "label": "flanş dönüşü",
+                "pts": flat(np.roll(rings["turn"], -2 * third, 0)),
+            },
             {"hex": 0xE06000, "label": "", "pts": flat(rings["edge"])},
         ]
     return (np.array(tris) if tris else np.zeros((0, 3, 3))), colors, lines
