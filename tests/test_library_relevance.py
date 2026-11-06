@@ -256,8 +256,17 @@ def test_skirt_profile_continues_down_the_wall_by_exactly_the_distance(tmp_path:
     assert ol is not None and ol.ring is not None and ol.tangent is not None
     r = profile_rings(ol, pull, ToolProfile(20.0, 40.0, 150.0))
     assert r is not None
+    from teklif.geometry.mold_profile import polyline_distance
+
+    # straight on (unit tangent, not trimmed at a corner): exactly 20 mm from its EOP point
     dist = np.linalg.norm(r["meop"] - r["eop"], axis=1)
-    assert np.allclose(dist, 20.0, atol=1e-6)
+    plain = np.isclose(np.linalg.norm(ol.tangent, axis=1), 1.0) & np.isclose(
+        r["meop"], ol.ring + 20.0 * ol.tangent
+    ).all(axis=1)
+    assert plain.mean() > 0.7
+    assert np.allclose(dist[plain], 20.0, atol=1e-6)
+    # everywhere (also the mitred notch corners): the MEOP line is 20 mm off the EOP line
+    assert (polyline_distance(r["meop"], r["eop"]) >= 20.0 - 1e-3).all()
     # corner points of the outer rim at z = 0: the wall goes on straight down along the pull
     at_rim = np.isclose(r["eop"][:, 2], 0.0) & (
         np.isclose(r["eop"][:, 0], 0.0) | np.isclose(r["eop"][:, 0], 300.0)
@@ -265,3 +274,35 @@ def test_skirt_profile_continues_down_the_wall_by_exactly_the_distance(tmp_path:
     assert at_rim.any()
     assert np.allclose(ol.tangent[at_rim] @ pull, 1.0, atol=1e-6)
     assert len(ol.ring) > 4  # the notch is part of the outline
+
+
+def test_assembly_solids_can_be_hidden_in_the_payload(tmp_path: Path) -> None:
+    """Faces know their solid; hiding a solid removes its triangles and faces from the view."""
+    pytest.importorskip("OCP")
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox
+    from OCP.gp import gp_Pnt
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+    from OCP.TopoDS import TopoDS_Compound
+
+    from teklif.app.surface_panel import viewer_payload
+    from teklif.geometry.surface_select import load_face_mesh
+
+    comp = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(comp)
+    builder.Add(comp, BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 10, 10, 10).Shape())
+    builder.Add(comp, BRepPrimAPI_MakeBox(gp_Pnt(50, 0, 0), 10, 10, 10).Shape())
+    w = STEPControl_Writer()
+    w.Transfer(comp, STEPControl_AsIs)
+    path = tmp_path / "asm.step"
+    w.Write(str(path))
+    m = load_face_mesh(path, 5.0, 10.0)
+    assert sorted({f.solid for f in m.faces}) == [0, 1] and len(m.faces) == 12
+    colors = ["#b0b0b0"] * sum(len(f.triangles) for f in m.faces)
+    full = viewer_payload(m, colors, "k")
+    part = viewer_payload(m, colors, "k", hidden=frozenset({1}))
+    assert len(part["tri_face"]) == len(full["tri_face"]) // 2
+    assert len(part["tri_color"]) == len(part["tri_face"])
+    assert len(part["pos"]) == len(full["pos"]) // 2
+    assert len(part["faces"]) == 6 and part["geom_rev"] == [1]

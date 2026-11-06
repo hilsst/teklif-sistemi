@@ -20,6 +20,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from numpy.typing import NDArray
 
+from teklif.geometry import mold_profile
 from teklif.geometry.surface_select import (
     ANGULAR_DEFLECTION_DEG,
     LINEAR_DEFLECTION_MM,
@@ -128,19 +129,18 @@ class ToolProfile:
 def profile_rings(
     outline: Outline, pull: NDArray[np.float64], prof: ToolProfile
 ) -> dict[str, NDArray[np.float64]] | None:
-    """EOP / MEOP / flange-turn / flange-edge rings of the tool profile."""
+    """EOP / MEOP / flange-turn / flange-edge rings of the tool profile (equal length)."""
     if outline.ring is None or outline.tangent is None or outline.out_dir is None:
         return None
-    ring, t, od = outline.ring, outline.tangent, outline.out_dir
-    d = pull / np.linalg.norm(pull)
-    meop = ring + t * prof.to_meop_mm
-    turn = meop + t * prof.to_turn_mm
-    # the flange always lies in a plane perpendicular to the pull, running outward
-    f = od - (od @ d)[:, None] * d
-    ln = np.linalg.norm(f, axis=1, keepdims=True)
-    f = f / np.where(ln > 0, ln, 1.0)
-    edge = turn + f * prof.flange_mm
-    return {"eop": ring, "meop": meop, "turn": turn, "edge": edge}
+    return mold_profile.profile_rings(
+        outline.ring,
+        outline.tangent,
+        outline.out_dir,
+        np.asarray(pull, dtype=float),
+        prof.to_meop_mm,
+        prof.to_turn_mm,
+        prof.flange_mm,
+    )
 
 
 def mold_extras(outline: Outline, pull: NDArray[np.float64], prof: ToolProfile) -> Extra:
@@ -185,9 +185,16 @@ def mold_extras(outline: Outline, pull: NDArray[np.float64], prof: ToolProfile) 
         if len(ch) > 1
     ]
     if rings is not None:
+        # the viewer puts a label at a line's first point: start the rings a third of the way
+        # round from each other so the EOP / MEOP / turn labels do not sit on top of each other
+        third = len(rings["meop"]) // 3
         lines += [
-            {"hex": 0xE06000, "label": "MEOP", "pts": flat(rings["meop"])},
-            {"hex": 0x607080, "label": "flanş dönüşü", "pts": flat(rings["turn"])},
+            {"hex": 0xE06000, "label": "MEOP", "pts": flat(np.roll(rings["meop"], -third, 0))},
+            {
+                "hex": 0x607080,
+                "label": "flanş dönüşü",
+                "pts": flat(np.roll(rings["turn"], -2 * third, 0)),
+            },
             {"hex": 0xE06000, "label": "", "pts": flat(rings["edge"])},
         ]
     return (np.array(tris) if tris else np.zeros((0, 3, 3))), colors, lines
@@ -199,14 +206,23 @@ def viewer_payload(
     key: str,
     pull: tuple[float, float, float] | None = None,
     extra: Extra | None = None,
+    hidden: frozenset[int] = frozenset(),
 ) -> dict[str, Any]:
-    """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index."""
+    """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index.
+    ``hidden``: solids of an assembly left out of the picture (right click in the viewer)."""
     pos = np.round(
         np.vstack([f.vertices[f.triangles].reshape(-1, 3) for f in mesh.faces if len(f.triangles)]),
         1,
     )
     tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
     color_idx = [_PALETTE_IDX[c] for c in colors]
+    if hidden:
+        keep = np.array(
+            [f.solid not in hidden for f in mesh.faces for _ in range(len(f.triangles))]
+        )
+        pos = pos.reshape(-1, 9)[keep].reshape(-1, 3)
+        tri_face = [t for t, k in zip(tri_face, keep, strict=True) if k]
+        color_idx = [c for c, k in zip(color_idx, keep, strict=True) if k]
     lines: list[dict[str, Any]] = []
     if extra is not None:
         ftris, fcolors, lines = extra
@@ -221,7 +237,8 @@ def viewer_payload(
         "pos": pos.ravel().tolist(),
         "tri_face": tri_face,
         "tri_color": color_idx,
-        "faces": [[f.id, round(f.area_mm2 / 1e6, 4)] for f in mesh.faces],
+        "faces": [[f.id, round(f.area_mm2 / 1e6, 4)] for f in mesh.faces if f.solid not in hidden],
+        "geom_rev": sorted(hidden),
     }
 
 
@@ -296,8 +313,19 @@ def render_surface_panel(
             return None
     view: FaceMesh = st.session_state[vk]
     mesh: FaceMesh = view  # replaced by the fine analysis mesh once something is selected
+    hk = f"{key}_hidden"
+    hide_face = st.session_state.pop(f"{key}_hide_pending", None)
+    if hide_face is not None and 0 <= hide_face < len(view.faces):
+        # right click on an element of an assembly hides its whole solid (never the last one)
+        solids = {f.solid for f in view.faces}
+        gone = set(st.session_state.get(hk, ())) | {view.faces[hide_face].solid}
+        if solids - gone:
+            st.session_state[hk] = sorted(gone)
+    hidden = frozenset(st.session_state.get(hk, ()))
+    visible_ids = {f.id for f in view.faces if f.solid not in hidden}
     sk = f"{key}_sel"
     st.session_state.setdefault(sk, [])
+    st.session_state[sk] = [i for i in st.session_state[sk] if i in visible_ids]
     pending = st.session_state.pop(f"{key}_pending", None)
     if pending is not None:  # a click in the 3D view toggles the face
         st.session_state[sk] = sorted(set(st.session_state[sk]) ^ {pending})
@@ -314,10 +342,10 @@ def render_surface_panel(
 
     def _add() -> None:
         ids = faces_facing(view, np.array(AXES[axis]), float(tol))
-        st.session_state[sk] = sorted(set(st.session_state[sk]) | set(ids))
+        st.session_state[sk] = sorted(set(st.session_state[sk]) | (set(ids) & visible_ids))
 
     def _all() -> None:
-        st.session_state[sk] = [f.id for f in mesh.faces]
+        st.session_state[sk] = sorted(visible_ids)
 
     def _clear() -> None:
         st.session_state[sk] = []
@@ -325,7 +353,9 @@ def render_surface_panel(
     h3.button("Ekle", on_click=_add, key=f"{key}_add")
     h4.button("Temizle", on_click=_clear, key=f"{key}_clr")
     st.button("Tüm yüzleri seç", on_click=_all, key=f"{key}_all")
-    labels = {f.id: f"Yüz {f.id} · {f.area_mm2 / 1e6:.3f} m²" for f in mesh.faces}
+    labels = {
+        f.id: f"Yüz {f.id} · {f.area_mm2 / 1e6:.3f} m²" for f in mesh.faces if f.id in visible_ids
+    }
     selected = st.multiselect(
         "Seçili yüzler",
         list(labels),
@@ -368,10 +398,13 @@ def render_surface_panel(
             pull, pull_label = cand.direction, cand.label
     colors = triangle_colors(view, selected, pull, min_ok, warn_min)
     show_mold = bool(selected) and pull is not None
-    left, right = st.columns([3, 2]) if show_mold else (st.container(), None)
+    left, right = st.columns(2) if show_mold else (st.container(), None)
     with left:
         click = _VIEWER(
-            **viewer_payload(view, colors, key, pull), height=560, key=f"{key}_viewer", default=None
+            **viewer_payload(view, colors, key, pull, hidden=hidden),
+            height=560,
+            key=f"{key}_viewer",
+            default=None,
         )
     if right is not None and pull is not None:
         with right:
@@ -428,15 +461,22 @@ def render_surface_panel(
     if click and ident != st.session_state.get(last):  # n restarts when the iframe is rebuilt
         st.session_state[last] = ident
         # the multiselect already exists in this run: apply the toggle at the top of the next one
-        st.session_state[f"{key}_pending"] = int(click["face"])
+        if "hide" in click:
+            st.session_state[f"{key}_hide_pending"] = int(click["hide"])
+        else:
+            st.session_state[f"{key}_pending"] = int(click["face"])
+        st.rerun()
+    if hidden and st.button(f"Gizlenen {len(hidden)} elemanı geri getir", key=f"{key}_unhide"):
+        st.session_state[hk] = []
         st.rerun()
     if st.checkbox("Eski görünüm (Plotly)", False, key=f"{key}_plotly"):
         st.plotly_chart(build_figure(view, colors), width="stretch", key=f"{key}_fig")
     st.caption(
         f"Renkler (seçili yüzler): yeşil ≥ {min_ok:g}° çekme açısı, sarı {warn_min:g}–{min_ok:g}°, "
         "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil. "
-        "Yüze tıklayarak seçip bırakabilirsiniz. Eksenler: X kırmızı, Y yeşil, Z mavi (parçanın "
-        "sol-alt köşesinde); mor ok seçili çekme yönüdür."
+        "Yüze tıklayarak seçip bırakabilirsiniz; montajda sağ tıkla o elemanı gizlersiniz. "
+        "Eksenler: X kırmızı, Y yeşil, Z mavi (parçanın sol-alt köşesinde); mor ok seçili çekme "
+        "yönüdür."
     )
     if not selected or pull is None:
         return None

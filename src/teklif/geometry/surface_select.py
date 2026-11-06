@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from teklif.geometry import mold_profile as mp
 from teklif.ingest.step_props import StepUnavailableError, load_step_shape
 
 Vec = NDArray[np.float64]
@@ -41,6 +42,7 @@ class MeshFace:
     tri_areas: NDArray[np.float64]  # (m,)
     edges: list[tuple[int, float]] = field(default_factory=list)  # (edge key, length mm)
     edge_polys: dict[int, NDArray[np.float64]] = field(default_factory=dict)  # key -> (n, 3)
+    solid: int = 0  # which solid of an assembly the face belongs to (for hiding parts)
 
     @property
     def mean_normal(self) -> Vec:
@@ -54,9 +56,14 @@ class Outline:
     loops: list[NDArray[np.float64]]  # every closed boundary loop of the selection (EOP)
     open_chains: list[NDArray[np.float64]]  # boundary pieces that did not close (not filled)
     outer: int  # index of the outer rim in ``loops``
-    ring: NDArray[np.float64] | None  # outer envelope on the surface (EOP of the tool profile)
-    tangent: NDArray[np.float64] | None  # per ring point: unit direction the surface continues
-    out_dir: NDArray[np.float64] | None  # per ring point: outward direction in the pull plane
+    # the outer rim (EOP of the tool profile), thinned; a point is repeated where a corner is
+    # rounded (see teklif.geometry.mold_profile)
+    ring: NDArray[np.float64] | None
+    # per ring point: direction the surface continues past the edge; unit, except at a concave
+    # corner, where it is the mitre (longer) so the MEOP/turn lines stay at their exact distance
+    tangent: NDArray[np.float64] | None
+    # per ring point: outward flange direction in the pull plane (unit; mitre at concave corners)
+    out_dir: NDArray[np.float64] | None
 
 
 def _cluster_points(pts: NDArray[np.float64], tol: float) -> list[int]:
@@ -190,12 +197,16 @@ class FaceMesh:
         # rims, then the rim towards the mold opening (smallest position along pull) is the EOP
         tied = [i for i, a_ in enumerate(areas) if a_ >= 0.9 * max(areas)]
         outer = min(tied, key=lambda i: float((loops[i] @ d).mean()))
-        ring = _decimate_loop(loops[outer], a, b)
-        if len(ring) < 3:
+        rim = mp.decimate_loop(loops[outer])
+        if len(rim) < 3:
             return Outline(loops, open_chains, outer, None, None, None)
-        out_dir = _outward_dirs(ring, a, b)
-        tangent = self._surface_continuation(ids, ring, loops[outer], out_dir)
-        return Outline(loops, open_chains, outer, ring, tangent, out_dir)
+        edges = mp.mesh_boundary_edges(
+            [(self.faces[i].vertices, self.faces[i].triangles, self.faces[i].normals) for i in ids]
+        )
+        cont = mp.segment_continuation(rim, edges)
+        pts, tan = mp.join_corners(rim, cont)
+        idx, out_dir = mp.flange_dirs(pts, tan, d)
+        return Outline(loops, open_chains, outer, pts[idx], tan[idx], out_dir)
 
     def trim_lengths_mm(self, ids: list[int], pull: Vec) -> tuple[float, float]:
         """(all boundary loops, outer loop) trim lengths, mm. A rim of a shell has an inner and an
@@ -256,93 +267,6 @@ class FaceMesh:
             self.outer_perimeter_mm(ids, pull) + outer_add,
         )
 
-    def _surface_continuation(
-        self,
-        ids: list[int],
-        ring: NDArray[np.float64],
-        rim: NDArray[np.float64],
-        out_dir: NDArray[np.float64],
-    ) -> NDArray[np.float64]:
-        """Per ring point: the unit direction in which the surface goes on past its edge.
-
-        Taken from the triangles that touch the point: from each triangle centre to the point,
-        with the part along the rim removed, so it lies in the surface and is perpendicular to the
-        edge (a wall parallel to the pull continues along the pull, a flat sheet outward)."""
-        a_l, b_l, c_l = [], [], []
-        for i in ids:
-            f = self.faces[i]
-            if len(f.triangles):
-                v = f.vertices[f.triangles]
-                a_l.append(v[:, 0])
-                b_l.append(v[:, 1])
-                c_l.append(v[:, 2])
-        tol = 2.0
-        out = np.empty_like(ring)
-        if not a_l:
-            nn = np.linalg.norm(out_dir, axis=1, keepdims=True)
-            return out_dir / np.where(nn > 0, nn, 1.0)
-        ta, tb, tc = np.vstack(a_l), np.vstack(b_l), np.vstack(c_l)
-        cen = (ta + tb + tc) / 3
-        rad = np.maximum.reduce([np.linalg.norm(x - cen, axis=1) for x in (ta, tb, tc)])
-        nrm = np.cross(tb - ta, tc - ta)
-        area2 = np.linalg.norm(nrm, axis=1)
-        ok_tri = area2 > 1e-12
-        nrm = nrm / np.where(ok_tri, area2, 1.0)[:, None]
-        m = len(rim)
-        for k, p in enumerate(ring):
-            near = np.nonzero(ok_tri & (np.linalg.norm(cen - p, axis=1) <= rad + tol))[0]
-            acc = np.zeros(3)
-            if len(near):
-                n1, a1, b1, c1 = nrm[near], ta[near], tb[near], tc[near]
-                on_plane = np.abs(((p - a1) * n1).sum(axis=1)) <= tol
-                q = p - ((p - a1) * n1).sum(axis=1)[:, None] * n1
-                # barycentric coordinates of the projected point
-                v0, v1, v2 = b1 - a1, c1 - a1, q - a1
-                d00, d01, d11 = (v0 * v0).sum(1), (v0 * v1).sum(1), (v1 * v1).sum(1)
-                d20, d21 = (v2 * v0).sum(1), (v2 * v1).sum(1)
-                den = d00 * d11 - d01 * d01
-                den = np.where(np.abs(den) > 1e-12, den, 1.0)
-                bv = (d11 * d20 - d01 * d21) / den
-                bw = (d00 * d21 - d01 * d20) / den
-                bu = 1 - bv - bw
-                alt = area2[near] / np.maximum.reduce(
-                    [
-                        np.linalg.norm(b1 - a1, axis=1),
-                        np.linalg.norm(c1 - b1, axis=1),
-                        np.linalg.norm(a1 - c1, axis=1),
-                    ]
-                )
-                slack = -tol / np.maximum(alt, 1e-9)
-                inside = on_plane & (np.minimum.reduce([bu, bv, bw]) >= slack)
-                # rim segments around the nearest rim point, used to find the edge direction
-                j = int(np.argmin(np.linalg.norm(rim - p, axis=1)))
-                segs = [rim[j] - rim[j - 1], rim[(j + 1) % m] - rim[j]]
-                for t_i in np.nonzero(inside)[0]:
-                    ti = near[t_i]
-                    e = np.zeros(3)
-                    for sg in segs:
-                        ln = float(np.linalg.norm(sg))
-                        if ln < 1e-9:
-                            continue
-                        sg = sg / ln
-                        # a segment lies in this triangle's plane (it is the triangle's rim edge)
-                        if abs(float(sg @ nrm[ti])) < 0.2:
-                            e = e + (sg if float(e @ sg) >= 0 else -sg)
-                    en = float(np.linalg.norm(e))
-                    v = p - cen[ti]
-                    if en > 1e-9:
-                        v = v - float(v @ (e / en)) * (e / en)
-                    ln = float(np.linalg.norm(v))
-                    if ln > 1e-9:
-                        acc += v / ln * float(area2[ti])
-            ln = float(np.linalg.norm(acc))
-            if ln > 1e-9:
-                out[k] = acc / ln
-            else:
-                od = out_dir[k]
-                out[k] = od / (float(np.linalg.norm(od)) or 1.0)
-        return out
-
     def boundary_length_mm(self, ids: list[int]) -> float:
         """Total length of edges with exactly one selected face on them (rim, cut-outs, holes)."""
         chosen = set(ids)
@@ -353,61 +277,6 @@ class FaceMesh:
                 per_edge.setdefault(key, []).append(length)
                 owners[key] = owners.get(key, 0) + 1
         return sum(lens[0] for key, lens in per_edge.items() if owners[key] == 1)
-
-
-def _decimate_loop(
-    loop: NDArray[np.float64], a: NDArray[np.float64], b: NDArray[np.float64]
-) -> NDArray[np.float64]:
-    """Loop points without duplicates, thinned: every corner (>5 deg turn in the pull plane) is
-    kept, straight/smooth runs at most every perimeter/300."""
-    pts = [loop[0]]
-    for p in loop[1:]:
-        if float(np.linalg.norm(p - pts[-1])) > 0.05:
-            pts.append(p)
-    if len(pts) > 1 and float(np.linalg.norm(pts[0] - pts[-1])) <= 0.05:
-        pts.pop()
-    arr = np.array(pts)
-    n = len(arr)
-    if n <= 300:
-        return arr
-    xy = np.c_[arr @ a, arr @ b]
-    step = float(np.linalg.norm(xy - np.roll(xy, -1, axis=0), axis=1).sum()) / 300
-    keep = [0]
-    acc = 0.0
-    for i in range(1, n):
-        e1, e2 = xy[i] - xy[i - 1], xy[(i + 1) % n] - xy[i]
-        acc += float(np.linalg.norm(e1))
-        n1, n2 = float(np.linalg.norm(e1)), float(np.linalg.norm(e2))
-        corner = n1 > 0 and n2 > 0 and float(e1 @ e2) / (n1 * n2) < 0.9962  # > 5 deg
-        if corner or acc >= step:
-            keep.append(i)
-            acc = 0.0
-    return arr[keep]
-
-
-def _outward_dirs(
-    ring: NDArray[np.float64], a: NDArray[np.float64], b: NDArray[np.float64]
-) -> NDArray[np.float64]:
-    """Outward direction (in the pull plane) at each loop point: mitred mean of the two edge
-    normals, spike capped, outward by the loop's own orientation."""
-    xy = np.c_[ring @ a, ring @ b]
-    n = len(xy)
-    area2 = float(np.dot(xy[:, 0], np.roll(xy[:, 1], -1)) - np.dot(xy[:, 1], np.roll(xy[:, 0], -1)))
-    sign = 1.0 if area2 > 0 else -1.0  # counter-clockwise: outward is to the right of the edge
-    edge_n = []
-    for i in range(n):
-        e = xy[(i + 1) % n] - xy[i]
-        ln = float(np.linalg.norm(e)) or 1.0
-        edge_n.append(sign * np.array([e[1], -e[0]]) / ln)
-    out = np.empty_like(ring)
-    for i in range(n):
-        n1, n2 = edge_n[i - 1], edge_n[i]
-        m = (n1 + n2) / max(1 + float(np.dot(n1, n2)), 1e-6)
-        ml = float(np.linalg.norm(m))
-        if ml > 2.0:
-            m = m * (2.0 / ml)
-        out[i] = m[0] * a + m[1] * b
-    return out
 
 
 def _convex_hull(p: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -454,7 +323,7 @@ def load_face_mesh(
         from OCP.GeomAbs import GeomAbs_Plane
         from OCP.GProp import GProp_GProps
         from OCP.IMeshTools import IMeshTools_Parameters
-        from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
+        from OCP.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED, TopAbs_SOLID
         from OCP.TopExp import TopExp_Explorer
         from OCP.TopLoc import TopLoc_Location
     except ImportError as exc:
@@ -467,6 +336,17 @@ def load_face_mesh(
     params.Relative = False
     params.InParallel = True
     BRepMesh_IncrementalMesh(shape, params)
+
+    solid_of: dict[int, int] = {}  # face hash -> solid index (assemblies have several solids)
+    sol_ex = TopExp_Explorer(shape, TopAbs_SOLID)
+    n_solid = 0
+    while sol_ex.More():
+        fe = TopExp_Explorer(sol_ex.Current(), TopAbs_FACE)
+        while fe.More():
+            solid_of.setdefault(hash(fe.Current()), n_solid)
+            fe.Next()
+        n_solid += 1
+        sol_ex.Next()
 
     faces: list[MeshFace] = []
     poly_cache: dict[int, NDArray[np.float64]] = {}
@@ -533,6 +413,7 @@ def load_face_mesh(
                 tri_areas=lens / 2,
                 edges=edges,
                 edge_polys=polys,
+                solid=solid_of.get(hash(face), 0),
             )
         )
     if not faces:
