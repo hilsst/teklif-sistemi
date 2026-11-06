@@ -3,6 +3,7 @@ notch, a rim that jumps between the top plane and a skirt, and a top plane meeti
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -406,7 +407,11 @@ KEMAL_TP0007903 = Path(
 
 @pytest.fixture(scope="module")
 def kemal_mesh() -> FaceMesh:
-    if not KEMAL_TP0007903.exists():
+    try:
+        readable = KEMAL_TP0007903.is_file() and os.access(KEMAL_TP0007903, os.R_OK)
+    except OSError:
+        readable = False
+    if not readable:
         pytest.skip("Kemal's TP0007903 STEP not present")
     pytest.importorskip("OCP")
     from teklif.geometry.surface_select import load_face_mesh
