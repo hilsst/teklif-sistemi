@@ -16,17 +16,25 @@ So:
 - at a vertex, nearly equal directions are averaged; a convex change (the extensions open a gap)
   becomes a fan of copies of the vertex (a rounded corner), a concave change (they overlap)
   becomes one mitred point, so both offset lines keep their exact distance,
-- the flange direction is the outward normal of the EOP seen along the pull (pieces running along
-  the pull are merged into one plan point), rounded the same way at convex plan corners,
-- the flange's outer edge is untangled in the pull plane: where it crosses itself (a cut-out
-  tighter than the flange, a notch narrower than two flanges) the loop is cut off and its points
-  collapse to the crossing, so the flange never folds back over the cut-out; points left inside
-  another part's band go onto the envelope (where the bands of two pieces meet), so trimmed
-  corners stay at their exact distance.
+- the MEOP and turn lines are untangled the same way: where one crosses itself (a cut-out
+  tighter than the offset, a notch narrower than two offsets) the loop is cut off, and points
+  left inside another part's band go onto the envelope,
+- the flange's outer edge is not built point by point (per-point outward directions are noisy:
+  the edge zigzagged beside straight EOP runs and folded over at steps, Kemal 2026-11-06). It is
+  the exact offset, in the plane perpendicular to the pull, of what the turn line covers seen
+  along the pull: the outer boundary of the turn line, every edge moved out by the flange, arcs
+  round convex corners, then the outer boundary of that curve (``flange_outline``). So it is
+  straight beside straight runs, round at convex corners, one clean corner at concave ones, never
+  crosses itself, and noise far below the flange width cannot show. The turn line is then paired
+  with it by a monotone matching that keeps every strip triangle turned the same way
+  (``pair_rings``), so the flange strip covers its band once: no fold, no overlap. The rings
+  repeat points where one side needs more of them than the other (a rounded corner's arc, a
+  concave corner's fan).
 """
 
 from __future__ import annotations
 
+import itertools
 import math
 
 import numpy as np
@@ -656,6 +664,304 @@ def tidy(off: F, base: F, dist: float, sign: float | None = None) -> F:
     return out
 
 
+# --- flange: exact offset of the turn line in the pull plane ----------------------------------
+
+
+def _cross2(u: F, v: F) -> F:
+    out: F = u[..., 0] * v[..., 1] - u[..., 1] * v[..., 0]
+    return out
+
+
+def _merge_close(xy: F, tol: float) -> NDArray[np.int64]:
+    """Representative id per point: points closer than tol share one (grid + union-find)."""
+    n = len(xy)
+    parent = np.arange(n)
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = int(parent[i])
+        return i
+
+    cells: dict[tuple[int, int], list[int]] = {}
+    keys = np.floor(xy / tol).astype(np.int64)
+    for i in range(n):
+        cx, cy = int(keys[i, 0]), int(keys[i, 1])
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for j in cells.get((cx + dx, cy + dy), []):
+                    if float(np.hypot(*(xy[i] - xy[j]))) <= tol:
+                        ri, rj = find(i), find(j)
+                        if ri != rj:
+                            parent[max(ri, rj)] = min(ri, rj)
+        cells.setdefault((cx, cy), []).append(i)
+    return np.array([find(i) for i in range(n)], dtype=np.int64)
+
+
+def outer_boundary(loop: F, tol: float = 1e-4) -> F:
+    """Outer boundary (counter-clockwise, 2D) of the closed polyline ``loop``, which may cross,
+    touch or run back over itself: the edge of the unbounded face of the planar arrangement of
+    its segments. Segments are split where they cross or where a vertex of another one lies on
+    them (collinear overlaps then share their pieces), and the walk round the outside keeps,
+    at each vertex, the sharpest right turn."""
+    kept = [np.asarray(loop[0], dtype=float)]
+    for x in np.asarray(loop, dtype=float)[1:]:
+        if float(np.hypot(*(x - kept[-1]))) > tol:
+            kept.append(x)
+    while len(kept) > 1 and float(np.hypot(*(kept[-1] - kept[0]))) <= tol:
+        kept.pop()
+    p = np.array(kept)
+    q = np.roll(p, -1, axis=0)
+    m = len(p)
+    if m < 3:
+        return p
+    extra: list[F] = []  # crossing points; ids 0..m-1: starts, m..2m-1: ends, then these
+    splits: list[list[tuple[float, int]]] = [[(0.0, i), (1.0, m + i)] for i in range(m)]
+    d = q - p
+    ln = np.hypot(d[:, 0], d[:, 1])
+    lo = np.minimum(p, q) - tol
+    hi = np.maximum(p, q) + tol
+    chunk = 512
+    for s0 in range(0, m, chunk):
+        rows = np.arange(s0, min(m, s0 + chunk))
+        over = (
+            (lo[rows, None, 0] <= hi[None, :, 0])
+            & (lo[None, :, 0] <= hi[rows, None, 0])
+            & (lo[rows, None, 1] <= hi[None, :, 1])
+            & (lo[None, :, 1] <= hi[rows, None, 1])
+        )
+        over &= np.arange(m)[None, :] > rows[:, None]  # each pair once
+        ii, jj = np.nonzero(over)
+        if len(ii) == 0:
+            continue
+        ii = rows[ii]
+        r, sv = d[ii], d[jj]
+        w = p[jj] - p[ii]
+        den = _cross2(r, sv)
+        par = np.abs(den) <= 1e-12 * ln[ii] * ln[jj]
+        safe = np.where(par, 1.0, den)
+        t = _cross2(w, sv) / safe
+        u = _cross2(w, r) / safe
+        ti, tj = tol / ln[ii], tol / ln[jj]
+        proper = ~par & (t > ti) & (t < 1 - ti) & (u > tj) & (u < 1 - tj)
+        for k in np.nonzero(proper)[0].tolist():
+            vid = 2 * m + len(extra)
+            extra.append(p[ii[k]] + t[k] * r[k])
+            splits[int(ii[k])].append((float(t[k]), vid))
+            splits[int(jj[k])].append((float(u[k]), vid))
+        # a vertex of one segment lying on the other (T junctions, collinear overlaps)
+        for seg, other in ((ii, jj), (jj, ii)):
+            for end, off in ((p, 0), (q, m)):
+                e = end[other]
+                rel = e - p[seg]
+                tt = (rel * d[seg]).sum(axis=1) / ln[seg] ** 2
+                dist = np.abs(_cross2(d[seg], rel)) / ln[seg]
+                tl = tol / ln[seg]
+                on = (dist <= tol) & (tt > tl) & (tt < 1 - tl)
+                for k in np.nonzero(on)[0].tolist():
+                    splits[int(seg[k])].append((float(tt[k]), off + int(other[k])))
+    allp = np.vstack([p, q, np.array(extra).reshape(-1, 2)])
+    rep = _merge_close(allp, tol)
+    nbrs: dict[int, set[int]] = {}
+    for sp in splits:
+        sp.sort()
+        ids = [int(rep[v]) for _, v in sp]
+        for x, y in itertools.pairwise(ids):
+            if x != y:
+                nbrs.setdefault(x, set()).add(y)
+                nbrs.setdefault(y, set()).add(x)
+    if not nbrs:
+        return p
+    verts = np.array(sorted(nbrs))
+    start = int(verts[np.lexsort((allp[verts, 1], allp[verts, 0]))[0]])
+    back = np.array([0.0, 1.0])
+    v = start
+    out = [allp[start]]
+    first: tuple[int, int] | None = None
+    for _ in range(4 * len(allp) + 8):
+        cand = list(nbrs[v])
+        vec = allp[cand] - allp[v]
+        ang = np.arctan2(_cross2(back[None], vec), vec @ back) % (2 * math.pi)
+        ang = np.where(ang <= 1e-12, 2 * math.pi, ang)
+        w = cand[int(np.argmin(ang))]
+        if first is None:
+            first = (v, w)
+        elif (v, w) == first:
+            break
+        out.append(allp[w])
+        back = allp[v] - allp[w]
+        v = w
+    res = np.array(out[:-1]) if len(out) > 1 and np.allclose(out[-1], out[0]) else np.array(out)
+    return res
+
+
+def raw_offset(poly: F, dist: float, step_deg: float = FAN_STEP_DEG) -> F:
+    """Untrimmed outward offset of the counter-clockwise polygon ``poly``: every edge moved out by
+    ``dist``, an arc round each convex vertex, and at each concave vertex the two offset edges
+    joined through the vertex itself. The outer boundary of this curve is the exact offset (the
+    edge of the union of all discs of radius ``dist`` on the polygon)."""
+    n = len(poly)
+    e = np.roll(poly, -1, axis=0) - poly
+    el = np.hypot(e[:, 0], e[:, 1])
+    u = e / np.maximum(el, 1e-12)[:, None]
+    nrm = np.c_[u[:, 1], -u[:, 0]]  # right of travel: outward for counter-clockwise
+    step = math.radians(step_deg)
+    out: list[F] = []
+    for k in range(n):
+        out.append(poly[k] + dist * nrm[k])
+        out.append(poly[(k + 1) % n] + dist * nrm[k])
+        j = (k + 1) % n
+        cr = float(_cross2(u[k], u[j]))
+        dt = float(u[k] @ u[j])
+        th = math.atan2(cr, dt)
+        if dt < -0.999999:  # turns back on itself (a spike): round the tip
+            th = math.pi
+        if th > 1e-9:  # convex: arc from this edge's normal to the next one's
+            steps = max(1, math.ceil(th / step))
+            for s in range(1, steps):
+                out.append(poly[j] + dist * _rot2(nrm[k], th * s / steps))
+        elif th < -1e-9:  # concave: through the vertex
+            out.append(poly[j].copy())
+    return np.array(out)
+
+
+def simplify_closed(p: F, tol: float) -> F:
+    """Closed polyline without points that lie within tol of the line through their neighbours
+    (duplicates, collinear points and noise far below the flange's scale)."""
+    p = np.asarray(p, dtype=float)
+    for _ in range(64):
+        n = len(p)
+        if n <= 3:
+            break
+        a, b = np.roll(p, 1, axis=0), np.roll(p, -1, axis=0)
+        ab = b - a
+        lab = np.hypot(ab[:, 0], ab[:, 1])
+        dev = np.where(
+            lab > 1e-12,
+            np.abs(_cross2(ab, p - a)) / np.maximum(lab, 1e-12),
+            np.hypot(*(p - a).T),
+        )
+        # only where the point lies between its neighbours (not the tip of a spike)
+        between = ((p - a) * ab).sum(axis=1) >= 0
+        between &= ((b - p) * ab).sum(axis=1) >= 0
+        drop = (dev <= tol) & between
+        if not drop.any():
+            break
+        idx = np.nonzero(drop)[0]
+        # never two neighbours in one pass, so each decision sees its true neighbours
+        sel = [int(idx[0])]
+        for i in idx[1:].tolist():
+            if i != sel[-1] + 1:
+                sel.append(i)
+        if len(sel) > 1 and sel[-1] == n - 1 and sel[0] == 0:
+            sel.pop()
+        mask = np.ones(n, dtype=bool)
+        mask[sel] = False
+        if mask.sum() < 3:
+            break
+        p = p[mask]
+    return p
+
+
+def flange_outline(turn2: F, dist: float) -> F:
+    """Flange outer edge in the pull plane (counter-clockwise): the exact ``dist`` offset of what
+    the turn line covers seen along the pull. Straight where the turn line is straight, round at
+    convex corners, a clean corner at concave ones; it never crosses itself, and noise on the turn
+    line far smaller than ``dist`` cannot show (it lies inside the discs of its neighbours)."""
+    tol = max(1e-4, 1e-7 * dist)
+    base = outer_boundary(turn2, tol)
+    if len(base) < 3:  # a turn line seen as a point or a line: round it off anyway
+        base = turn2
+    base = simplify_closed(base, 1e-3)
+    if signed_area(base) < 0:
+        base = base[::-1]
+    edge = simplify_closed(outer_boundary(raw_offset(base, dist), tol), 0.01)
+    # where two rounded corners meet (a concave corner of the edge) the crossing of their chords
+    # lies up to a chord's sag inside the true arcs: such a point goes out onto the envelope
+    sag = dist * (1.0 - math.cos(math.radians(FAN_STEP_DEG) / 2))
+    d = polyline_distance(edge, base)
+    ptol, reach = 1e-6 * dist, 4 * sag + 0.05 * dist
+    for i in np.nonzero(d < dist - ptol)[0].tolist():
+        # onto where the bands of its two pieces meet (both exactly at dist), else just out
+        q = _push_out(edge[i], base, dist, ptol, reach, corner=True)
+        if q is None or float(polyline_distance(q[None], base)[0]) < dist - ptol:
+            q = _push_out(edge[i], base, dist, ptol, reach)
+        if q is not None:
+            edge[i] = q
+    # a point moved out along the envelope can pass its neighbour by a hair: cut such loops, and
+    # points left a hair apart become one
+    edge = untangle(edge, 1.0, tol)
+    kept = [edge[0]]
+    for x in edge[1:]:
+        if float(np.hypot(*(x - kept[-1]))) > 1e-3:
+            kept.append(x)
+    while len(kept) > 3 and float(np.hypot(*(kept[-1] - kept[0]))) <= 1e-3:
+        kept.pop()
+    return simplify_closed(np.array(kept), 1e-6 * dist)
+
+
+BAD_TRIANGLE = 1e6  # pairing cost of a strip triangle turned the wrong way (a fold) ...
+BAD_AREA = 1e4  # ... and per mm² of it (where a fold cannot be avoided, the smallest one)
+
+
+def pair_rings(inner: F, outer: F, sign: float) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    """Monotone pairing of two closed 2D rings for a strip of triangles between them: (index into
+    inner, index into outer) per strip point, every step advancing one ring or both. Among the
+    pairings that turn every strip triangle the same way as the rings (``sign``: +1 counter-
+    clockwise; then the strip cannot fold or overlap), the one with the shortest pairs (dynamic
+    programming over both rings, from an anchor where the pair is certain). ``outer`` must run
+    the same way round as ``inner``."""
+    n, mo = len(inner), len(outer)
+    i0 = int(np.argmax(inner[:, 0]))  # a point on the inner ring's hull: its pair is clear
+    reach = float(np.hypot(*(outer - inner[i0]).T).min())
+    j0 = int(np.argmin(np.hypot(*(outer - (inner[i0] + [reach, 0.0])).T)))
+    t = np.roll(inner, -i0, axis=0)
+    o = np.roll(outer, -j0, axis=0)
+    t = np.vstack([t, t[:1]])
+    o = np.vstack([o, o[:1]])
+    scale = float(np.ptp(np.vstack([t, o]), axis=0).max()) or 1.0
+    eps = 1e-9 * scale * scale
+
+    def bad(x: F) -> F:
+        out: F = np.where(sign * x > eps, BAD_TRIANGLE + BAD_AREA * np.abs(x), 0.0)
+        return out
+
+    from_left = np.zeros((n + 1, mo + 1), dtype=bool)
+    diag = np.zeros((n + 1, mo + 1), dtype=bool)
+    c = np.hypot(*(o - t[0]).T)
+    # triangle (t_i, o_j, o_{j-1}) for j >= 1: outer ring advances
+    pen_o = np.r_[0.0, bad(_cross2(o[1:] - t[0], o[:-1] - t[0]))]
+    cost = np.cumsum(pen_o + c)
+    for i in range(1, n + 1):
+        ti, tp = t[i], t[i - 1]
+        c = np.hypot(*(o - ti).T)
+        tri_t = bad(_cross2(ti - tp, o - tp))  # (t_{i-1}, t_i, o_j)
+        tri_d = tri_t[1:] + bad(_cross2(o[1:] - tp, o[:-1] - tp))  # + (t_{i-1}, o_j, o_{j-1})
+        up = cost + tri_t
+        dg = np.r_[np.inf, cost[:-1] + tri_d]
+        diag[i] = dg < up
+        bcost = np.minimum(up, dg) + c
+        w = np.r_[0.0, bad(_cross2(o[1:] - ti, o[:-1] - ti)) + c[1:]]
+        s = np.cumsum(w)
+        new = s + np.minimum.accumulate(bcost - s)
+        from_left[i] = new < bcost - 1e-9 * np.maximum(1.0, np.abs(bcost))
+        cost = new
+    ii, jj = n, mo
+    path: list[tuple[int, int]] = []
+    while ii > 0 or jj > 0:
+        path.append((ii, jj))
+        if ii == 0 or from_left[ii, jj]:
+            jj -= 1
+        elif diag[ii, jj]:
+            ii, jj = ii - 1, jj - 1
+        else:
+            ii -= 1
+    path.append((0, 0))
+    path.reverse()
+    pr = np.array(path[:-1], dtype=np.int64)  # (n, mo) is (0, 0) again
+    return (pr[:, 0] + i0) % n, (pr[:, 1] + j0) % mo
+
+
 def profile_rings(
     ring: F,
     tangent: F,
@@ -665,18 +971,50 @@ def profile_rings(
     to_turn: float,
     flange: float,
 ) -> dict[str, F]:
-    """EOP / MEOP / flange-turn / flange-edge rings (equal length, point by point)."""
+    """EOP / MEOP / flange-turn / flange-edge rings, equal length, point by point (strip i runs
+    between point i and i+1 of two rings), and "src": per point, the index (as float) of the
+    input ring point it belongs to. The rings repeat an input point where the flange edge needs
+    more points than the turn line (a rounded corner) and the other way round.
+
+    The flange edge is not made point by point: it is the exact ``flange`` offset of the turn
+    line in the plane perpendicular to the pull (``flange_outline``), and the turn line is then
+    paired with it (``pair_rings``) so that no strip triangle folds back. ``out_dir`` is only the
+    fallback when that offset cannot be made."""
     _, a, b = plane_frame(pull)
     # the extensions lie on the surface carried on past the edge; where an offset line runs into
     # itself in that plane (a notch narrower than two extensions, a short edge next to a concave
-    # corner) the loop is cut off, as for the flange
+    # corner) the loop is cut off
     meop = tidy(ring + tangent * to_meop, ring, to_meop)
     turn = tidy(ring + tangent * (to_meop + to_turn), ring, to_meop + to_turn)
-    raw = turn + out_dir * flange
     turn2 = np.c_[turn @ a, turn @ b]
-    raw2 = np.c_[raw @ a, raw @ b]
     sign = 1.0 if signed_area(np.c_[ring @ a, ring @ b]) > 0 else -1.0
+    n = len(ring)
+    edge2 = flange_outline(turn2, flange)
+    ok = len(edge2) >= 3 and bool(np.isfinite(edge2).all())
+    if ok:  # on the envelope: at the flange distance from the turn line (a chord's sag aside)
+        gap = polyline_distance(edge2, turn2)
+        ok = bool(gap.min() >= flange * 0.99) and bool(gap.max() <= flange * 1.01)
+    if ok:
+        if sign < 0:
+            edge2 = edge2[::-1]
+        src, oj = pair_rings(turn2, edge2, sign)
+        off = edge2[oj] - turn2[src]
+        edge = turn[src] + off[:, :1] * a + off[:, 1:] * b
+        return {
+            "eop": ring[src],
+            "meop": meop[src],
+            "turn": turn[src],
+            "edge": edge,
+            "src": src.astype(float),
+        }
+    raw2 = np.c_[(turn + out_dir * flange) @ a, (turn + out_dir * flange) @ b]
     edge2 = tidy(raw2, turn2, flange, sign)
     off = edge2 - turn2
     edge = turn + off[:, :1] * a + off[:, 1:] * b
-    return {"eop": ring, "meop": meop, "turn": turn, "edge": edge}
+    return {
+        "eop": ring,
+        "meop": meop,
+        "turn": turn,
+        "edge": edge,
+        "src": np.arange(n, dtype=float),
+    }

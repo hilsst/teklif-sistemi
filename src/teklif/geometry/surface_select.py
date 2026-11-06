@@ -62,7 +62,9 @@ class Outline:
     # per ring point: direction the surface continues past the edge; unit, except at a concave
     # corner, where it is the mitre (longer) so the MEOP/turn lines stay at their exact distance
     tangent: NDArray[np.float64] | None
-    # per ring point: outward flange direction in the pull plane (unit; mitre at concave corners)
+    # per ring point: outward flange direction in the pull plane (unit; mitre at concave corners).
+    # The flange edge itself is the exact offset of the turn line (mold_profile.flange_outline);
+    # this is only its fallback
     out_dir: NDArray[np.float64] | None
 
 

@@ -261,8 +261,9 @@ def test_skirt_profile_continues_down_the_wall_by_exactly_the_distance(tmp_path:
 
     # straight on (unit tangent, not trimmed at a corner): exactly 20 mm from its EOP point
     dist = np.linalg.norm(r["meop"] - r["eop"], axis=1)
-    plain = np.isclose(np.linalg.norm(ol.tangent, axis=1), 1.0) & np.isclose(
-        r["meop"], ol.ring + 20.0 * ol.tangent
+    src = r["src"].astype(int)  # the rings repeat ring points where the flange needs it
+    plain = np.isclose(np.linalg.norm(ol.tangent[src], axis=1), 1.0) & np.isclose(
+        r["meop"], ol.ring[src] + 20.0 * ol.tangent[src]
     ).all(axis=1)
     assert plain.mean() > 0.7
     assert np.allclose(dist[plain], 20.0, atol=1e-6)
@@ -273,7 +274,7 @@ def test_skirt_profile_continues_down_the_wall_by_exactly_the_distance(tmp_path:
         np.isclose(r["eop"][:, 0], 0.0) | np.isclose(r["eop"][:, 0], 300.0)
     )
     assert at_rim.any()
-    assert np.allclose(ol.tangent[at_rim] @ pull, 1.0, atol=1e-6)
+    assert np.allclose(ol.tangent[src][at_rim] @ pull, 1.0, atol=1e-6)
     assert len(ol.ring) > 4  # the notch is part of the outline
 
 
