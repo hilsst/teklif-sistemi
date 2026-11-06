@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -306,3 +307,37 @@ def test_assembly_solids_can_be_hidden_in_the_payload(tmp_path: Path) -> None:
     assert len(part["tri_color"]) == len(part["tri_face"])
     assert len(part["pos"]) == len(full["pos"]) // 2
     assert len(part["faces"]) == 6 and part["geom_rev"] == [1]
+
+
+def test_assembly_holes_count_only_selected_solids(tmp_path: Path) -> None:
+    """A plate with 1 hole and a bracket with 2 holes: the selection decides the count."""
+    pytest.importorskip("OCP")
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+    from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
+    from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
+    from OCP.TopoDS import TopoDS_Compound
+
+    from teklif.geometry.plate_features import extract_plate_features
+
+    def drilled(x0: float, holes: list[float]) -> Any:
+        shape = BRepPrimAPI_MakeBox(gp_Pnt(x0, 0, 0), 100, 100, 4).Shape()
+        for dx in holes:
+            cyl = BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(x0 + dx, 50, -1), gp_Dir(0, 0, 1)), 5, 6)
+            shape = BRepAlgoAPI_Cut(shape, cyl.Shape()).Shape()
+        return shape
+
+    comp = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(comp)
+    builder.Add(comp, drilled(0, [50]))
+    builder.Add(comp, drilled(300, [25, 75]))
+    w = STEPControl_Writer()
+    w.Transfer(comp, STEPControl_AsIs)
+    path = tmp_path / "asm.step"
+    w.Write(str(path))
+    assert extract_plate_features(path).hole_count == 3
+    assert extract_plate_features(path, {0}).hole_count == 1
+    assert extract_plate_features(path, {1}).hole_count == 2
+    assert extract_plate_features(path).n_solids == 2

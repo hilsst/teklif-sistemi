@@ -58,6 +58,7 @@ class SurfaceSelection:
     ok_ratio: float
     extension_mm: float = 60.0  # EOP -> flange turn along the surface (EOP->MEOP + MEOP->turn)
     flange_mm: float = 150.0
+    solids: tuple[int, ...] = ()  # solids of an assembly that the selected faces belong to
 
     def trim_m(self, all_openings: bool) -> float:
         """Trim length: whole boundary when every opening is trimmed, else the outer rim only."""
@@ -496,4 +497,5 @@ def render_surface_panel(
         ok_ratio=ok,
         extension_mm=prof.to_meop_mm + prof.to_turn_mm,
         flange_mm=prof.flange_mm,
+        solids=tuple(sorted({f.solid for f in mesh.faces if f.id in set(selected)})),
     )

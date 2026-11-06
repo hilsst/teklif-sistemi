@@ -63,6 +63,14 @@ def tool_footprint_mm(props: StepProps, reach_mm: float = FLANGE_MM) -> tuple[fl
     return dims[0] + 2 * reach_mm, dims[1] + 2 * reach_mm
 
 
+def features_for_solids(data: bytes, solids: tuple[int, ...]) -> PlateFeatures:
+    """Plate features of only the selected solids of an assembly."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "part.step"
+        path.write_bytes(data)
+        return extract_plate_features(path, solids)
+
+
 def _cached(upload: Any) -> Measured | None:
     data = upload.getvalue()
     key = "pq_measured_" + hashlib.sha256(data).hexdigest()
@@ -183,6 +191,17 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     )
     with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
         sel = render_surface_panel(upload.getvalue(), lib.thresholds, "pq_surf", FLANGE_MM)
+    if sel and f.n_solids > 1 and sel.solids:
+        fkey = "pq_solidfeat_" + hashlib.sha256(upload.getvalue()).hexdigest() + str(sel.solids)
+        if fkey not in st.session_state:
+            st.session_state[fkey] = features_for_solids(upload.getvalue(), sel.solids)
+        f = st.session_state[fkey]
+        names = ", ".join(str(i) for i in sel.solids)
+        st.info(
+            f"Montajda {m.features.n_solids} gövde var; alan, kalınlık ve delik sayısı yalnız "
+            f"seçili gövde(ler) için hesaplandı (gövde {names}): {f.one_side_area_m2:.2f} m², "
+            f"{f.mean_thickness_mm:.1f} mm, {f.hole_count} delik."
+        )
     trim_all = (lib.thresholds.trim.trim_all_openings.value or 0) >= 0.5
     trim_sel = sel.trim_m(trim_all) if sel else 0.0
     rule = "tüm dış kenar, boşluk ve delikler" if trim_all else "yalnız dış kenar"
