@@ -137,6 +137,56 @@ def _check_profile(ol: Outline, r: dict[str, np.ndarray], flat_part: bool) -> No
                 assert s * _area(q) <= 1e-6, (i, _area(q))
 
 
+def _runs(p: np.ndarray, tol: float = 1e-6) -> list[list[int]]:
+    """Runs (index lists, around the closed ring) of consecutive points at one place."""
+    n = len(p)
+    same = [float(np.linalg.norm(p[(i + 1) % n] - p[i])) <= tol for i in range(n)]
+    if all(same):
+        return [list(range(n))]
+    start = (same.index(False) + 1) % n
+    out: list[list[int]] = [[start]]
+    for k in range(1, n):
+        i = (start + k) % n
+        if same[(i - 1) % n]:
+            out[-1].append(i)
+        else:
+            out.append([i])
+    return out
+
+
+def _check_envelope(ol: Outline, r: dict[str, np.ndarray]) -> None:
+    """Flat part: every MEOP / turn point lies ON the offset envelope of the EOP (20 / 60 mm from
+    the EOP polyline: never closer, and never further, i.e. not collapsed onto a far-away point),
+    the flange edge 150 mm beyond the turn line (at most the small mitre of a gentle plan corner
+    further), and the continuation points outward of the part."""
+    assert ol.ring is not None and ol.tangent is not None
+    eop, meop, turn, edge = r["eop"], r["meop"], r["turn"], r["edge"]
+    for line, dist in ((meop, 20.0), (turn, 60.0)):
+        d = polyline_distance(line, eop)
+        assert d.min() >= dist - 1e-3, (dist, int(np.argmin(d)), d.min())
+        assert d.max() <= dist + 0.05, (dist, int(np.argmax(d)), d.max())
+    fl = polyline_distance(_plan(edge), _plan(turn))
+    assert fl.min() >= 150.0 - 1e-3 and fl.max() <= 150.0 + 1.0, (fl.min(), fl.max())
+    # a run of one turn point is either a rounded corner's fan copies (same EOP point, the turn on
+    # the 60 mm arc about it) or a sharp corner of the turn line itself (a concave corner, a step
+    # shorter than the offset): then the point is a corner of the envelope, >= 60 mm from every
+    # EOP point of the run and exactly 60 mm from the EOP polyline (checked above)
+    for run in _runs(turn):
+        if len(run) <= 3:
+            continue
+        gap = np.linalg.norm(eop[run] - turn[run[0]], axis=1)
+        assert gap.min() >= 60.0 - 1e-3, (run, gap.min())
+        if np.allclose(eop[run], eop[run[0]]):
+            assert np.allclose(gap, 60.0, atol=1e-3), (run, gap)
+    # the surface goes on outward: in plan the continuation never points into the part
+    p2 = _plan(eop)
+    outer = _dedup(p2)
+    probe = p2 + 0.5 * _plan(ol.tangent) / np.maximum(
+        np.linalg.norm(_plan(ol.tangent), axis=1, keepdims=True), 1e-12
+    )
+    assert not any(_inside(q, outer) for q in probe)
+
+
 # --- synthetic parts -----------------------------------------------------------------------
 
 
@@ -147,6 +197,50 @@ def _shapes() -> Any:
     from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 
     class S:
+        @staticmethod
+        def plate(pts: list[tuple[float, float]], h: float = 4.0) -> Any:
+            """A flat plate (0 <= z <= h) with the given polygon outline."""
+            from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakePolygon
+            from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+            from OCP.gp import gp_Vec
+
+            poly = BRepBuilderAPI_MakePolygon()
+            for x, y in pts:
+                poly.Add(gp_Pnt(x, y, 0.0))
+            poly.Close()
+            face = BRepBuilderAPI_MakeFace(poly.Wire()).Face()
+            return BRepPrimAPI_MakePrism(face, gp_Vec(0.0, 0.0, h)).Shape()
+
+        @staticmethod
+        def fillet_vertical(
+            shape: Any, r: float, radii: dict[tuple[float, float], float] | None = None
+        ) -> Any:
+            """Every edge running along z rounded with radius r, or radii[(x, y)] for the one at
+            x, y (a sheet's rounded plan corners; their trim edge is sampled far coarser than
+            the face mesh along it)."""
+            from OCP.BRepAdaptor import BRepAdaptor_Curve
+            from OCP.BRepFilletAPI import BRepFilletAPI_MakeFillet
+            from OCP.TopAbs import TopAbs_EDGE
+            from OCP.TopExp import TopExp_Explorer
+            from OCP.TopoDS import TopoDS
+
+            cast = getattr(TopoDS, "Edge_s", None) or TopoDS.Edge
+            mk = BRepFilletAPI_MakeFillet(shape)
+            ex = TopExp_Explorer(shape, TopAbs_EDGE)
+            seen: set[tuple[float, float]] = set()
+            while ex.More():
+                e = cast(ex.Current())
+                ex.Next()
+                c = BRepAdaptor_Curve(e)
+                p0, p1 = c.Value(c.FirstParameter()), c.Value(c.LastParameter())
+                key = (round(p0.X(), 3), round(p0.Y(), 3))
+                vertical = abs(p0.X() - p1.X()) < 1e-6 and abs(p0.Y() - p1.Y()) < 1e-6
+                if vertical and key not in seen:
+                    seen.add(key)
+                    mk.Add((radii or {}).get(key, r), e)
+            mk.Build()
+            return mk.Shape()
+
         @staticmethod
         def box(x: float, y: float, z: float, dx: float, dy: float, dz: float) -> Any:
             return BRepPrimAPI_MakeBox(gp_Pnt(x, y, z), dx, dy, dz).Shape()
@@ -248,6 +342,100 @@ def test_top_plane_meeting_a_wall(tmp_path: Path) -> None:
     assert np.allclose(t[end, 2], 0.0, atol=1e-6)  # the skirt's end edge: sideways, level
     # flange heights: at the top plane on the top sides, below the skirt on the skirt side
     assert np.allclose(r["edge"][top_edge, 2], 40.0) and np.allclose(r["edge"][skirt, 2], -60.0)
+
+
+def _top(mesh: FaceMesh, z: float) -> list[int]:
+    return [f.id for f in mesh.faces if float(f.vertices[:, 2].min()) > z - 0.1]
+
+
+def test_short_edge_between_two_rounded_convex_corners(tmp_path: Path) -> None:
+    """A corner cut off by a ~20 mm edge, all plan corners rounded (r 8): two convex corners
+    closer than the offsets. The trim edge of each round is sampled as a coarse chord while the
+    face mesh follows the arc finely; the continuation used to flip into the part on such chords,
+    and the turn line collapsed onto one point ~76 mm out (Kemal's TP0007903)."""
+    s = _shapes()
+    shape = s.fillet_vertical(s.plate([(0, 0), (586, 0), (600, 14), (600, 400), (0, 400)]), 8.0)
+    m = _mesh(shape, tmp_path / "cut_corner.step")
+    ol, r = _profile(m, _top(m, 4.0))
+    _check_profile(ol, r, flat_part=True)
+    _check_envelope(ol, r)
+    # the turn line runs round the cut corner on the 60 mm envelope, well spread (no collapse)
+    turn = r["turn"]
+    corner = (turn[:, 0] > 600) & (turn[:, 1] < 0)
+    assert len(np.unique(turn[corner].round(3), axis=0)) >= 8
+
+
+@pytest.mark.parametrize(
+    "outline",
+    [
+        # a 10 mm step in the top side: a convex and a concave corner 10 mm apart
+        [(0, 0), (600, 0), (600, 400), (320, 400), (320, 390), (0, 390)],
+        # a notch 12 mm wide, 8 mm deep: far narrower than the offsets
+        [(0, 0), (600, 0), (600, 400), (306, 400), (306, 392), (294, 392), (294, 400), (0, 400)],
+    ],
+    ids=["step", "notch"],
+)
+def test_small_concave_step_and_notch(tmp_path: Path, outline: list[tuple[float, float]]) -> None:
+    """Small steps tighter than the offsets: the turn line keeps the envelope of the corner arcs
+    and the far edge (a sharp corner of its own), never a point off the envelope."""
+    s = _shapes()
+    shape = s.fillet_vertical(s.plate(outline), 3.0)
+    m = _mesh(shape, tmp_path / "step.step")
+    ol, r = _profile(m, _top(m, 4.0))
+    _check_profile(ol, r, flat_part=True)
+    _check_envelope(ol, r)
+
+
+def test_narrow_bent_strip(tmp_path: Path) -> None:
+    """An L strip 3 mm wide bent round concentric corners (r 6.5 outside, 3.5 inside): the chord
+    of the outer round lies nearer to the inner side's mesh edges than to its own arc, so the
+    owning mesh edge is looked up near the chord's ends, not at its middle."""
+    s = _shapes()
+    strip = s.plate([(0, 0), (3, 0), (3, 97), (100, 97), (100, 100), (0, 100)])
+    shape = s.fillet_vertical(strip, 1.0, {(0.0, 100.0): 6.5, (3.0, 97.0): 3.5})
+    m = _mesh(shape, tmp_path / "strip.step")
+    ol, r = _profile(m, _top(m, 4.0))
+    _check_profile(ol, r, flat_part=True)
+    _check_envelope(ol, r)
+
+
+KEMAL_TP0007903 = Path(
+    "/root/.claude/uploads/c6d37376-1199-5972-b87c-d02a4cb92560/b29c037f-TP0007903.stp"
+)
+
+
+@pytest.fixture(scope="module")
+def kemal_mesh() -> FaceMesh:
+    if not KEMAL_TP0007903.exists():
+        pytest.skip("Kemal's TP0007903 STEP not present")
+    pytest.importorskip("OCP")
+    from teklif.geometry.surface_select import load_face_mesh
+
+    return load_face_mesh(KEMAL_TP0007903, 5.0, 10.0, True)
+
+
+@pytest.mark.parametrize(
+    ("solid", "facing"),
+    [(3, 1.0), (3, -1.0), (2, 1.0), (2, -1.0)],
+    ids=["solid3-top", "solid3-bottom", "solid2-top", "solid2-bottom"],
+)
+def test_kemal_tp0007903(kemal_mesh: FaceMesh, solid: int, facing: float) -> None:
+    """Kemal's real part (18 plates, pull -Z): solid 3 is the plate of his screenshot (rounded
+    corners ~21 mm apart, a jog), solid 2 a 3 mm wide bent strip on a not-quite-flat plane."""
+    from teklif.app.surface_panel import ToolProfile, profile_rings
+    from teklif.geometry.surface_select import faces_facing
+
+    m = kemal_mesh
+    up = set(faces_facing(m, np.array([0.0, 0.0, facing]), 30.0))
+    ids = [i for i in up if m.faces[i].solid == solid]
+    t0 = time.perf_counter()
+    ol = m.outline(ids, PULL)
+    assert ol is not None
+    r = profile_rings(ol, PULL, ToolProfile(20.0, 40.0, 150.0))
+    assert r is not None
+    assert time.perf_counter() - t0 < 1.0
+    _check_profile(ol, r, flat_part=True)
+    _check_envelope(ol, r)
 
 
 def test_untangle_cuts_off_loops_and_keeps_the_point_count() -> None:
