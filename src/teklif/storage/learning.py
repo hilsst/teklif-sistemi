@@ -62,6 +62,7 @@ class CaseInput:
     model_step: tuple[bytes, str] | None = None
     includes_master: bool = False
     done_on: date | None = None
+    part_solids: tuple[int, ...] = ()  # part of an assembly STEP: only these solids are measured
 
 
 @dataclass
@@ -70,30 +71,40 @@ class CaseResult:
     notes: list[str] = field(default_factory=list)
 
 
-def _measure_part(cat: Catalog, cad_id: int, path: Path, notes: list[str]) -> list:  # type: ignore[type-arg]
+def _measure_part(
+    cat: Catalog, cad_id: int, path: Path, notes: list[str], solids: tuple[int, ...] = ()
+) -> list:  # type: ignore[type-arg]
+    # an assembly file is shared by all its parts: the file itself is not given one part's values
+    shared = bool(solids)
     try:
-        props = extract_step_props(path)
+        props = extract_step_props(path, solids or None)
     except StepUnavailableError as exc:
         notes.append(f"{path.name}: ölçülemedi ({exc}); alan elle girilmeli")
         return []
-    cat.record_values("cad_file", cad_id, props.values)
+    if not shared:
+        cat.record_values("cad_file", cad_id, props.values)
     try:
-        values = props.values + plate_step_values(extract_plate_features(path))
+        values = props.values + plate_step_values(extract_plate_features(path, solids or None))
     except StepUnavailableError as exc:
         notes.append(f"{path.name}: levha özellikleri çıkarılamadı ({exc}); yaklaşık değer")
         values = props.values + derive_part_values(props)
-    cat.record_values("cad_file", cad_id, values)
-    cat.mark_measured(cad_id, EXTRACTOR_VERSION)
+    if not shared:
+        cat.record_values("cad_file", cad_id, values)
+        cat.mark_measured(cad_id, EXTRACTOR_VERSION)
     return values
 
 
 def _add_cad(
-    cat: Catalog, step: tuple[bytes, str], kind: str, notes: list[str]
+    cat: Catalog,
+    step: tuple[bytes, str],
+    kind: str,
+    notes: list[str],
+    solids: tuple[int, ...] = (),
 ) -> tuple[int, list]:  # type: ignore[type-arg]
     row, _ = cat.add_cad_file(step[0], step[1], kind)
     values = []
     if kind == "part":
-        values = _measure_part(cat, row.id, Path(row.stored_path), notes)
+        values = _measure_part(cat, row.id, Path(row.stored_path), notes, solids)
     return row.id, values
 
 
@@ -114,7 +125,9 @@ def save_case(cat: Catalog, case: CaseInput) -> CaseResult:
     cad_id: int | None = None
     values: list = []  # type: ignore[type-arg]
     if case.part_step is not None:
-        cad_id, values = _add_cad(cat, case.part_step, "part", notes)
+        cad_id, values = _add_cad(cat, case.part_step, "part", notes, case.part_solids)
+        if case.part_solids:
+            notes.append(f"montaj STEP'inden parça: gövde {list(case.part_solids)} ölçüldü")
     part = cat.add(
         Part(
             part_no=part_no,

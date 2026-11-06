@@ -10,6 +10,7 @@ modelled at an angle it is larger than the oriented envelope, so it carries a re
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -77,8 +78,39 @@ def load_step_shape(path: Path | str) -> tuple[Any, list[str]]:
     return shape, units
 
 
-def extract_step_props(path: Path | str) -> StepProps:
-    """Measure envelope, volume and surface area of a STEP file."""
+def solid_list(shape: Any) -> list[Any]:
+    """The solids of a shape in traversal order (the index used everywhere for assemblies)."""
+    from OCP.TopAbs import TopAbs_SOLID
+    from OCP.TopExp import TopExp_Explorer
+
+    out = []
+    ex = TopExp_Explorer(shape, TopAbs_SOLID)
+    while ex.More():
+        out.append(ex.Current())
+        ex.Next()
+    return out
+
+
+def pick_solids(shape: Any, solids: Collection[int]) -> Any:
+    """Compound of the solids with these indices."""
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+
+    all_solids = solid_list(shape)
+    comp = TopoDS_Compound()
+    builder = BRep_Builder()
+    builder.MakeCompound(comp)
+    for i in sorted(set(solids)):
+        if 0 <= i < len(all_solids):
+            builder.Add(comp, all_solids[i])
+    return comp
+
+
+def extract_step_props(path: Path | str, solids_only: Collection[int] | None = None) -> StepProps:
+    """Measure envelope, volume and surface area of a STEP file.
+
+    ``solids_only``: for an assembly, measure only these solid indices.
+    """
     try:
         from OCP.Bnd import Bnd_Box
         from OCP.BRepBndLib import BRepBndLib
@@ -90,6 +122,8 @@ def extract_step_props(path: Path | str) -> StepProps:
         raise StepUnavailableError("OCP (cadquery-ocp) is not installed") from exc
 
     shape, units = load_step_shape(path)
+    if solids_only:
+        shape = pick_solids(shape, solids_only)
 
     solids = 0
     explorer = TopExp_Explorer(shape, TopAbs_SOLID)
