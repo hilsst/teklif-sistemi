@@ -197,15 +197,22 @@ class FaceMesh:
         # rims, then the rim towards the mold opening (smallest position along pull) is the EOP
         tied = [i for i, a_ in enumerate(areas) if a_ >= 0.9 * max(areas)]
         outer = min(tied, key=lambda i: float((loops[i] @ d).mean()))
-        rim = mp.decimate_loop(loops[outer])
-        if len(rim) < 3:
-            return Outline(loops, open_chains, outer, None, None, None)
         edges = mp.mesh_boundary_edges(
             [(self.faces[i].vertices, self.faces[i].triangles, self.faces[i].normals) for i in ids]
         )
-        cont = mp.segment_continuation(rim, edges)
-        pts, tan = mp.join_corners(rim, cont)
-        idx, out_dir = mp.flange_dirs(pts, tan, d)
+        corner_deg, max_pts = 5.0, 300
+        while True:
+            rim = mp.decimate_loop(loops[outer], max_pts, corner_deg)
+            if len(rim) < 3:
+                return Outline(loops, open_chains, outer, None, None, None)
+            cont = mp.segment_continuation(rim, edges)
+            pts, tan = mp.join_corners(rim, cont)
+            idx, out_dir = mp.flange_dirs(pts, tan, d)
+            # the offset clean-up grows with the square of the ring size: a serrated rim is thinned
+            # harder (larger corner angle, fewer points) until the ring stays workable
+            if len(idx) <= mp.MAX_RING_POINTS or corner_deg >= 160.0:
+                break
+            corner_deg, max_pts = corner_deg * 2, max(60, max_pts // 2)
         return Outline(loops, open_chains, outer, pts[idx], tan[idx], out_dir)
 
     def trim_lengths_mm(self, ids: list[int], pull: Vec) -> tuple[float, float]:
