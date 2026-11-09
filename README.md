@@ -69,11 +69,15 @@ uv run teklif quote examples/ornek_parca.yaml --db data/teklif.sqlite --final   
 - **Master model ayrı satır:** tek parçalı teklifte `master_nre` verilirse (`tooling_exists: true` ile birlikte hatadır) `tooling_nre` yalnız
   kalıptır; `nre.tooling`, `nre.master`, `nre.total` satırları oluşur. Verilmezse eski davranış.
 - **Çekme yönü ve kalıp kararı (Parçadan teklif → 3B ekran):** STEP yüklenince kalıp üretilmez.
-  Kalıp yüzeyini seçince sistem en uygun çekme yönünü arar (küre üzerinde tarama + yerel
-  optimizasyon; önce en az ters açı, sonra en çok ≥ 2° alan, sonra en büyük en küçük açı) ve yan
-  ekranda kararı gösterir: tek parça / maça / bölünmüş kalıp (1-3 parça) / bölünmüş kalıp + maça
-  birlikte / manual_review. Eşikler `thresholds.yaml` → `draft`, `undercut`, `pull_search`; her
-  karar formül, girdi ve kaynakla "Karar gerekçesi" altında. Kod: `teklif.draft.pull_search`.
+  Kalıp yüzeyini seçip **Analizi başlat**'a basınca sistem (1) tek parça için en uygun çekme yönünü
+  arar (küre taraması + yerel optimizasyon), (2) birkaç **bölme yöntemini** karşılaştırır: tek
+  parça, ayırma düzlemiyle 2 ve 3 parça (her parçanın kendi çekme yönü, parçalar birbirinden
+  ayrılabilecek şekilde), ters açı bölgelerinden bölme; (3) en düşük puanlıyı seçer: tek parça /
+  maça / bölünmüş kalıp / bölünmüş kalıp + maça birlikte / manual_review. Kalıp parçaları 3B'de ayrı
+  renkte, maça bölgeleri koyu, ayırma yüzeyleri yüzeye dik açık gri şeritle gösterilir. **Kalıbın
+  en fazla kaç parça olabileceği** ekranda girilir (varsayılan `undercut.max_split_pieces` = 3).
+  Eşikler ve puan ağırlıkları `thresholds.yaml` → `draft`, `undercut`, `pull_search`; her karar
+  formül, girdi ve kaynakla "Karar gerekçesi" altında. Kod: `teklif.draft.pull_search`.
 - **Minimum sipariş tutarı:** `thresholds.yaml` → `costing.min_order_value` (0 = kapalı; `null` = TODO, teklifi taslak yapar). Sipariş
   toplamı altında kalırsa fark `price.min_order_topup` satırı olarak eklenir; birim fiyat değişmez.
   Çok kalemli teklifte tek kez, teklif toplamına uygulanır. **TODO: gerçek değeri girin.**

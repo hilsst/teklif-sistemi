@@ -218,6 +218,38 @@ class UndercutThresholds(_Strict):
         source=Source.USER,
         desc="Bölünmüş kalıpta önerilecek en fazla parça sayısı (1, 2, 3 parçalı seçenek)",
     )
+    core_cost_weight: Param = Param(
+        value=1.0,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="Yöntem karşılaştırması: bir maçanın göreli maliyet puanı (TODO Kemal: kalibre et)",
+    )
+    split_cost_weight: Param = Param(
+        value=3.0,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="Yöntem karşılaştırması: kalıbın her ek parçasının göreli maliyet puanı "
+        "(TODO Kemal: kalibre et)",
+    )
+    unresolved_cost_weight: Param = Param(
+        value=100.0,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="Yöntem karşılaştırması: çözülemeyen her ters açı bölgesi için ceza puanı",
+    )
+    warn_cost_weight: Param = Param(
+        value=2.0,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="Yöntem karşılaştırması: yüzeyin tamamı warn_min–min_ok arası (düşük çekme) "
+        "çıkarsa eklenen puan; kısmi pay oranlanır",
+    )
+    sandwich_tol_deg: Param = Param(
+        value=10.0,
+        unit="deg",
+        source=Source.DEFAULT,
+        desc="İki ayırma düzlemi arasındaki parçanın düzleme paralel çıkış sapması (izin verilen)",
+    )
     threshold_margin_ratio: Param = Param(
         value=0.2,
         unit="ratio",
@@ -238,6 +270,13 @@ class PullSearchSettings(_Strict):
         unit="count",
         source=Source.DEFAULT,
         desc="Küre üzerinde taranan aday yön sayısı (tam küre için; koni dışı atılır)",
+    )
+    piece_max_tilt_deg: Param = Param(
+        value=120.0,
+        unit="deg",
+        source=Source.DEFAULT,
+        desc="Bölünmüş kalıp parçalarının çekme yönü, parçanın ortalama iç normalinden en fazla "
+        "bu kadar sapar",
     )
     refine_min_step_deg: Param = Param(
         value=0.1,

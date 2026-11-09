@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -16,8 +17,8 @@ from teklif.draft.pull_search import (
     assess,
     best_direction,
     components,
+    parting_walls,
     pull_angles_deg,
-    search_directions,
     settings_from_thresholds,
 )
 
@@ -83,22 +84,25 @@ def _hook(x: float, side: float, size: float = 20.0) -> Quad:
     )
 
 
-def _dovetail(lean_deg: float = 10.0) -> list[Quad]:
-    """U channel whose two walls lean inwards: undercut on both sides (needs a split)."""
+def _dovetail(lean_deg: float = 10.0, length: float = 100.0) -> list[Quad]:
+    """Hood over a part: top plate and two side walls leaning inwards (undercut on both sides for
+    +Z), closed by two end walls that flare outwards 5 deg. The ends are big enough that pulling
+    along the hood's axis leaves a region too large for a core: only a split releases it."""
     t = 100 * math.tan(math.radians(lean_deg))
     s, c = math.sin(math.radians(lean_deg)), math.cos(math.radians(lean_deg))
-    e = 100 * math.tan(math.radians(5))  # closed ends flaring out 5 deg (no axial pull)
+    e = 100 * math.tan(math.radians(5))
     es, ec = math.sin(math.radians(5)), math.cos(math.radians(5))
+    ln = length
     return [
-        ([-50, 0, 0], [50, 0, 0], [50, 300, 0], [-50, 300, 0], [0, 0, -1]),
-        ([-50, 0, 0], [-50, 300, 0], [-50 + t, 300, 100], [-50 + t, 0, 100], [-c, 0, s]),
-        ([50, 0, 0], [50, 300, 0], [50 - t, 300, 100], [50 - t, 0, 100], [c, 0, s]),
+        ([-50, 0, 0], [50, 0, 0], [50, ln, 0], [-50, ln, 0], [0, 0, -1]),
+        ([-50, 0, 0], [-50, ln, 0], [-50 + t, ln, 100], [-50 + t, 0, 100], [-c, 0, s]),
+        ([50, 0, 0], [50, ln, 0], [50 - t, ln, 100], [50 - t, 0, 100], [c, 0, s]),
         ([-50, 0, 0], [50, 0, 0], [50 - t, -e, 100], [-50 + t, -e, 100], [0, -ec, -es]),
         (
-            [-50, 300, 0],
-            [50, 300, 0],
-            [50 - t, 300 + e, 100],
-            [-50 + t, 300 + e, 100],
+            [-50, ln, 0],
+            [50, ln, 0],
+            [50 - t, ln + e, 100],
+            [-50 + t, ln + e, 100],
             [0, ec, -es],
         ),
     ]
@@ -134,16 +138,19 @@ def test_search_recovers_a_tilted_part() -> None:
 
 
 def test_search_finds_a_direction_that_avoids_the_undercut() -> None:
-    # 2 deg back-lean on one wall: +Z locks it, a tilted pull releases everything
+    # 2 deg back-lean on one wall: straight +Z locks it, a tilted pull releases everything
     t = 50 * math.tan(math.radians(2))
     s, c = math.sin(math.radians(2)), math.cos(math.radians(2))
     q = _tray(5.0)
     q[1] = ([0, 0, 0], [0, 200, 0], [t, 200, 50], [t, 0, 50], [-c, 0, s])
     ts = _soup(q)
-    assert assess(ts, np.array([0, 0, 1.0]), S).solution is not Solution.SINGLE
-    best = best_direction(ts.normals, ts.areas, S)
+    a = assess(ts, np.array([0, 0, 1.0]), S)  # the user looks at straight +Z
+    assert a.pull.undercut_ratio > 0
+    assert a.solution is Solution.SINGLE  # but the best single piece is a tilted pull
+    assert a.chosen is not None
+    best = a.chosen.pieces[0].pull
     assert best.undercut_ratio == 0
-    assert assess(ts, np.array(best.direction), S).solution is Solution.SINGLE
+    assert pull_angles_deg(best.direction)["Z"] > 0.5
 
 
 def test_small_local_undercut_is_a_core() -> None:
@@ -159,23 +166,44 @@ def test_two_sided_undercut_is_a_two_piece_split() -> None:
     ts = _soup(_dovetail())
     a = assess(ts, np.array([0, 0, 1.0]), S)
     assert a.solution is Solution.SPLIT
+    ch = a.chosen
+    assert ch is not None and ch.kind == "plane" and ch.n_pieces == 2 and ch.n_cores == 0
     assert a.plan is not None and len(a.plan.pieces) == 2
     assert any(f.code == "split_parting_line" for f in a.flags)
-    for p in a.plan.pieces:
-        assert p.pull.undercut_ratio == 0
+    n = np.array(ch.planes[0].normal)
+    assert abs(n[0]) > 0.95  # the plane cuts the hood left from right
+    p0, p1 = ch.pieces[0].pull, ch.pieces[1].pull
+    for p in (p0, p1):
+        assert p.undercut_ratio == 0
+    # the pieces slide apart: the part moves +n relative to the negative-side piece and -n for
+    # the positive-side one
+    assert np.dot(p0.direction, n) >= -1e-6
+    assert np.dot(p1.direction, n) <= 1e-6
+    walls = parting_walls(ts, ch.piece_of, 20.0)
+    assert len(walls) > 0
+    assert np.abs(walls[:, :, 0]).max() < 60  # the wall stands on the cut near x = 0
 
 
-def test_runners_up_show_a_side_pull_against_the_split() -> None:
-    # the closed dovetail slides out sideways with one end wall as a core, but most of it at 0 deg:
-    # the search offers both and flags the low-draft one
+def test_methods_are_ranked_by_cost_and_listed() -> None:
     ts = _soup(_dovetail())
-    found = search_directions(ts.normals, ts.areas, S)
-    assert len(found) >= 2
-    sols = {assess(ts, np.array(f.direction), S).solution for f in found}
-    assert len(sols) >= 2
-    side = assess(ts, np.array(found[0].direction), S)
-    if side.pull.warn_ratio >= S.warn_review_ratio:
-        assert any(f.code == "low_draft" for f in side.flags)
+    a = assess(ts, np.array([0, 0, 1.0]), S)
+    costs = [m.cost for m in a.methods]
+    assert costs == sorted(costs)
+    kinds = {m.kind for m in a.methods}
+    assert {"single", "plane"} <= kinds
+    single = next(m for m in a.methods if m.kind == "single")
+    assert single.cost > a.methods[0].cost
+    assert any(t.key.startswith("method.") for t in a.trace)
+
+
+def test_piece_limit_is_respected() -> None:
+    ts = _soup(_dovetail())
+    one = assess(ts, np.array([0, 0, 1.0]), replace(S, max_split_pieces=1))
+    assert all(m.n_pieces == 1 for m in one.methods)
+    assert one.solution is Solution.REVIEW  # nothing releases it as one piece
+    two = assess(ts, np.array([0, 0, 1.0]), replace(S, max_split_pieces=2))
+    assert all(m.n_pieces <= 2 for m in two.methods)
+    assert two.solution is Solution.SPLIT
 
 
 def test_split_and_core_together() -> None:
@@ -183,7 +211,7 @@ def test_split_and_core_together() -> None:
     # pull grazing base, ends and lip at exactly 0 deg would, so this test asks for 0.5 deg draft
     h = math.radians(30)
     up_y = [0, math.sin(h), math.cos(h)]
-    lip: Quad = ([-10, 140, 30], [10, 140, 30], [10, 160, 30], [-10, 160, 30], up_y)
+    lip: Quad = ([-10, 40, 30], [10, 40, 30], [10, 60, 30], [-10, 60, 30], up_y)
     ts = _soup([*_dovetail(), lip])
     a = assess(ts, np.array([0, 0, 1.0]), Settings(warn_min_deg=0.5))
     assert a.solution is Solution.SPLIT_CORE
@@ -209,8 +237,7 @@ def test_closed_undercut_needs_review() -> None:
     q = [*_tray(), roof]
     ts = _soup(q)
     a = assess(ts, np.array([0, 0, 1.0]), Settings(max_split_pieces=1))
-    assert a.solution is Solution.REVIEW
-    assert a.manual_review
+    assert a.manual_review  # low draft everywhere or unresolved: the engineer must look
 
 
 def test_tiny_shallow_patch_is_noise_and_flagged() -> None:

@@ -30,7 +30,8 @@ alone, but positive faces shadowed by an overhang are not added to the region ar
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
@@ -63,7 +64,13 @@ class Settings:
     opposite_cos: float = -0.5
     max_split_pieces: int = 3
     threshold_margin_ratio: float = 0.2
+    core_cost_weight: float = 1.0
+    split_cost_weight: float = 3.0
+    unresolved_cost_weight: float = 100.0
+    warn_cost_weight: float = 2.0
+    sandwich_tol_deg: float = 10.0
     max_tilt_deg: float = 90.0
+    piece_max_tilt_deg: float = 120.0
     samples: int = 600
     refine_min_step_deg: float = 0.1
     robust_min_quantile: float = 0.01
@@ -83,7 +90,13 @@ _PATHS = {
     "opposite_cos": "undercut.opposite_cos",
     "max_split_pieces": "undercut.max_split_pieces",
     "threshold_margin_ratio": "undercut.threshold_margin_ratio",
+    "core_cost_weight": "undercut.core_cost_weight",
+    "split_cost_weight": "undercut.split_cost_weight",
+    "unresolved_cost_weight": "undercut.unresolved_cost_weight",
+    "warn_cost_weight": "undercut.warn_cost_weight",
+    "sandwich_tol_deg": "undercut.sandwich_tol_deg",
     "max_tilt_deg": "pull_search.max_tilt_deg",
+    "piece_max_tilt_deg": "pull_search.piece_max_tilt_deg",
     "samples": "pull_search.samples",
     "refine_min_step_deg": "pull_search.refine_min_step_deg",
     "robust_min_quantile": "pull_search.robust_min_quantile",
@@ -93,6 +106,8 @@ _UNITS = {
     "warn_min_deg": "deg",
     "noise_draft_deg": "deg",
     "max_tilt_deg": "deg",
+    "piece_max_tilt_deg": "deg",
+    "sandwich_tol_deg": "deg",
     "refine_min_step_deg": "deg",
     "max_split_pieces": "count",
     "samples": "count",
@@ -138,6 +153,8 @@ class TriSet:
     centroids: F64  # (m, 3)
     face: I64  # (m,) B-rep face id per triangle
     pairs: I64  # (k, 2) triangles that share an edge
+    tri_vid: I64 | None = None  # (m, 3) merged vertex id per triangle corner
+    vert_xyz: F64 | None = None  # (n, 3) coordinates of the merged vertices
 
     @property
     def total_area(self) -> float:
@@ -160,8 +177,11 @@ class TriSet:
         if normals is None:
             normals = cross / np.where(lens > 0, lens, 1.0)[:, None]
         # vertices at the same place (faces carry their own copies of shared edge nodes)
-        _, vid = np.unique(np.round(v / tol_mm), axis=0, return_inverse=True)
-        vid = vid.ravel()[t]
+        _, first, inv = np.unique(
+            np.round(v / tol_mm), axis=0, return_index=True, return_inverse=True
+        )
+        vid = inv.ravel()[t]
+        vert_xyz = v[first]
         e = np.sort(np.stack([vid[:, [0, 1]], vid[:, [1, 2]], vid[:, [2, 0]]], axis=1), axis=2)
         e = e.reshape(-1, 2)
         tri_of = np.repeat(np.arange(len(t)), 3)
@@ -177,6 +197,8 @@ class TriSet:
             centroids=(a + b + c) / 3,
             face=np.zeros(len(t), dtype=np.int64) if face is None else np.asarray(face),
             pairs=pairs.astype(np.int64),
+            tri_vid=vid.astype(np.int64),
+            vert_xyz=vert_xyz,
         )
 
 
@@ -267,18 +289,40 @@ def mean_inward(normals: F64, areas: F64) -> F64:
     return m / n if n > 1e-12 else np.array([0.0, 0.0, 1.0])
 
 
+Constraint = tuple[F64, float, float]  # lo <= d . axis <= hi
+
+
+def _allowed(v: F64, ref: F64, cos_lim: float, cons: Sequence[Constraint]) -> bool:
+    if float(v @ ref) < cos_lim:
+        return False
+    return all(lo - 1e-9 <= float(v @ a) <= hi + 1e-9 for a, lo, hi in cons)
+
+
 def search_directions(
-    normals: F64, areas: F64, s: Settings, seeds: tuple[F64, ...] = (), keep: int = 4
+    normals: F64,
+    areas: F64,
+    s: Settings,
+    seeds: tuple[F64, ...] = (),
+    keep: int = 4,
+    cons: Sequence[Constraint] = (),
+    max_tilt_deg: float | None = None,
 ) -> list[DirectionScore]:
     """Distinct locally best pull directions, best first (see module docstring). The runners-up
-    let the engineer compare, e.g. a side pull with one core against a split tool."""
+    let the engineer compare, e.g. a side pull with one core against a split tool.
+
+    ``cons``: only directions with ``lo <= d . axis <= hi`` for every (axis, lo, hi) are allowed
+    (a mold piece must be able to move away from its neighbours). Empty when none is allowed.
+    """
     if not len(normals):
         raise ValueError("empty surface")
     ref = mean_inward(normals, areas)
-    cos_lim = math.cos(math.radians(s.max_tilt_deg)) - 1e-9
+    cos_lim = math.cos(math.radians(s.max_tilt_deg if max_tilt_deg is None else max_tilt_deg))
+    cos_lim -= 1e-9
     cands = [ref, *seeds, *np.vstack([np.eye(3), -np.eye(3)]), *_fibonacci(max(s.samples, 12))]
     c = np.array([v / np.linalg.norm(v) for v in cands])
-    c = c[c @ ref >= cos_lim]
+    c = c[[_allowed(v, ref, cos_lim, cons) for v in c]]
+    if not len(c):
+        return []
     tot = float(areas.sum()) or 1.0
     bad = np.empty(len(c))
     ok = np.empty(len(c))
@@ -287,17 +331,20 @@ def search_directions(
         dr = np.round(dr, 6)
         bad[lo : lo + 64] = (areas[:, None] * (dr < s.warn_min_deg)).sum(axis=0) / tot
         ok[lo : lo + 64] = (areas[:, None] * (dr >= s.min_ok_deg)).sum(axis=0) / tot
-    starts: list[F64] = [c[0]]  # the mean inward normal always gets refined
+    order = np.lexsort((-ok, np.round(bad, 7)))
+    starts: list[F64] = []
     far = math.cos(math.radians(15.0))
-    for i in np.lexsort((-ok, np.round(bad, 7))):
+    for i in ([0] if _allowed(c[0], ref, cos_lim, cons) and np.allclose(c[0], ref) else []) + [
+        int(j) for j in order
+    ]:
         if len(starts) >= keep + 1:
             break
         if all(float(c[i] @ x) < far for x in starts):
             starts.append(c[i])
     step0 = math.sqrt(4 * math.pi / max(s.samples, 12))
+    allow = lambda v: _allowed(v, ref, cos_lim, cons)  # noqa: E731
     found = sorted(
-        (_refine(normals, areas, x, ref, cos_lim, step0, s) for x in starts),
-        key=DirectionScore.key,
+        (_refine(normals, areas, x, allow, step0, s) for x in starts), key=DirectionScore.key
     )
     near = math.cos(math.radians(10.0))  # runners-up must be a different way out
     out: list[DirectionScore] = []
@@ -315,7 +362,12 @@ def best_direction(
 
 
 def _refine(
-    normals: F64, areas: F64, d: F64, ref: F64, cos_lim: float, step: float, s: Settings
+    normals: F64,
+    areas: F64,
+    d: F64,
+    allow: Callable[[F64], bool],
+    step: float,
+    s: Settings,
 ) -> DirectionScore:
     cur = score(normals, areas, d, s)
     stop = math.radians(s.refine_min_step_deg)
@@ -327,7 +379,7 @@ def _refine(
             v = np.array(cur.direction) * math.cos(step) + math.sin(step) * (
                 math.cos(t) * a + math.sin(t) * b
             )
-            if float(v @ ref) < cos_lim:
+            if not allow(v):
                 continue
             sc = score(normals, areas, v, s)
             if sc.key() < cur.key():
@@ -561,23 +613,290 @@ SOLUTION_LABEL = {
 }
 
 
+# --- split methods --------------------------------------------------------------------
+# Kemal 2026-11-09: before deciding, the surface is judged with several ways of splitting the
+# tool (one piece, planes through the part, the undercut regions' own boundaries); each way gives
+# every piece its own pull direction and leaves some cores. The cheapest way wins.
+
+# Offsets of the parting planes as shares of the tool-surface area along the plane normal: the
+# discretisation of the search, not a company value.
+_Q2 = (0.35, 0.5, 0.65)
+_Q3 = ((0.25, 0.5), (0.33, 0.67), (0.5, 0.75), (0.25, 0.75))
+_N_NORMALS = 10  # most plane normals tried
+_N_EXACT = 3  # best quick candidates per piece count that are evaluated exactly
+_MERGE_COS = math.cos(math.radians(10.0))  # plane normals closer than this count as one
+
+
+@dataclass(frozen=True)
+class PartingPlane:
+    normal: tuple[float, float, float]
+    offset: float  # mm: the plane is n . x = offset
+
+
+@dataclass(frozen=True)
+class Method:
+    """One way to build the tool: pieces (each with a pull direction and its cores) and cost."""
+
+    kind: str  # "single" | "plane" | "region"
+    label: str
+    pieces: list[MoldPiece]
+    planes: list[PartingPlane]
+    piece_of: I64  # (m,) piece index per triangle
+    n_cores: int
+    n_unresolved: int
+    cost: float
+    warn_share: float = 0.0  # area share released with only warn_min_deg..min_ok_deg of draft
+
+    @property
+    def n_pieces(self) -> int:
+        return len(self.pieces)
+
+    @property
+    def solution(self) -> Solution:
+        if self.n_unresolved:
+            return Solution.REVIEW
+        if self.n_pieces > 1:
+            return Solution.SPLIT_CORE if self.n_cores else Solution.SPLIT
+        return Solution.CORE if self.n_cores else Solution.SINGLE
+
+
+def method_cost(
+    n_pieces: int, n_cores: int, n_unresolved: int, warn_share: float, s: Settings
+) -> float:
+    return (
+        s.split_cost_weight * (n_pieces - 1)
+        + s.core_cost_weight * n_cores
+        + s.unresolved_cost_weight * n_unresolved
+        + s.warn_cost_weight * warn_share
+    )
+
+
+def _make_method(
+    kind: str,
+    label: str,
+    ts: TriSet,
+    pieces: list[MoldPiece],
+    planes: list[PartingPlane],
+    s: Settings,
+) -> Method:
+    piece_of = np.full(len(ts.areas), -1, dtype=np.int64)
+    for k, p in enumerate(pieces):
+        piece_of[p.tris] = k
+    n_cores = sum(len(p.cores) for p in pieces)
+    n_unres = sum(len(p.unresolved) for p in pieces)
+    warn = sum(p.pull.warn_ratio * p.area_ratio for p in pieces)
+    cost = method_cost(len(pieces), n_cores, n_unres, warn, s)
+    return Method(kind, label, pieces, planes, piece_of, n_cores, n_unres, cost, warn)
+
+
+def _aggregate(normals: F64, areas: F64, cell: float = 0.01) -> tuple[F64, F64]:
+    """Triangles with (nearly) the same normal merged: the quick search only needs the area per
+    normal, and big planar or cylindrical faces collapse to a handful of entries."""
+    key = np.round(normals / cell).astype(np.int32)
+    _, inv = np.unique(key, axis=0, return_inverse=True)
+    inv = inv.ravel()
+    w = np.bincount(inv, weights=areas)
+    n = np.stack([np.bincount(inv, weights=normals[:, k] * areas) for k in range(3)], axis=1)
+    ln = np.linalg.norm(n, axis=1)
+    keep = (w > 0) & (ln > 1e-12)
+    return n[keep] / ln[keep, None], w[keep]
+
+
+def _plane_cons(k: int, m: int, n: F64, s: Settings) -> list[Constraint]:
+    """Pull constraints of piece ``k`` of ``m`` pieces along plane normal ``n``: the piece on the
+    negative side moves away from the others (the part moves +n relative to it), the piece on the
+    positive side the other way, a piece between two planes only along them."""
+    slack = math.sin(math.radians(s.sandwich_tol_deg))
+    if k == 0:
+        return [(n, 0.0, 1.0)]
+    if k == m - 1:
+        return [(n, -1.0, 0.0)]
+    return [(n, -slack, slack)]
+
+
+def _quick_settings(s: Settings) -> Settings:
+    return replace(
+        s,
+        samples=max(60, s.samples // 5),
+        refine_min_step_deg=max(s.refine_min_step_deg, 0.5),
+    )
+
+
+def _weighted_quantiles(pos: F64, areas: F64, qs: Sequence[float]) -> list[float]:
+    order = np.argsort(pos)
+    cum = np.cumsum(areas[order]) / (float(areas.sum()) or 1.0)
+    idx = np.minimum(np.searchsorted(cum, qs), len(pos) - 1)
+    return [float(pos[order][i]) for i in idx]
+
+
+def _plane_normals(ts: TriSet, pull: F64, regions: list[UndercutRegion]) -> list[F64]:
+    """Candidate parting-plane normals, most informative first: the sides the undercuts face,
+    the part's principal axes, the world axes, directions around the baseline pull."""
+    cands: list[F64] = []
+    for r in regions:
+        v = np.asarray(r.lateral, dtype=float)
+        if float(np.linalg.norm(v)) > 0.5 and r.kind is not RegionKind.NOISE:
+            cands.append(v / np.linalg.norm(v))
+    c = ts.centroids - np.average(ts.centroids, axis=0, weights=ts.areas)
+    cov = (c * ts.areas[:, None]).T @ c
+    _, vecs = np.linalg.eigh(cov)
+    cands += [vecs[:, k] for k in (2, 1, 0)]
+    cands += list(np.eye(3))
+    a, b = _basis(pull)
+    cands += [math.cos(t) * a + math.sin(t) * b for t in np.radians([0, 45, 90, 135])]
+    out: list[F64] = []
+    for v in cands:
+        v = v / np.linalg.norm(v)
+        if all(abs(float(v @ o)) < _MERGE_COS for o in out):  # +n and -n are the same plane
+            out.append(v)
+        if len(out) >= _N_NORMALS:
+            break
+    return out
+
+
+def _quick_plane(
+    ts: TriSet, n: F64, offsets: Sequence[float], s: Settings, qs: Settings
+) -> tuple[float, float] | None:
+    """Undercut area share left by a plane split (aggregated search); None if a piece cannot
+    move away from its neighbours at all. Returns (undercut share, low-draft share)."""
+    lab = np.digitize(ts.centroids @ n, offsets)
+    m = len(offsets) + 1
+    left = warn = 0.0
+    for k in range(m):
+        g = np.flatnonzero(lab == k)
+        if not len(g):
+            return None
+        nn, aa = _aggregate(ts.normals[g], ts.areas[g])
+        found = search_directions(
+            nn, aa, qs, keep=1, cons=_plane_cons(k, m, n, s), max_tilt_deg=s.piece_max_tilt_deg
+        )
+        if not found:
+            return None
+        left += found[0].undercut_ratio * float(ts.areas[g].sum())
+        warn += found[0].warn_ratio * float(ts.areas[g].sum())
+    tot = ts.total_area or 1.0
+    return left / tot, warn / tot
+
+
+def _exact_pieces(
+    ts: TriSet, groups: list[I64], cons: list[list[Constraint]], s: Settings, tilt: float
+) -> list[MoldPiece] | None:
+    tot = ts.total_area or 1.0
+    pieces: list[MoldPiece] = []
+    for g, cn in zip(groups, cons, strict=True):
+        found = search_directions(ts.normals[g], ts.areas[g], s, keep=3, cons=cn, max_tilt_deg=tilt)
+        if not found:
+            return None
+        sc = found[0]
+        regs = _mark_opposite(undercut_regions(ts, g, np.array(sc.direction), s), s)
+        regs = [r for r in regs if r.kind is not RegionKind.NOISE]
+        pieces.append(
+            MoldPiece(
+                g,
+                float(ts.areas[g].sum()) / tot,
+                sc,
+                [r for r in regs if r.kind is RegionKind.CORE],
+                [r for r in regs if r.kind is RegionKind.SPLIT],
+            )
+        )
+    return pieces
+
+
+def _plane_methods(
+    ts: TriSet, pull: F64, regions: list[UndercutRegion], s: Settings
+) -> list[Method]:
+    """Plane splits (2 and, when allowed, 3 pieces): quick search of every normal/offset, exact
+    evaluation of the best few."""
+    qs = _quick_settings(s)
+    quick: list[tuple[float, int, F64, list[float]]] = []  # (approximate cost, ...)
+    for n in _plane_normals(ts, pull, regions):
+        pos = ts.centroids @ n
+        options: list[list[float]] = [_weighted_quantiles(pos, ts.areas, (q,)) for q in _Q2]
+        if s.max_split_pieces >= 3:
+            options += [_weighted_quantiles(pos, ts.areas, q) for q in _Q3]
+        for offs in options:
+            r = _quick_plane(ts, n, offs, s, qs)
+            if r is not None:
+                approx = s.unresolved_cost_weight * r[0] + s.warn_cost_weight * r[1]
+                quick.append((approx, len(offs) + 1, n, offs))
+    methods: list[Method] = []
+    for m in (2, 3):
+        best = sorted((q for q in quick if q[1] == m), key=lambda q: q[0])[:_N_EXACT]
+        for _, _, n, offs in best:
+            lab = np.digitize(ts.centroids @ n, offs)
+            groups = [np.flatnonzero(lab == k) for k in range(m)]
+            cons = [_plane_cons(k, m, n, s) for k in range(m)]
+            pieces = _exact_pieces(ts, groups, cons, s, s.piece_max_tilt_deg)
+            if pieces is None:
+                continue
+            nt = (float(n[0]), float(n[1]), float(n[2]))
+            axis = "XYZ"[int(np.argmax(np.abs(n)))] if float(np.abs(n).max()) > 0.98 else None
+            where = f"{axis} eksenine dik" if axis else f"normal {_fmt(nt)}"
+            methods.append(
+                _make_method(
+                    "plane",
+                    f"{m} parçalı bölünmüş kalıp ({where} ayırma düzlemi)",
+                    ts,
+                    pieces,
+                    [PartingPlane(nt, o) for o in offs],
+                    s,
+                )
+            )
+    return methods
+
+
+def parting_walls(ts: TriSet, piece_of: I64, length_mm: float) -> NDArray[np.float64]:
+    """Triangles of the parting walls: along every edge between two pieces, a strip standing
+    perpendicular to the tool surface (along the mean normal, into the tool) ``length_mm`` deep."""
+    if ts.tri_vid is None or ts.vert_xyz is None or not len(ts.pairs):
+        return np.zeros((0, 3, 3))
+    pa, pb = ts.pairs[:, 0], ts.pairs[:, 1]
+    diff = piece_of[pa] != piece_of[pb]
+    pa, pb = pa[diff], pb[diff]
+    if not len(pa):
+        return np.zeros((0, 3, 3))
+    va, vb = ts.tri_vid[pa], ts.tri_vid[pb]
+    in_b = (va[:, :, None] == vb[:, None, :]).any(axis=2)
+    ok = in_b.sum(axis=1) == 2
+    va, in_b, pa, pb = va[ok], in_b[ok], pa[ok], pb[ok]
+    idx = np.argsort(~in_b, axis=1, kind="stable")[:, :2]
+    e = np.take_along_axis(va, idx, axis=1)
+    p0, p1 = ts.vert_xyz[e[:, 0]], ts.vert_xyz[e[:, 1]]
+    nrm = ts.normals[pa] + ts.normals[pb]
+    ln = np.linalg.norm(nrm, axis=1)
+    nrm = nrm / np.where(ln > 1e-9, ln, 1.0)[:, None] * length_mm
+    q0, q1 = p0 + nrm, p1 + nrm
+    return np.concatenate([np.stack([p0, p1, q1], 1), np.stack([p0, q1, q0], 1)])
+
+
 @dataclass(frozen=True)
 class ToolingAssessment:
-    pull: DirectionScore
-    regions: list[UndercutRegion]
+    pull: DirectionScore  # the baseline (single-piece) pull the user looked at
+    regions: list[UndercutRegion]  # undercut regions of that baseline pull
     solution: Solution
-    plan: SplitPlan | None  # for a split solution
+    plan: SplitPlan | None  # chosen method's pieces when it is a split
     n_cores: int
     reasons: list[str]
     alternatives: list[str]
     flags: list[ReviewFlag]
     trace: list[CostLine]
+    methods: list[Method] = field(default_factory=list)  # every method tried, cheapest first
+    settings: Settings = field(default_factory=Settings)
+
+    @property
+    def chosen(self) -> Method | None:
+        return self.methods[0] if self.methods else None
+
+    @property
+    def max_pieces(self) -> int:
+        return self.settings.max_split_pieces
 
     @property
     def label(self) -> str:
-        if self.solution in (Solution.SPLIT, Solution.SPLIT_CORE) and self.plan:
+        ch = self.chosen
+        if self.solution in (Solution.SPLIT, Solution.SPLIT_CORE) and ch:
             extra = f", {self.n_cores} maça" if self.n_cores else ""
-            return f"{SOLUTION_LABEL[self.solution]}: {len(self.plan.pieces)} parça{extra}"
+            return f"{SOLUTION_LABEL[self.solution]}: {ch.n_pieces} parça{extra}"
         if self.solution is Solution.CORE:
             return f"{SOLUTION_LABEL[self.solution]}: {self.n_cores} maça"
         return SOLUTION_LABEL[self.solution]
@@ -591,17 +910,50 @@ def _fmt(d: tuple[float, float, float]) -> str:
     return "(" + ", ".join(f"{x:+.3f}" for x in d) + ")"
 
 
+def _method_line(i: int, m: Method, s: Settings) -> CostLine:
+    return CostLine(
+        key=f"method.{i}",
+        description=f"Yöntem {i}: {m.label}: {m.n_pieces} parça, {m.n_cores} maça, "
+        f"{m.n_unresolved} çözülemeyen bölge",
+        formula="split_cost_weight × (parça − 1) + core_cost_weight × maça "
+        "+ unresolved_cost_weight × çözülemeyen bölge + warn_cost_weight × düşük çekmeli alan payı",
+        inputs=[
+            _inp(s, "split_cost_weight"),
+            _inp(s, "core_cost_weight"),
+            _inp(s, "unresolved_cost_weight"),
+            _inp(s, "warn_cost_weight"),
+            CostInput(
+                name="düşük çekmeli alan payı",
+                value=m.warn_share,
+                unit="ratio",
+                source=Source.DERIVED,
+            ),
+            CostInput(name="parça", value=float(m.n_pieces), unit="count", source=Source.DERIVED),
+            CostInput(name="maça", value=float(m.n_cores), unit="count", source=Source.DERIVED),
+            CostInput(
+                name="çözülemeyen bölge",
+                value=float(m.n_unresolved),
+                unit="count",
+                source=Source.DERIVED,
+            ),
+        ],
+        result=m.cost,
+        unit="puan",
+        category="tooling",
+    )
+
+
 def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
-    """Tooling decision for the tool surface ``ts`` pulled along ``pull``."""
+    """Tooling decision for the tool surface ``ts``: the baseline pull is judged as one piece,
+    then split methods are tried (up to ``s.max_split_pieces`` pieces) and the cheapest wins."""
     pull = np.asarray(pull, dtype=float) / np.linalg.norm(pull)
     allt = np.arange(len(ts.areas))
     sc = score(ts.normals, ts.areas, pull, s)
     regions = _mark_opposite(undercut_regions(ts, allt, pull, s), s)
     noise = [r for r in regions if r.kind is RegionKind.NOISE]
-    cores = [r for r in regions if r.kind is RegionKind.CORE]
-    large = [r for r in regions if r.kind is RegionKind.SPLIT]
-    reasons: list[str] = []
-    alts: list[str] = []
+    sig = [r for r in regions if r.kind is not RegionKind.NOISE]
+    cores = [r for r in sig if r.kind is RegionKind.CORE]
+    large = [r for r in sig if r.kind is RegionKind.SPLIT]
     flags: list[ReviewFlag] = []
     a_m2 = ts.total_area / 1e6
     trace = [
@@ -665,7 +1017,7 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
             )
         )
     margin = s.threshold_margin_ratio * s.core_max_area_ratio
-    near = [r for r in cores + large if abs(r.area_ratio - s.core_max_area_ratio) <= margin]
+    near = [r for r in sig if abs(r.area_ratio - s.core_max_area_ratio) <= margin]
     if near:
         flags.append(
             ReviewFlag(
@@ -675,96 +1027,155 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
                 path=f"{LIB}:undercut.core_max_area_ratio",
             )
         )
-    if sc.warn_ratio >= s.warn_review_ratio:
+
+    # every way of building the tool
+    single = _make_method(
+        "single",
+        "tek parça kalıp (seçilen çekme yönü)",
+        ts,
+        [MoldPiece(allt, 1.0, sc, cores, large)],
+        [],
+        s,
+    )
+    methods = [single]
+    best_one = search_directions(ts.normals, ts.areas, s, (pull,), keep=3)
+    if best_one and float(np.dot(best_one[0].direction, pull)) < math.cos(math.radians(2.0)):
+        ps1 = _exact_pieces(ts, [allt], [[]], s, s.max_tilt_deg)
+        if ps1:
+            methods.append(
+                _make_method("single", "tek parça kalıp (en uygun çekme yönü)", ts, ps1, [], s)
+            )
+    cheapest_single = min(m.cost for m in methods)
+    # a split costs at least one extra piece and ties go to fewer pieces: no need to search for
+    # one when a single piece is already that cheap
+    if s.max_split_pieces >= 2 and cheapest_single > s.split_cost_weight:
+        methods += _plane_methods(ts, pull, regions, s)
+        if large:
+            rp = split_plan(ts, large, pull, s)
+            covered = sum(len(p.tris) for p in rp.pieces) == len(ts.areas)
+            if covered and 1 < len(rp.pieces) <= s.max_split_pieces:
+                methods.append(
+                    _make_method(
+                        "region",
+                        "ters açı bölgelerinden bölünmüş kalıp (ayrılabilirlik doğrulanmadı)",
+                        ts,
+                        rp.pieces,
+                        [],
+                        s,
+                    )
+                )
+    methods.sort(key=lambda m: (round(m.cost, 6), m.n_pieces, m.n_cores, m.kind == "region"))
+    seen: set[tuple[str, int, float]] = set()
+    uniq: list[Method] = []
+    for m in methods:
+        sig_key = (m.label, m.n_pieces, round(m.cost, 6))
+        if sig_key not in seen:
+            seen.add(sig_key)
+            uniq.append(m)
+    methods = uniq
+    best = methods[0]
+    solution = best.solution
+
+    reasons: list[str] = []
+    alts: list[str] = []
+    reasons.append(
+        f"seçilen yöntem: {best.label}: {best.n_pieces} parça, {best.n_cores} maça, "
+        f"maliyet puanı {best.cost:.1f}"
+    )
+    if single is not best:
+        reasons.append(
+            f"tek parça kalıp: {single.n_cores} maça"
+            + (f" + {single.n_unresolved} çözülemeyen bölge" if single.n_unresolved else "")
+            + f", puan {single.cost:.1f}"
+        )
+    for m in methods[1:5]:
+        if m is single:
+            continue
+        alts.append(
+            f"{m.label}: {m.n_cores} maça"
+            + (f", {m.n_unresolved} çözülemeyen" if m.n_unresolved else "")
+            + f", puan {m.cost:.1f}"
+        )
+    for k, p in enumerate(best.pieces, 1):
+        reasons.append(
+            f"parça {k}: yüzeyin %{p.area_ratio * 100:.0f}'i, çekme {_fmt(p.pull.direction)}, "
+            f"en küçük açı {p.pull.min_draft_deg:.1f}°"
+            + (f", {len(p.cores)} maça" if p.cores else "")
+            + (f", {len(p.unresolved)} çözülemeyen bölge" if p.unresolved else "")
+        )
+    if s.max_split_pieces < 2:
+        reasons.append("kalıp parça sınırı 1: bölünmüş kalıp denenmedi")
+    warn_share = best.warn_share
+    if warn_share >= s.warn_review_ratio:
         flags.append(
             ReviewFlag(
                 code="low_draft",
-                reason=f"yüzeyin %{sc.warn_ratio * 100:.0f}'i {s.warn_min_deg:g}–{s.min_ok_deg:g}° "
-                "arasında: çıkar ama zor; bu yön yerine diğer önerileri de karşılaştırın.",
+                reason=f"yüzeyin %{warn_share * 100:.0f}'i {s.warn_min_deg:g}–{s.min_ok_deg:g}° "
+                "arasında: çıkar ama zor; farklı çekme yönlerini/yöntemleri de karşılaştırın.",
                 path=f"{LIB}:draft.warn_review_ratio",
             )
         )
-    if sc.warn_ratio > 1e-6:
-        reasons.append(
-            f"yüzeyin %{sc.warn_ratio * 100:.1f}'i {s.warn_min_deg:g}–{s.min_ok_deg:g}° "
-            "arasında (çıkar ama zor; uyarı)"
-        )
-
-    plan: SplitPlan | None = None
-    if not cores and not large:
-        solution, n_cores = Solution.SINGLE, 0
-        reasons.insert(0, "seçilen yönde ters açı bölgesi yok: kalıp bölünmeden, maçasız çıkar")
-    elif not large:
-        solution, n_cores = Solution.CORE, len(cores)
-        reasons.insert(
-            0,
-            f"{len(cores)} ters açı bölgesinin hepsi küçük ve yerel (her biri maça eşiği %"
-            f"{s.core_max_area_ratio * 100:.0f} altında): gevşek parça (maça)",
-        )
-        alt = split_plan(ts, cores, pull, s)
-        if not alt.unresolved and len(alt.pieces) <= s.max_split_pieces:
-            alts.append(
-                f"maçasız alternatif: {len(alt.pieces)} parçalı bölünmüş kalıp"
-                + (f" + {alt.n_cores} maça" if alt.n_cores else "")
-            )
-    else:
-        plan = split_plan(ts, large, pull, s)
-        n_cores = plan.n_cores
-        unres = plan.unresolved
-        reasons.insert(
-            0,
-            f"{len(large)} ters açı bölgesi maça için büyük veya karşılıklı iki yanda: "
-            f"ayırma hattı ters açı sınırından geçirilerek {len(plan.pieces)} parçaya bölündü",
-        )
-        for k, p in enumerate(plan.pieces, 1):
-            reasons.append(
-                f"parça {k}: yüzeyin %{p.area_ratio * 100:.0f}'i, çekme {_fmt(p.pull.direction)}, "
-                f"en küçük açı {p.pull.min_draft_deg:.1f}°"
-                + (f", {len(p.cores)} maça" if p.cores else "")
-                + (f", {len(p.unresolved)} çözülemeyen bölge" if p.unresolved else "")
-            )
-        if unres or len(plan.pieces) > s.max_split_pieces:
-            solution = Solution.REVIEW
-            why = (
-                f"{len(unres)} bölge hiçbir tek yönde çıkmıyor (kapalı kesit → mandrel olabilir)"
-                if unres
-                else f"{len(plan.pieces)} parça > en fazla {s.max_split_pieces}"
-            )
-            flags.append(ReviewFlag(code="tooling_unresolved", reason=why, path=f"{LIB}:undercut"))
-            reasons.insert(0, why)
-        else:
-            solution = Solution.SPLIT_CORE if n_cores else Solution.SPLIT
-            if n_cores:
-                reasons.append(
-                    f"bölündükten sonra {n_cores} küçük ters açı kalıyor: bölünmüş kalıba ek "
-                    "olarak maça gerekir"
-                )
+    if best.n_unresolved:
         flags.append(
             ReviewFlag(
-                code="split_parting_line",
-                reason="Ayırma hattı ters açı sınırından otomatik geçirildi; parça sayısı, hattı "
-                "ve parçaların çıkış sırası mühendis tarafından onaylanmalı.",
+                code="tooling_unresolved",
+                reason=f"{best.n_unresolved} ters açı bölgesi izin verilen en fazla "
+                f"{s.max_split_pieces} parçayla ve maçayla çözülemiyor (kapalı kesit → mandrel "
+                "olabilir)",
                 path=f"{LIB}:undercut.max_split_pieces",
             )
         )
+    if best.n_pieces > 1:
+        flags.append(
+            ReviewFlag(
+                code="split_parting_line",
+                reason="Ayırma düzlemi/hattı otomatik seçildi; parça sayısı, hattı ve parçaların "
+                "çıkış sırası mühendis tarafından onaylanmalı.",
+                path=f"{LIB}:undercut.max_split_pieces",
+            )
+        )
+    rivals = [m for m in methods[1:] if m.n_pieces != best.n_pieces and not m.n_unresolved]
+    if rivals and rivals[0].cost - best.cost <= s.threshold_margin_ratio * max(best.cost, 1.0):
+        flags.append(
+            ReviewFlag(
+                code="method_close",
+                reason=f"'{rivals[0].label}' maliyet puanı ({rivals[0].cost:.1f}) seçilene "
+                f"({best.cost:.1f}) çok yakın: iki yöntemi karşılaştırın.",
+                path=f"{LIB}:undercut.split_cost_weight",
+            )
+        )
+    for i, m in enumerate(methods[:6], 1):
+        trace.append(_method_line(i, m, s))
     trace.append(
         CostLine(
             key="tooling.decision",
             description=f"Kalıp kararı: {SOLUTION_LABEL[solution]}",
-            formula="ters açı yok → tek parça; tüm bölgeler < maça eşiği → maça; büyük/karşılıklı "
-            "bölge → bölünmüş kalıp (parça başına kalan küçük bölge → + maça)",
+            formula="en düşük puanlı yöntem seçilir; ters açı yok → tek parça, yalnız küçük "
+            "bölgeler → maça, parçalara bölünür → bölünmüş kalıp (+ kalan küçük bölge → maça)",
             inputs=[
                 _inp(s, "core_max_area_ratio"),
                 _inp(s, "opposite_cos"),
                 _inp(s, "max_split_pieces"),
             ],
-            result=float(len(plan.pieces) if plan else 1),
+            result=float(best.n_pieces),
             unit="parça",
             category="tooling",
             flags=list(flags),
         )
     )
-    return ToolingAssessment(sc, regions, solution, plan, n_cores, reasons, alts, flags, trace)
+    return ToolingAssessment(
+        sc,
+        regions,
+        solution,
+        SplitPlan(best.pieces) if best.n_pieces > 1 else None,
+        best.n_cores,
+        reasons,
+        alts,
+        flags,
+        trace,
+        methods,
+        s,
+    )
 
 
 def pull_angles_deg(d: tuple[float, float, float]) -> dict[str, float]:
