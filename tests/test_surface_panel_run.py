@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -205,15 +206,17 @@ def test_viewer_click_is_applied_in_the_same_run(
     assert at.session_state[sel_key] == [4]
 
 
-def _method_with_cores():
+def _method_with_cores() -> Any:
     import numpy as np
 
     from teklif.draft import pull_search as ps
 
-    def reg(c, n, faces):
+    def reg(
+        c: tuple[float, float, float], n: tuple[float, float, float], faces: tuple[int, ...]
+    ) -> Any:
         return ps.UndercutRegion(
             tris=np.zeros(0, dtype=np.int64), area_mm2=1234.4, area_ratio=0.0025,
-            min_draft_deg=-83.04, lateral=(0.0, 1.0, 0.0), faces=faces, kind="core",
+            min_draft_deg=-83.04, lateral=(0.0, 1.0, 0.0), faces=faces, kind=ps.RegionKind.CORE,
             why="", center=c, outward=n,
         )  # fmt: skip
 
@@ -256,4 +259,4 @@ def test_core_markers_and_rows_locate_every_core() -> None:
 def test_viewer_pause_comes_from_the_library() -> None:
     from teklif.library import load_library
 
-    assert float(load_library().thresholds.viewer.select_pause_s.value) == 2.0
+    assert load_library().thresholds.viewer.select_pause_s.value == 2.0
