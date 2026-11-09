@@ -285,3 +285,30 @@ def test_view_describes_the_method_the_user_picked() -> None:
     back = v.view(0)
     assert back.chosen is a.methods[0] and back.solution is a.solution
     assert any(f.code == "split_parting_line" for f in back.flags)
+
+
+def test_tiny_shallow_undercuts_are_noise_not_cores() -> None:
+    # a 10 x 10 mm patch leaning back by 3 deg on a 200 x 200 tray: far below the noise area
+    # and shallower than noise_draft_deg, so it must not cost a core
+    a = math.radians(3)
+    sliver: Quad = (
+        [90, 90, 10],
+        [100, 90, 10],
+        [100, 100, 20],
+        [90, 100, 20],
+        [math.cos(a), 0, math.sin(a)],
+    )
+    ts = _soup([*_tray(), sliver])
+    out = assess(ts, np.array([0, 0, 1.0]), S)
+    assert out.n_cores == 0
+    assert [r.kind for r in out.regions] == [RegionKind.NOISE]
+    assert any(f.code == "undercut_noise" for f in out.flags)
+
+
+def test_big_cores_cost_more_than_small_ones() -> None:
+    from teklif.draft.pull_search import method_cost
+
+    small = method_cost(1, 2, 0, 0.0, S, core_share=0.01)
+    big = method_cost(1, 2, 0, 0.0, S, core_share=0.09)
+    assert big - small == pytest.approx(S.core_area_cost_weight * 0.08)
+    assert method_cost(2, 0, 0, 0.0, S) < method_cost(1, 2, 0, 0.0, S, core_share=0.09)

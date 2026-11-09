@@ -60,11 +60,12 @@ class Settings:
     warn_review_ratio: float = 0.25
     core_max_area_ratio: float = 0.10
     noise_area_ratio: float = 0.002
-    noise_draft_deg: float = 0.5
+    noise_draft_deg: float = 5.0
     opposite_cos: float = -0.5
     max_split_pieces: int = 3
     threshold_margin_ratio: float = 0.2
     core_cost_weight: float = 1.0
+    core_area_cost_weight: float = 100.0
     split_cost_weight: float = 3.0
     unresolved_cost_weight: float = 100.0
     warn_cost_weight: float = 2.0
@@ -91,6 +92,7 @@ _PATHS = {
     "max_split_pieces": "undercut.max_split_pieces",
     "threshold_margin_ratio": "undercut.threshold_margin_ratio",
     "core_cost_weight": "undercut.core_cost_weight",
+    "core_area_cost_weight": "undercut.core_area_cost_weight",
     "split_cost_weight": "undercut.split_cost_weight",
     "unresolved_cost_weight": "undercut.unresolved_cost_weight",
     "warn_cost_weight": "undercut.warn_cost_weight",
@@ -649,6 +651,7 @@ class Method:
     n_unresolved: int
     cost: float
     warn_share: float = 0.0  # area share released with only warn_min_deg..min_ok_deg of draft
+    core_share: float = 0.0  # share of the tool surface that the cores cover
 
     @property
     def n_pieces(self) -> int:
@@ -664,11 +667,17 @@ class Method:
 
 
 def method_cost(
-    n_pieces: int, n_cores: int, n_unresolved: int, warn_share: float, s: Settings
+    n_pieces: int,
+    n_cores: int,
+    n_unresolved: int,
+    warn_share: float,
+    s: Settings,
+    core_share: float = 0.0,
 ) -> float:
     return (
         s.split_cost_weight * (n_pieces - 1)
         + s.core_cost_weight * n_cores
+        + s.core_area_cost_weight * core_share
         + s.unresolved_cost_weight * n_unresolved
         + s.warn_cost_weight * warn_share
     )
@@ -688,8 +697,9 @@ def _make_method(
     n_cores = sum(len(p.cores) for p in pieces)
     n_unres = sum(len(p.unresolved) for p in pieces)
     warn = sum(p.pull.warn_ratio * p.area_ratio for p in pieces)
-    cost = method_cost(len(pieces), n_cores, n_unres, warn, s)
-    return Method(kind, label, pieces, planes, piece_of, n_cores, n_unres, cost, warn)
+    core_share = sum(r.area_ratio for p in pieces for r in p.cores)
+    cost = method_cost(len(pieces), n_cores, n_unres, warn, s, core_share)
+    return Method(kind, label, pieces, planes, piece_of, n_cores, n_unres, cost, warn, core_share)
 
 
 def _aggregate(normals: F64, areas: F64, cell: float = 0.01) -> tuple[F64, F64]:
@@ -1069,10 +1079,12 @@ def _method_line(i: int, m: Method, s: Settings) -> CostLine:
         description=f"Yöntem {i}: {m.label}: {m.n_pieces} parça, {m.n_cores} maça, "
         f"{m.n_unresolved} çözülemeyen bölge",
         formula="split_cost_weight × (parça − 1) + core_cost_weight × maça "
+        "+ core_area_cost_weight × maçaların alan payı "
         "+ unresolved_cost_weight × çözülemeyen bölge + warn_cost_weight × düşük çekmeli alan payı",
         inputs=[
             _inp(s, "split_cost_weight"),
             _inp(s, "core_cost_weight"),
+            _inp(s, "core_area_cost_weight"),
             _inp(s, "unresolved_cost_weight"),
             _inp(s, "warn_cost_weight"),
             CostInput(
@@ -1080,6 +1092,9 @@ def _method_line(i: int, m: Method, s: Settings) -> CostLine:
                 value=m.warn_share,
                 unit="ratio",
                 source=Source.DERIVED,
+            ),
+            CostInput(
+                name="maçaların alan payı", value=m.core_share, unit="ratio", source=Source.DERIVED
             ),
             CostInput(name="parça", value=float(m.n_pieces), unit="count", source=Source.DERIVED),
             CostInput(name="maça", value=float(m.n_cores), unit="count", source=Source.DERIVED),
@@ -1113,6 +1128,7 @@ def _decide(
             f"tek parça kalıp: {single.n_cores} maça"
             + (f" + {single.n_unresolved} çözülemeyen bölge" if single.n_unresolved else "")
             + f", puan {single.cost:.1f}"
+            + (f", maçalar yüzeyin %{single.core_share * 100:.1f}'i" if single.core_share else "")
         )
     others = [x for x in methods if x is not best]
     for m in others[:4]:
@@ -1252,8 +1268,10 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
         flags.append(
             ReviewFlag(
                 code="undercut_noise",
-                reason=f"{len(noise)} küçük ve sığ ters açı lekesi karar dışı bırakıldı "
-                "(tessellation gürültüsü varsayımı); 3B ekranda kırmızı lekeleri kontrol edin.",
+                reason=f"{len(noise)} küçük ve sığ ters açı lekesi maça sayılmadı (toplam yüzey "
+                f"payı %{sum(r.area_ratio for r in noise) * 100:.2f}, en derin "
+                f"{min(r.min_draft_deg for r in noise):.1f}°; tessellation gürültüsü ya da küçük "
+                "kaburga/çıkıntı olabilir); 3B ekranda kırmızı lekeleri kontrol edin.",
                 path=f"{LIB}:undercut.noise_area_ratio",
             )
         )
