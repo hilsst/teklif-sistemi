@@ -175,3 +175,31 @@ def test_panel_shows_the_split_decision(tmp_path: Path, monkeypatch: pytest.Monk
         m.value.startswith("NOTE::") and "kalıp en fazla 1 parça" in m.value for m in at.markdown
     )
     assert not any(m.value.startswith("RESULT::Bölünmüş") for m in at.markdown)
+
+
+def test_viewer_click_is_applied_in_the_same_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # the viewer reports the selection as its component value; the panel must take it over at
+    # the top of the run (one script run per click burst, no second st.rerun())
+    w = STEPControl_Writer()
+    w.Transfer(BRepPrimAPI_MakeBox(400, 300, 4).Shape(), STEPControl_AsIs)
+    path = tmp_path / "p.step"
+    w.Write(str(path))
+    monkeypatch.setenv("TEKLIF_TEST_STEP", str(path))
+    at = AppTest.from_function(_app).run(timeout=120)
+    assert not at.exception
+    vkey = next(k for k in at.session_state if str(k).endswith("_sel")).replace("_sel", "_viewer")
+    at.session_state[vkey] = {"toggles": [1, 2], "n": 1, "t": 1}
+    at.run(timeout=120)
+    assert not at.exception
+    sel_key = next(k for k in at.session_state if str(k).endswith("_sel"))
+    assert at.session_state[sel_key] == [0, 1, 2]  # relative: the face 0 stays
+    # the same click value arriving again (a later run) changes nothing
+    at.session_state[sel_key] = [3]
+    at.run(timeout=120)
+    assert at.session_state[sel_key] == [3]
+    # a right click hides nothing on a single solid, and a new click number is taken over
+    at.session_state[vkey] = {"toggles": [3, 4], "n": 2, "t": 2}
+    at.run(timeout=120)
+    assert at.session_state[sel_key] == [4]
