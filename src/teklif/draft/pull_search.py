@@ -626,6 +626,7 @@ _Q2 = (0.35, 0.5, 0.65)
 _Q3 = ((0.25, 0.5), (0.33, 0.67), (0.5, 0.75), (0.25, 0.75))
 _N_NORMALS = 10  # most plane normals tried
 _N_EXACT = 3  # best quick candidates per piece count that are evaluated exactly
+_N_AXIS_SPLITS = 4  # most axes tried for the two-piece visibility split
 _MERGE_COS = math.cos(math.radians(10.0))  # plane normals closer than this count as one
 
 
@@ -642,7 +643,7 @@ UNVERIFIED_KINDS = ("region", "direction")  # pieces not checked to slide apart 
 class Method:
     """One way to build the tool: pieces (each with a pull direction and its cores) and cost."""
 
-    kind: str  # "single" | "plane" | "region"
+    kind: str  # "single" | "plane" | "visibility" | "direction" | "region"
     label: str
     pieces: list[MoldPiece]
     planes: list[PartingPlane]
@@ -896,27 +897,7 @@ def _direction_methods(ts: TriSet, s: Settings) -> list[Method]:
             dirs, lab = new, relab
             if same:
                 break
-        # a piece must be one connected patch: a label with several significant patches is
-        # several pieces (interleaved strips would be a comb of pieces, not two halves)
-        groups: list[I64] = []
-        for i in range(len(dirs)):
-            mine = lab == i
-            if not mine.any():
-                continue
-            comp = components(ts, mine)
-            ids, inv = np.unique(comp[mine], return_inverse=True)
-            share = np.bincount(inv, weights=ts.areas[mine]) / float(ts.areas.sum())
-            tris_i = np.flatnonzero(mine)
-            big = [int(c) for c, sh in zip(ids, share, strict=True) if sh >= s.noise_area_ratio]
-            if len(big) <= 1:
-                groups.append(tris_i)
-                continue
-            keep = int(ids[int(np.argmax(share))])
-            for c in big:
-                g = tris_i[comp[tris_i] == c]
-                if c == keep:  # small leftovers stay with the largest patch
-                    g = tris_i[(comp[tris_i] == c) | ~np.isin(comp[tris_i], big)]
-                groups.append(g)
+        groups = _connected_groups(ts, lab, len(dirs), s)
         if len(groups) < 2 or len(groups) > s.max_split_pieces:
             continue
         pieces = _exact_pieces(ts, groups, [[] for _ in groups], s, 180.0)
@@ -928,6 +909,73 @@ def _direction_methods(ts: TriSet, s: Settings) -> list[Method]:
                 "direction",
                 f"{len(pieces)} parçalı bölünmüş kalıp (yüzey yönlerine göre bölme; ayrılabilirlik "
                 "doğrulanmadı)",
+                ts,
+                pieces,
+                [],
+                s,
+            )
+        )
+    return out
+
+
+def _connected_groups(ts: TriSet, lab: I64, n_labels: int, s: Settings) -> list[I64]:
+    """Triangle groups of a labelling where every piece is one connected patch: a label with
+    several large patches (>= core_max_area_ratio of the surface) becomes several pieces
+    (interleaved strips would be a comb of pieces, not two halves); smaller islands stay with
+    the label's largest patch."""
+    groups: list[I64] = []
+    for i in range(n_labels):
+        mine = lab == i
+        if not mine.any():
+            continue
+        comp = components(ts, mine)
+        ids, inv = np.unique(comp[mine], return_inverse=True)
+        share = np.bincount(inv, weights=ts.areas[mine]) / float(ts.areas.sum())
+        tris_i = np.flatnonzero(mine)
+        big = [int(c) for c, sh in zip(ids, share, strict=True) if sh >= s.core_max_area_ratio]
+        if len(big) <= 1:
+            groups.append(tris_i)
+            continue
+        keep = int(ids[int(np.argmax(share))])
+        for c in big:
+            g = tris_i[comp[tris_i] == c]
+            if c == keep:
+                g = tris_i[(comp[tris_i] == c) | ~np.isin(comp[tris_i], big)]
+            groups.append(g)
+    return groups
+
+
+def _visibility_methods(
+    ts: TriSet, pull: F64, regions: list[UndercutRegion], s: Settings
+) -> list[Method]:
+    """Two pieces that open straight away from each other along a candidate axis (the part moves
+    +n relative to one piece and -n relative to the other): every triangle goes to the piece it
+    is visible from, so the parting line runs on the surface where the release switches. A
+    hood whose two sides lean in is released by both halves with no core."""
+    if s.max_split_pieces < 2 or not len(ts.areas):
+        return []
+    out: list[Method] = []
+    for n in _plane_normals(ts, pull, regions)[:_N_AXIS_SPLITS]:
+        lab = _assign(ts, np.array([n, -n]), s)
+        groups = _connected_groups(ts, lab, 2, s)
+        if len(groups) != 2:
+            continue
+        # the piece that is released along +n is the first (negative side of the plane)
+        groups.sort(key=lambda g: float(np.mean(ts.normals[g] @ n)))
+        cons = [_plane_cons(k, 2, n, s) for k in range(2)]
+        pieces = _exact_pieces(ts, groups, cons, s, s.piece_max_tilt_deg)
+        if pieces is None:
+            continue
+        axis = "XYZ"[int(np.argmax(np.abs(n)))] if float(np.abs(n).max()) > 0.98 else None
+        where = (
+            f"{axis} ekseni boyunca"
+            if axis
+            else f"yön {_fmt((float(n[0]), float(n[1]), float(n[2])))}"
+        )
+        out.append(
+            _make_method(
+                "visibility",
+                f"2 parçalı bölünmüş kalıp ({where} ± çekme, ayırma hattı yüzeyde)",
                 ts,
                 pieces,
                 [],
@@ -1309,6 +1357,7 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
     # one when a single piece is already that cheap
     if s.max_split_pieces >= 2 and cheapest_single > s.split_cost_weight:
         methods += _plane_methods(ts, pull, regions, s)
+        methods += _visibility_methods(ts, pull, regions, s)
         methods += _direction_methods(ts, s)
         if large:
             rp = split_plan(ts, large, pull, s)

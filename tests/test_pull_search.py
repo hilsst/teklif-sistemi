@@ -312,3 +312,17 @@ def test_big_cores_cost_more_than_small_ones() -> None:
     big = method_cost(1, 2, 0, 0.0, S, core_share=0.09)
     assert big - small == pytest.approx(S.core_area_cost_weight * 0.08)
     assert method_cost(2, 0, 0, 0.0, S) < method_cost(1, 2, 0, 0.0, S, core_share=0.09)
+
+
+def test_two_piece_visibility_split_needs_no_core() -> None:
+    # a hood with leaning sides plus a small step: every triangle is visible from one of the two
+    # pieces that open away from each other along X, so the split needs no core at all
+    ts = _soup([*_dovetail(), _hook(-30, -1, 20.0)])
+    a = assess(ts, np.array([0, 0, 1.0]), S)
+    vis = [m for m in a.methods if m.kind == "visibility" and m.n_pieces == 2]
+    assert vis, "the visibility split must be among the compared methods"
+    best = min(vis, key=lambda m: m.cost)
+    assert best.n_cores == 0 and best.n_unresolved == 0
+    d0, d1 = (np.array(p.pull.direction) for p in best.pieces)
+    assert float(d0 @ d1) < 0  # the pieces open away from each other
+    assert not any(f.code == "separation_unverified" for f in a.view(a.methods.index(best)).flags)
