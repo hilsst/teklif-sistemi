@@ -20,6 +20,7 @@ from teklif.costing.consumable_suggest import suggest as suggest_consumables
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
 from teklif.costing.partial import fill_missing
+from teklif.draft.pull_search import Solution
 from teklif.geometry.plate_features import PlateFeatures, extract_plate_features
 from teklif.ingest.step_props import StepProps, StepUnavailableError, extract_step_props
 from teklif.library import Library
@@ -37,6 +38,17 @@ TRIM_RULE_ALL = (
     "(trim çevresi = kalıp yüzeyinin tüm sınırı)"
 )
 FLANGE_MM = 150.0  # typical flange length (Kemal, 2026-11-04); becomes a library value in Faz 3
+CORE_CHOICES = [
+    "Evet, maça kullanacağım",
+    "Evet, bölünmüş kalıp kullanacağım",
+    "Evet, bölünmüş kalıp ve maça birlikte",
+    "Hayır, ters açıyı başka şekilde çözeceğim",
+]
+CORE_CHOICE_OF = {
+    Solution.CORE: CORE_CHOICES[0],
+    Solution.SPLIT: CORE_CHOICES[1],
+    Solution.SPLIT_CORE: CORE_CHOICES[2],
+}
 FLANGE_SOURCE = "flanş payı 150 mm (tipik değer, kütüphaneye taşınacak)"
 
 
@@ -242,21 +254,26 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     _estimate_card(est)
     core_choice: str | None = "yok"
     core_cost = 0.0
-    if sel and sel.undercut_ratio > 0:
+    core_reason = ""
+    sys_choice: str | None = None
+    if sel and sel.assessment is not None and sel.assessment.solution is not Solution.SINGLE:
+        sys_choice = CORE_CHOICE_OF.get(sel.assessment.solution)
+    if sel and (sel.undercut_ratio > 0 or sys_choice):
+        a = sel.assessment
         st.warning(
             f"Seçilen çekme yönünde ters açı var (yüzeyin %{sel.undercut_ratio * 100:.1f}'i). "
-            "Bu bölge tek parça kalıptan çıkmaz."
+            + (f"Sistem önerisi: **{a.label}**." if a is not None else "")
         )
         core_choice = st.radio(
-            "Ters açı için maça (veya bölünmüş kalıp) kullanacak mısınız?",
-            [
-                "Evet, maça kullanacağım",
-                "Evet, bölünmüş kalıp kullanacağım",
-                "Hayır, ters açıyı başka şekilde çözeceğim",
-            ],
-            key="pq_core",
-            index=None,
+            "Ters açı nasıl çözülecek? (sistem önerisi seçili; değiştirirseniz gerekçe yazın)",
+            CORE_CHOICES,
+            key=f"pq_core_{sys_choice}",
+            index=CORE_CHOICES.index(sys_choice) if sys_choice in CORE_CHOICES else None,
         )
+        if core_choice and sys_choice and core_choice != sys_choice:
+            core_reason = st.text_input(
+                "Sistem önerisinden farklı seçim gerekçesi", key="pq_core_reason"
+            )
         if core_choice and not core_choice.startswith("Hayır"):
             core_cost = st.number_input(
                 f"Maça / bölünme ek maliyeti [{est.currency}] (bize maliyet)",
@@ -574,7 +591,15 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             notes.append(
                 f"trim çevresi seçimden ({trim_sel:.2f} m) farklı girildi: {perimeter:.2f} m"
             )
-        if sel.undercut_ratio > 0:
+        a = sel.assessment
+        if a is not None:
+            notes.append(
+                f"sistem kalıp kararı: {a.label}; çekme {sel.pull_label} "
+                f"(ters açı %{a.pull.undercut_ratio * 100:.1f}, en küçük açı "
+                f"{a.pull.min_draft_deg:.1f}°)"
+            )
+            notes += [f"manual_review ({fl.code}): {fl.reason}" for fl in a.flags]
+        if sel.undercut_ratio > 0 or (a is not None and a.solution is not Solution.SINGLE):
             ratio = f"%{sel.undercut_ratio * 100:.1f}"
             if core_choice is None:
                 notes.append(f"ters açı var ({ratio}): maça/bölünmüş kalıp kararı verilmedi")
@@ -589,6 +614,11 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             else:
                 notes.append(
                     f"ters açı ({ratio}): {core_choice.lower()}, ek maliyet {core_cost:,.0f}"
+                )
+            if core_choice and sys_choice and core_choice != sys_choice:
+                notes.append(
+                    f"kalıp kararı ezildi: sistem '{sys_choice}', seçilen '{core_choice}'; "
+                    f"gerekçe: {core_reason.strip() or 'GİRİLMEDİ (incelenmeli)'}"
                 )
     if (
         process == "sandvic_toplu"

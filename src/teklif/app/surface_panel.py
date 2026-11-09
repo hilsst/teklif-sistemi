@@ -4,6 +4,10 @@ Streamlit cannot take 3D click selection, so faces are picked from a numbered li
 shows the number) with helpers; a three.js component can replace this later.
 The selection is the customer's part surface that lies on the tool. It drives tool area, trim
 length (full boundary: outer edge, cut-outs and holes are all trimmed) and the pull direction.
+
+Kemal (2026-11-09): the side screen no longer builds a mold (surface extension and flange). It
+shows the best pull direction for the selected tool surface and the tooling decision (single
+piece, core, split, split + core) from ``teklif.draft.pull_search``.
 """
 
 from __future__ import annotations
@@ -20,6 +24,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from numpy.typing import NDArray
 
+from teklif.draft import pull_search as ps
 from teklif.geometry import mold_profile
 from teklif.geometry.surface_select import (
     ANGULAR_DEFLECTION_DEG,
@@ -32,7 +37,6 @@ from teklif.geometry.surface_select import (
     faces_facing,
     load_face_mesh,
     suggest_pull_directions,
-    triangulate_polygon,
 )
 
 GREEN, YELLOW, RED, GREY, BLUE = "#2e9e4f", "#e6b800", "#d62728", "#b0b0b0", "#4a78c2"
@@ -59,6 +63,7 @@ class SurfaceSelection:
     extension_mm: float = 60.0  # EOP -> flange turn along the surface (EOP->MEOP + MEOP->turn)
     flange_mm: float = 150.0
     solids: tuple[int, ...] = ()  # solids of an assembly that the selected faces belong to
+    assessment: ps.ToolingAssessment | None = None  # tooling decision for this pull
 
     def trim_m(self, all_openings: bool) -> float:
         """Trim length: whole boundary when every opening is trimmed, else the outer rim only."""
@@ -70,6 +75,7 @@ class SurfaceSelection:
             f"sınır (tüm dış kenar, boşluk ve delikler trim) {self.boundary_m:.2f} m; çekme yönü "
             f"{self.pull_label} {tuple(round(x, 3) for x in self.pull)}; ters açı payı "
             f"%{self.undercut_ratio * 100:.1f}"
+            + (f"; sistem kalıp kararı: {self.assessment.label}" if self.assessment else "")
         )
 
 
@@ -97,9 +103,6 @@ def triangle_colors(
 
 _VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).parent / "viewer"))
 _PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
-FLANGE_COLOR_IDX = 5
-FILL_COLOR_IDX = 6
-EXT_COLOR_IDX = 7
 
 
 def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
@@ -142,63 +145,6 @@ def profile_rings(
         prof.to_turn_mm,
         prof.flange_mm,
     )
-
-
-def mold_extras(outline: Outline, pull: NDArray[np.float64], prof: ToolProfile) -> Extra:
-    """Mold additions around the selected surface: surface extension (EOP -> MEOP -> flange turn),
-    the 90° flange, fill over every hole/channel loop, and the EOP / MEOP lines."""
-    tris: list[list[NDArray[np.float64]]] = []
-    colors: list[int] = []
-    rings = profile_rings(outline, pull, prof)
-
-    def strip(a: NDArray[np.float64], b: NDArray[np.float64], color: int) -> None:
-        n = len(a)
-        for i in range(n):
-            j = (i + 1) % n
-            tris.extend([[a[i], a[j], b[j]], [a[i], b[j], b[i]]])
-            colors.extend([color] * 2)
-
-    if rings is not None:
-        strip(rings["eop"], rings["meop"], EXT_COLOR_IDX)
-        strip(rings["meop"], rings["turn"], EXT_COLOR_IDX)
-        strip(rings["turn"], rings["edge"], FLANGE_COLOR_IDX)
-    for k, lp in enumerate(outline.loops):
-        if k == outline.outer or len(lp) < 3:
-            continue
-        d = pull / np.linalg.norm(pull)
-        a = np.cross(d, [1.0, 0.0, 0.0] if abs(d[0]) < 0.9 else [0.0, 1.0, 0.0])
-        a /= np.linalg.norm(a)
-        xy = np.c_[lp @ a, lp @ np.cross(d, a)]
-        for i, j, m in triangulate_polygon(xy):  # the mold runs over the hole/channel
-            tris.append([lp[i], lp[j], lp[m]])
-            colors.append(FILL_COLOR_IDX)
-
-    def flat(r: NDArray[np.float64]) -> list[float]:
-        return list(map(float, np.round(np.vstack([r, r[:1]]), 1).ravel()))
-
-    lines: list[dict[str, Any]] = [
-        {"hex": 0xC000C0, "label": "EOP" if k == outline.outer else "", "pts": flat(lp)}
-        for k, lp in enumerate(outline.loops)
-    ]
-    lines += [
-        {"hex": 0xC000C0, "label": "", "pts": list(map(float, np.round(ch, 1).ravel()))}
-        for ch in outline.open_chains
-        if len(ch) > 1
-    ]
-    if rings is not None:
-        # the viewer puts a label at a line's first point: start the rings a third of the way
-        # round from each other so the EOP / MEOP / turn labels do not sit on top of each other
-        third = len(rings["meop"]) // 3
-        lines += [
-            {"hex": 0xE06000, "label": "MEOP", "pts": flat(np.roll(rings["meop"], -third, 0))},
-            {
-                "hex": 0x607080,
-                "label": "flanş dönüşü",
-                "pts": flat(np.roll(rings["turn"], -2 * third, 0)),
-            },
-            {"hex": 0xE06000, "label": "", "pts": flat(rings["edge"])},
-        ]
-    return (np.array(tris) if tris else np.zeros((0, 3, 3))), colors, lines
 
 
 def viewer_payload(
@@ -375,23 +321,36 @@ def render_surface_panel(
 
     pull: tuple[float, float, float] | None = None
     pull_label = ""
-    cand = None
+    settings = ps.settings_from_thresholds(thresholds)
+    tris: ps.TriSet | None = None
     if selected:
         if mk not in st.session_state:
             with st.spinner("Seçim için ince analiz ağı hazırlanıyor..."):
                 st.session_state[mk] = _load(data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG)
         mesh = st.session_state[mk]
-        cands = suggest_pull_directions(mesh, selected, warn_min, min_ok)
-        names = [c.label for c in cands]  # stable labels so the choice survives reruns
+        tris = ps.triset_from_mesh(mesh, selected)
+        sk_search = f"{key}_ps_{hash((tuple(selected), settings))}"
+        if sk_search not in st.session_state:
+            with st.spinner("En uygun çekme yönü aranıyor..."):
+                st.session_state[sk_search] = ps.search_directions(
+                    tris.normals, tris.areas, settings
+                )
+        found: list[ps.DirectionScore] = st.session_state[sk_search]
+        options: dict[str, tuple[float, float, float]] = {}
+        for k, f in enumerate(found):
+            options[f"en uygun #{k + 1} (optimize)" if k else "en uygun (optimize)"] = f.direction
+        for c in suggest_pull_directions(mesh, selected, warn_min, min_ok):
+            options.setdefault(c.label, c.direction)
         st.caption(
-            "Öneriler (ters açı payı / yeterli çekme payı): "
+            "Optimize edilen yönler (ters açı payı / yeterli çekme payı / en küçük açı): "
             + "; ".join(
-                f"{c.label} %{c.undercut_area_ratio * 100:.1f}/%{c.min_ok_ratio * 100:.0f}"
-                for c in cands[:4]
+                f"#{k + 1} %{f.undercut_ratio * 100:.1f} / %{f.ok_ratio * 100:.0f} / "
+                f"{f.min_draft_deg:.1f}°"
+                for k, f in enumerate(found)
             )
         )
         pick = st.selectbox(
-            "Çekme yönü (en iyi öneri başta)", [*names, "Elle gir"], key=f"{key}_pull"
+            "Çekme yönü (en uygun başta)", [*options, "Elle gir"], key=f"{key}_pull"
         )
         if pick == "Elle gir":
             x, y, z = (
@@ -404,11 +363,10 @@ def render_surface_panel(
                 u = vec / n
                 pull, pull_label = (float(u[0]), float(u[1]), float(u[2])), "elle"
         else:
-            cand = cands[names.index(pick)]
-            pull, pull_label = cand.direction, cand.label
+            pull, pull_label = options[pick], pick
     colors = triangle_colors(view, selected, pull, min_ok, warn_min)
-    show_mold = bool(selected) and pull is not None
-    left, right = st.columns(2) if show_mold else (st.container(), None)
+    show_side = bool(selected) and pull is not None
+    left, right = st.columns(2) if show_side else (st.container(), None)
     with left:
         click = _VIEWER(
             **viewer_payload(view, colors, key, pull, hidden=hidden),
@@ -416,56 +374,15 @@ def render_surface_panel(
             key=f"{key}_viewer",
             default=None,
         )
-    if right is not None and pull is not None:
+    assessment: ps.ToolingAssessment | None = None
+    if right is not None and pull is not None and tris is not None:
+        ak = f"{key}_assess_{hash((tuple(selected), tuple(round(x, 6) for x in pull), settings))}"
+        if ak not in st.session_state:
+            with st.spinner("Ters açı bölgeleri ve kalıp kararı hesaplanıyor..."):
+                st.session_state[ak] = ps.assess(tris, np.array(pull), settings)
+        assessment = st.session_state[ak]
         with right:
-            sub = mold_submesh(view, selected)
-            p1, p2, p3 = st.columns(3)
-            prof = ToolProfile(
-                p1.number_input("EOP→MEOP [mm]", 0.0, 200.0, 20.0, 5.0, key=f"{key}_pm"),
-                p2.number_input(
-                    "MEOP→flanş dönüşü [mm]",
-                    0.0,
-                    200.0,
-                    40.0,
-                    5.0,
-                    key=f"{key}_pt",
-                    help="Genelde 30-50 mm",
-                ),
-                p3.number_input("Flanş [mm]", 0.0, 500.0, flange_mm, 10.0, key=f"{key}_pf"),
-            )
-            st.session_state[f"{key}_prof"] = prof
-            outline = view.outline(selected, np.array(pull))
-            flange = mold_extras(outline, np.array(pull), prof) if outline else None
-            mold_key = (
-                f"{key}_mold_{hash((tuple(selected), tuple(round(x, 3) for x in pull), prof))}"
-            )
-            d = np.array(pull)
-            side = np.cross(d, [0.0, 0.0, 1.0] if abs(d[2]) < 0.9 else [1.0, 0.0, 0.0])
-            side /= np.linalg.norm(side)
-            tilt = d + 0.7 * side + (0.0 if abs(d[2]) > 0.9 else 0.25 * np.array([0, 0, 1.0]))
-            tilt /= np.linalg.norm(tilt)
-            _VIEWER(
-                **viewer_payload(
-                    sub,
-                    triangle_colors(sub, list(range(len(sub.faces))), pull, min_ok, warn_min),
-                    mold_key,
-                    pull,
-                    flange,
-                ),
-                view_dir=tilt.tolist(),
-                readonly=True,
-                height=560,
-                key=f"{key}_moldviewer",
-                default=None,
-            )
-            st.caption(
-                "**Kalıp profili** (EOP'den dışa): yüzey EOP'nin "
-                f"{prof.to_meop_mm:.0f} mm ötesine uzanır (**MEOP**), {prof.to_turn_mm:.0f} mm "
-                "daha gider, sonra flanş çekme yönüne dik düzlemde "
-                f"{prof.flange_mm:.0f} mm gider. Mor: "
-                "**EOP** (dış kenar, delikler, kanallar; açık mavi: kalıbın delik/kanal üstünden "
-                "geçtiği alan), açık yeşil: yüzey uzantısı, turuncu: flanş."
-            )
+            render_assessment(assessment, pull_label)
     last = f"{key}_lastclick"
     ident = (click.get("n"), click.get("t")) if click else None
     if click and ident != st.session_state.get(last):  # n restarts when the iframe is rebuilt
@@ -496,7 +413,7 @@ def render_surface_panel(
 
     bad, ok = _score(mesh, selected, np.array(pull), warn_min, min_ok)
     boundary_mm, outer_mm = mesh.trim_lengths_mm(selected, np.array(pull))
-    prof = st.session_state.get(f"{key}_prof") or ToolProfile(20.0, 40.0, flange_mm)
+    prof = ToolProfile(flange_mm=flange_mm)  # tool reach for the cost estimate only (no mold view)
     return SurfaceSelection(
         face_ids=list(selected),
         area_m2=mesh.area_m2(selected),
@@ -509,4 +426,62 @@ def render_surface_panel(
         extension_mm=prof.to_meop_mm + prof.to_turn_mm,
         flange_mm=prof.flange_mm,
         solids=tuple(sorted({f.solid for f in mesh.faces if f.id in set(selected)})),
+        assessment=assessment,
+    )
+
+
+def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
+    """Side panel: the pull direction, its draft figures and the tooling decision with its trace."""
+    ang = ps.pull_angles_deg(a.pull.direction)
+    st.markdown(
+        f"**Çekme yönü** ({pull_label}): "
+        + ", ".join(f"{x:+.3f}" for x in a.pull.direction)
+        + f"  \nEksenlere açı: X {ang['X']:.1f}°, Y {ang['Y']:.1f}°, Z {ang['Z']:.1f}°"
+    )
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Ters açı payı", f"%{a.pull.undercut_ratio * 100:.1f}")
+    m2.metric("Yeterli açı payı", f"%{a.pull.ok_ratio * 100:.0f}")
+    m3.metric("En küçük açı", f"{a.pull.min_draft_deg:.1f}°")
+    box = {
+        ps.Solution.SINGLE: st.success,
+        ps.Solution.CORE: st.info,
+        ps.Solution.SPLIT: st.warning,
+        ps.Solution.SPLIT_CORE: st.warning,
+        ps.Solution.REVIEW: st.error,
+    }[a.solution]
+    box(f"**Kalıp kararı: {a.label}**\n\n" + "\n".join(f"- {r}" for r in a.reasons))
+    for alt in a.alternatives:
+        st.caption(f"Alternatif: {alt}")
+    for fl in a.flags:
+        st.warning(f"manual_review ({fl.code}): {fl.reason}")
+    if a.regions:
+        st.dataframe(
+            [
+                {
+                    "bölge": k,
+                    "tür": r.kind.value,
+                    "alan [m²]": round(r.area_mm2 / 1e6, 4),
+                    "pay [%]": round(r.area_ratio * 100, 2),
+                    "en derin açı [°]": round(r.min_draft_deg, 1),
+                    "yüzler": ", ".join(map(str, r.faces)),
+                }
+                for k, r in enumerate(a.regions, 1)
+            ],
+            hide_index=True,
+        )
+    with st.expander("Karar gerekçesi (formül, girdi, kaynak)"):
+        for line in a.trace:
+            st.markdown(f"**{line.description}** = {line.result:.4g} {line.unit}")
+            st.caption(
+                f"formül: {line.formula} · girdiler: "
+                + "; ".join(
+                    f"{i.name} = {i.value:.4g} {i.unit} ({i.source.value}"
+                    + (f", {i.path}" if i.path else "")
+                    + ")"
+                    for i in line.inputs
+                )
+            )
+    st.caption(
+        "Kalıp yüzeyi ekranda kırmızı görünen yerler seçili yöndeki ters açılardır. Eşikler "
+        "kütüphanede (thresholds.yaml: draft, undercut, pull_search) değiştirilebilir."
     )
