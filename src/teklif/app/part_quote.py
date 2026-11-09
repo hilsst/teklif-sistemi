@@ -224,7 +224,8 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     c[3].metric("Eğrisel alan", f"{f.curved_area_fraction:.0%}")
     st.caption(
         "Bu değerler STEP'ten türetilmiş tahminlerdir; teklifte 'incelenmeli' işaretiyle taşınır. "
-        "Trim çevresi, kalıp yüzeyini seçince otomatik hesaplanır; seçmezseniz aşağıya elle girin."
+        "Trim çevresi, kalıp yüzeyini seçip **Analizi başlat**a basınca otomatik hesaplanır; "
+        "başlatmazsanız aşağıya elle girin."
     )
     with st.expander("3B inceleme ve kalıp yüzeyi seçimi", expanded=True):
         sel = render_surface_panel(
@@ -568,7 +569,10 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     )
     nre_margin = a2.checkbox("Kalıp ve model maliyetine de kâr ekle", True, key="pq_nremargin")
     if perimeter <= 0:
-        st.warning("Trim çevresi girilmedi: trim süresi 0 hesaplanıyor (kalıp yüzeyi seçin).")
+        st.warning(
+            "Trim çevresi girilmedi: trim süresi 0 hesaplanıyor "
+            "(kalıp yüzeyi seçip analizi başlatın)."
+        )
     flange_m = reach_mm / 1000  # extension past the EOP plus flange: the tool outside the part
     outer = sel.outer_m if sel else perimeter  # flange runs along the outer rim only
     notes = [

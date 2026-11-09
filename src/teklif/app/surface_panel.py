@@ -323,7 +323,29 @@ def render_surface_panel(
     pull_label = ""
     settings = ps.settings_from_thresholds(thresholds)
     tris: ps.TriSet | None = None
+    # the analysis (fine mesh, pull search, tooling decision) is slow, so it runs only when the
+    # user presses the button for the current selection; any change of the selection stops showing
+    # the old result until the button is pressed again
+    run_key = f"{key}_analysed"
+
+    def _start() -> None:
+        st.session_state[run_key] = tuple(sorted(st.session_state.get(sk, [])))
+
+    analysed = bool(selected) and st.session_state.get(run_key) == tuple(sorted(selected))
     if selected:
+        st.button(
+            "Analizi yeniden başlat" if analysed else "Analizi başlat",
+            on_click=_start,
+            key=f"{key}_run",
+            type="secondary" if analysed else "primary",
+            help="Çekme yönünü arar, ters açı bölgelerini ve maça/bölünme kararını hesaplar.",
+        )
+        if not analysed:
+            st.info(
+                "Yüzeyleri seçmeyi bitirince **Analizi başlat**'a basın; çekme yönü, trim "
+                "çevresi ve kalıp kararı o zaman hesaplanır."
+            )
+    if analysed:
         if mk not in st.session_state:
             with st.spinner("Seçim için ince analiz ağı hazırlanıyor..."):
                 st.session_state[mk] = _load(data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG)
