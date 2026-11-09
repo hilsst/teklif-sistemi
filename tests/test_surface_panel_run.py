@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -89,7 +90,7 @@ def test_split_analysis_colours_pieces_and_builds_parting_walls(tmp_path: Path) 
     import numpy as np
 
     from teklif.app.surface_panel import (
-        CORE_COLOR_IDX,
+        CORE_COLOR_IDX0,
         PIECE_COLOR_IDX0,
         analysis_extra,
         piece_colors,
@@ -121,7 +122,7 @@ def test_split_analysis_colours_pieces_and_builds_parting_walls(tmp_path: Path) 
     assert len(colors) == sum(len(f.triangles) for f in view.faces)
     used = {c for c in colors if c >= PIECE_COLOR_IDX0}
     assert used == {PIECE_COLOR_IDX0, PIECE_COLOR_IDX0 + 1}  # one colour per piece, no cores
-    assert CORE_COLOR_IDX not in used
+    assert not used & set(range(CORE_COLOR_IDX0, CORE_COLOR_IDX0 + 6))
     walls, wcolors, lines = analysis_extra(ts, ch)
     assert len(walls) > 0 and len(wcolors) == len(walls)
     assert len(lines) == 6  # an arrow (shaft + two head strokes) per piece
@@ -203,3 +204,59 @@ def test_viewer_click_is_applied_in_the_same_run(
     at.session_state[vkey] = {"toggles": [3, 4], "n": 2, "t": 2}
     at.run(timeout=120)
     assert at.session_state[sel_key] == [4]
+
+
+def _method_with_cores() -> Any:
+    import numpy as np
+
+    from teklif.draft import pull_search as ps
+
+    def reg(
+        c: tuple[float, float, float], n: tuple[float, float, float], faces: tuple[int, ...]
+    ) -> Any:
+        return ps.UndercutRegion(
+            tris=np.zeros(0, dtype=np.int64), area_mm2=1234.4, area_ratio=0.0025,
+            min_draft_deg=-83.04, lateral=(0.0, 1.0, 0.0), faces=faces, kind=ps.RegionKind.CORE,
+            why="", center=c, outward=n,
+        )  # fmt: skip
+
+    p1 = ps.MoldPiece(
+        tris=np.zeros(0, dtype=np.int64), area_ratio=0.5, pull=None,  # type: ignore[arg-type]
+        cores=[reg((1.0, 2.0, 3.0), (0.0, 2.0, 0.0), (7,))], unresolved=[],
+    )  # fmt: skip
+    p2 = ps.MoldPiece(
+        tris=np.zeros(0, dtype=np.int64), area_ratio=0.5, pull=None,  # type: ignore[arg-type]
+        cores=[reg((10.0, 0.0, 0.0), (1.0, 0.0, 0.0), tuple(range(8)))],
+        unresolved=[reg((5.0, 5.0, 5.0), (0.0, 0.0, 1.0), (1,))],
+    )  # fmt: skip
+    return ps.Method(
+        kind="visibility", label="x", pieces=[p1, p2], planes=[],
+        piece_of=np.zeros(0, dtype=np.int64), n_cores=2, n_unresolved=1, cost=0.0,
+    )  # fmt: skip
+
+
+def test_core_markers_and_rows_locate_every_core() -> None:
+    from teklif.app import surface_panel as sp
+
+    m = _method_with_cores()
+    tags = [t for t, _, _ in sp.core_regions(m)]
+    assert tags == ["M1", "M2", "Ç1"]
+    lines = sp.core_markers(m, 1000.0)
+    assert [ln["label"] for ln in lines if ln["label"]] == tags
+    assert len(lines) == 3 * 4  # 3 cross arms + 1 leader per core
+    leader = next(ln for ln in lines if ln["label"] == "M1")
+    assert leader["pts"] == [1.0, 2.0, 3.0, 1.0, 102.0, 3.0]  # 0.10 * diag along the normal
+    assert leader["hex"] == 0xFF2D95
+    assert next(ln for ln in lines if ln["label"] == "M2")["hex"] == 0x22D3EE
+    assert next(ln for ln in lines if ln["label"] == "Ç1")["hex"] == sp.UNRESOLVED_HEX
+    rows = sp.core_rows(m)
+    assert [r["no"] for r in rows] == tags
+    assert rows[0]["kalıp parçası"] == 1 and rows[1]["kalıp parçası"] == 2
+    assert rows[0]["konum X/Y/Z [mm]"] == "1 / 2 / 3"
+    assert rows[1]["yüz no"].endswith("…")
+
+
+def test_viewer_pause_comes_from_the_library() -> None:
+    from teklif.library import load_library
+
+    assert load_library().thresholds.viewer.select_pause_s.value == 2.0
