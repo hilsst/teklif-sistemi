@@ -324,5 +324,21 @@ def test_two_piece_visibility_split_needs_no_core() -> None:
     best = min(vis, key=lambda m: m.cost)
     assert best.n_cores == 0 and best.n_unresolved == 0
     d0, d1 = (np.array(p.pull.direction) for p in best.pieces)
-    assert float(d0 @ d1) < 0  # the pieces open away from each other
+    assert float(d0 @ d1) < -0.9  # the pieces open straight away from each other
     assert not any(f.code == "separation_unverified" for f in a.view(a.methods.index(best)).flags)
+
+
+def test_island_inside_the_other_piece_is_given_to_it() -> None:
+    # one connected 200 x 200 plate; a few triangles of the middle carry the other label: that
+    # island is cut off from its label's main patch, so it belongs to the piece around it (its
+    # own undercut analysis then decides whether it needs a core)
+    from teklif.draft.pull_search import _connected_groups
+
+    plate: Quad = ([0, 0, 0], [200, 0, 0], [200, 200, 0], [0, 200, 0], [0, 0, -1])
+    ts = _soup([plate])
+    lab = np.zeros(len(ts.areas), dtype=np.int64)
+    centre = np.flatnonzero(np.linalg.norm(ts.centroids - [100, 100, 0], axis=1) < 30)
+    assert 0 < len(centre) < len(lab) // 4
+    lab[centre] = 1
+    groups = _connected_groups(ts, lab, 2, S)
+    assert len(groups) == 1 and len(groups[0]) == len(lab)

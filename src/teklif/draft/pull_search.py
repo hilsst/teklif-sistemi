@@ -60,7 +60,7 @@ class Settings:
     warn_review_ratio: float = 0.25
     core_max_area_ratio: float = 0.10
     noise_area_ratio: float = 0.002
-    noise_draft_deg: float = 5.0
+    noise_draft_deg: float = 10.0
     opposite_cos: float = -0.5
     max_split_pieces: int = 3
     threshold_margin_ratio: float = 0.2
@@ -919,10 +919,37 @@ def _direction_methods(ts: TriSet, s: Settings) -> list[Method]:
 
 
 def _connected_groups(ts: TriSet, lab: I64, n_labels: int, s: Settings) -> list[I64]:
-    """Triangle groups of a labelling where every piece is one connected patch: a label with
-    several large patches (>= core_max_area_ratio of the surface) becomes several pieces
-    (interleaved strips would be a comb of pieces, not two halves); smaller islands stay with
-    the label's largest patch."""
+    """Triangle groups of a labelling where every piece is one connected patch. A small patch
+    (< core_max_area_ratio of the surface) cut off from its label's large patch is given to the
+    label around it, so that piece's own undercut analysis counts it (as a core if nothing
+    releases it); a label with no large patch dissolves into its surroundings. A label with
+    several large patches becomes several pieces (interleaved strips would be a comb of pieces,
+    not two halves)."""
+    lab = lab.copy()
+    total = float(ts.areas.sum()) or 1.0
+    pa, pb = ts.pairs[:, 0], ts.pairs[:, 1]
+    for _ in range(3):  # reassigning an island can leave another one behind: a few rounds
+        changed = False
+        for i in range(n_labels):
+            mine = lab == i
+            if not mine.any():
+                continue
+            comp = components(ts, mine)
+            ids, inv = np.unique(comp[mine], return_inverse=True)
+            share = np.bincount(inv, weights=ts.areas[mine]) / total
+            for c, sh in zip(ids, share, strict=True):
+                if sh >= s.core_max_area_ratio:  # a main patch of this label stays
+                    continue
+                isl = comp == c
+                cross = isl[pa] != isl[pb]
+                out = np.where(isl[pa[cross]], pb[cross], pa[cross])
+                around = lab[out]
+                around = around[around != i]
+                if len(around):
+                    lab[isl] = int(np.bincount(around).argmax())
+                    changed = True
+        if not changed:
+            break
     groups: list[I64] = []
     for i in range(n_labels):
         mine = lab == i
@@ -930,7 +957,7 @@ def _connected_groups(ts: TriSet, lab: I64, n_labels: int, s: Settings) -> list[
             continue
         comp = components(ts, mine)
         ids, inv = np.unique(comp[mine], return_inverse=True)
-        share = np.bincount(inv, weights=ts.areas[mine]) / float(ts.areas.sum())
+        share = np.bincount(inv, weights=ts.areas[mine]) / total
         tris_i = np.flatnonzero(mine)
         big = [int(c) for c, sh in zip(ids, share, strict=True) if sh >= s.core_max_area_ratio]
         if len(big) <= 1:
@@ -962,8 +989,10 @@ def _visibility_methods(
             continue
         # the piece that is released along +n is the first (negative side of the plane)
         groups.sort(key=lambda g: float(np.mean(ts.normals[g] @ n)))
-        cons = [_plane_cons(k, 2, n, s) for k in range(2)]
-        pieces = _exact_pieces(ts, groups, cons, s, s.piece_max_tilt_deg)
+        # the pieces open straight away from each other: pulls stay within sandwich_tol_deg of +-n
+        tol = math.cos(math.radians(s.sandwich_tol_deg))
+        cons: list[list[Constraint]] = [[(n, tol, 1.0)], [(n, -1.0, -tol)]]
+        pieces = _exact_pieces(ts, groups, cons, s, 180.0)
         if pieces is None:
             continue
         axis = "XYZ"[int(np.argmax(np.abs(n)))] if float(np.abs(n).max()) > 0.98 else None

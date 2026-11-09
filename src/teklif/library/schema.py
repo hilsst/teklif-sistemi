@@ -201,7 +201,7 @@ class UndercutThresholds(_Strict):
         desc="Bu orandan küçük VE noise_draft_deg'den sığ ters açı lekesi gürültü sayılır",
     )
     noise_draft_deg: Param = Param(
-        value=5.0,
+        value=10.0,
         unit="deg",
         source=Source.DEFAULT,
         desc="Gürültü sayılabilecek en derin ters açı (0 ile -bu değer arası)",
