@@ -27,6 +27,8 @@ from numpy.typing import NDArray
 
 from teklif.draft import pull_search as ps
 from teklif.geometry import mold_profile
+from teklif.geometry.plate_features import PlateFeatures
+from teklif.geometry.selection_features import SelectionFeatures, selection_features
 from teklif.geometry.surface_select import (
     ANGULAR_DEFLECTION_DEG,
     LINEAR_DEFLECTION_MM,
@@ -65,6 +67,7 @@ class SurfaceSelection:
     flange_mm: float = 150.0
     solids: tuple[int, ...] = ()  # solids of an assembly that the selected faces belong to
     assessment: ps.ToolingAssessment | None = None  # tooling decision for this pull
+    features: SelectionFeatures | None = None  # area, holes, thickness of the selected faces
     max_pieces: int = 3  # most mold pieces allowed in this analysis (user input)
     max_pieces_library: int = 3  # the library default it started from
 
@@ -72,13 +75,49 @@ class SurfaceSelection:
         """Trim length: whole boundary when every opening is trimmed, else the outer rim only."""
         return self.boundary_m if all_openings else self.outer_m
 
+    def part_features(self, base: PlateFeatures) -> PlateFeatures:
+        """``base`` (whole file or solid) with area, thickness and hole count replaced by the
+        values measured on the selected faces; a value that could not be measured stays."""
+        sf = self.features
+        if sf is None:
+            return base
+        upd: dict[str, Any] = {
+            "one_side_area_m2": sf.area_m2,
+            "hole_count": sf.hole_count,
+            "holes": [],
+        }
+        if sf.mean_thickness_mm > 0:
+            upd["mean_thickness_mm"] = sf.mean_thickness_mm
+        notes = [*base.notes, *(f"seçili yüzeyler: {n}" for n in sf.notes)]
+        return base.model_copy(update={**upd, "notes": notes})
+
     def note(self) -> str:
+        sf = self.features
         return (
             f"kalıp yüzeyi kullanıcı seçimi: {len(self.face_ids)} yüz, {self.area_m2:.3f} m², "
             f"sınır (tüm dış kenar, boşluk ve delikler trim) {self.boundary_m:.2f} m; çekme yönü "
             f"{self.pull_label} {tuple(round(x, 3) for x in self.pull)}; ters açı payı "
             f"%{self.undercut_ratio * 100:.1f}"
+            + (
+                f"; seçili yüzeylerden ölçülen: {sf.hole_count} delik, kalınlık "
+                + (
+                    f"{sf.mean_thickness_mm:.1f} mm"
+                    if sf.mean_thickness_mm > 0
+                    else "ölçülemedi (dosya değeri kullanıldı, incelenmeli)"
+                )
+                + (" [" + "; ".join(sf.notes) + "]" if sf.notes else "")
+                if sf
+                else ""
+            )
             + (f"; sistem kalıp kararı: {self.assessment.label}" if self.assessment else "")
+            + (
+                f"; kullanıcı karşılaştırma tablosundan bu yöntemi seçti (sistem önerisi: "
+                f"{self.assessment.recommended.label})"
+                if self.assessment
+                and self.assessment.recommended is not None
+                and self.assessment.shown != 0
+                else ""
+            )
             + (
                 f"; kalıp en fazla {self.max_pieces} parça"
                 + (
@@ -480,7 +519,9 @@ def render_surface_panel(
     if analysed:
         if mk not in st.session_state:
             with st.spinner("Seçim için ince analiz ağı hazırlanıyor..."):
-                st.session_state[mk] = _load(data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG)
+                st.session_state[mk] = _load(
+                    data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG, True
+                )
         mesh = st.session_state[mk]
         tris = ps.triset_from_mesh(mesh, selected)
         sk_search = f"{key}_ps_{hash((tuple(selected), replace(settings, max_split_pieces=0)))}"
@@ -522,12 +563,18 @@ def render_surface_panel(
         else:
             pull, pull_label = options[pick], pick
     assessment: ps.ToolingAssessment | None = None
+    table_key: str | None = None
     if pull is not None and tris is not None:
         ak = f"{key}_assess_{hash((tuple(selected), tuple(round(x, 6) for x in pull), settings))}"
         if ak not in st.session_state:
             with st.spinner("Bölme yöntemleri karşılaştırılıyor ve kalıp kararı veriliyor..."):
                 st.session_state[ak] = ps.assess(tris, np.array(pull), settings)
         assessment = st.session_state[ak]
+        # the user may pick any compared method in the table; everything on screen follows it
+        table_key = f"{key}_mtbl_{abs(hash(ak))}"
+        picked = _picked_row(table_key)
+        if assessment is not None and 0 < picked < len(assessment.methods):
+            assessment = assessment.view(picked)
     paint = "draft"
     if assessment is not None and assessment.chosen is not None:
         paint = (
@@ -559,7 +606,7 @@ def render_surface_panel(
         )
     if right is not None and assessment is not None:
         with right:
-            render_assessment(assessment, pull_label)
+            render_assessment(assessment, pull_label, table_key)
     last = f"{key}_lastclick"
     ident = (click.get("n"), click.get("t")) if click else None
     if click and ident != st.session_state.get(last):  # n restarts when the iframe is rebuilt
@@ -594,6 +641,10 @@ def render_surface_panel(
 
     bad, ok = _score(mesh, selected, np.array(pull), warn_min, min_ok)
     boundary_mm, outer_mm = mesh.trim_lengths_mm(selected, np.array(pull))
+    fk = f"{key}_selfeat_{hash(tuple(selected))}"
+    if fk not in st.session_state:
+        with st.spinner("Seçili yüzlerin alan, delik ve kalınlık bilgileri ölçülüyor..."):
+            st.session_state[fk] = selection_features(mesh, list(selected))
     prof = ToolProfile(flange_mm=flange_mm)  # tool reach for the cost estimate only (no mold view)
     return SurfaceSelection(
         face_ids=list(selected),
@@ -608,12 +659,24 @@ def render_surface_panel(
         flange_mm=prof.flange_mm,
         solids=tuple(sorted({f.solid for f in mesh.faces if f.id in set(selected)})),
         assessment=assessment,
+        features=st.session_state[fk],
         max_pieces=settings.max_split_pieces,
         max_pieces_library=lib_max_pieces,
     )
 
 
-def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
+def _picked_row(table_key: str) -> int:
+    """Row of the compared-methods table the user clicked (0 = none: the system's pick)."""
+    try:
+        rows = st.session_state[table_key].selection.rows
+    except (KeyError, AttributeError):
+        return 0
+    return int(rows[0]) if rows else 0
+
+
+def render_assessment(
+    a: ps.ToolingAssessment, pull_label: str, table_key: str | None = None
+) -> None:
     """Side panel: the tooling decision, the mold pieces (colour, pull direction, cores), the
     methods compared and the trace of every number."""
     box = {
@@ -654,7 +717,10 @@ def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
     for fl in a.flags:
         st.warning(f"manual_review ({fl.code}): {fl.reason}")
     if len(a.methods) > 1:
-        st.markdown(f"**Karşılaştırılan yöntemler** (en fazla {a.max_pieces} parça)")
+        st.markdown(
+            f"**Karşılaştırılan yöntemler** (en fazla {a.max_pieces} parça). Bir satıra "
+            "tıklayınca o çözümün çıktısı (renkler, ayırma yüzeyleri, kalıp kararı) ekrana gelir."
+        )
         st.dataframe(
             [
                 {
@@ -663,11 +729,15 @@ def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
                     "maça": m.n_cores,
                     "çözülemeyen": m.n_unresolved,
                     "puan": round(m.cost, 1),
-                    "seçilen": "✓" if m is ch else "",
+                    "durum": ("▶ gösterilen" if m is ch else "")
+                    + (" ★ sistem önerisi" if m is a.recommended else ""),
                 }
                 for m in a.methods
             ],
             hide_index=True,
+            key=table_key,
+            on_select="rerun" if table_key else "ignore",
+            selection_mode="single-row",
         )
         st.caption(
             "Puan = bölme ağırlığı × (parça − 1) + maça ağırlığı × maça + ceza × çözülemeyen "

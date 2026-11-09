@@ -217,6 +217,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             + (f", kalıp grubu: {asm.tool_group}" if asm.tool_group else "")
             + ". Aşağıdaki ölçüler, kalıp ve fiyat yalnız bu parça (bir adet) içindir."
         )
+    st.markdown("**Dosyadaki parça (yüzey seçilmeden önceki, tahmini değerler)**")
     c = st.columns(4)
     c[0].metric("Parça alanı (tek yüz)", f"{f.one_side_area_m2:.2f} m²")
     c[1].metric("Ort. kalınlık", f"{f.mean_thickness_mm:.1f} mm")
@@ -242,6 +243,24 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             f"seçili gövde(ler) için hesaplandı (gövde {names}): {f.one_side_area_m2:.2f} m², "
             f"{f.mean_thickness_mm:.1f} mm, {f.hole_count} delik."
         )
+    if sel and sel.features is not None:
+        f = sel.part_features(f)
+        sf = sel.features
+        st.markdown("**Seçtiğiniz yüzeylere ait değerler (teklifte bunlar kullanılır)**")
+        k = st.columns(4)
+        k[0].metric("Yüzey alanı (seçili yüzler)", f"{sf.area_m2:.3f} m²")
+        k[1].metric(
+            "Ort. kalınlık",
+            f"{sf.mean_thickness_mm:.1f} mm" if sf.mean_thickness_mm > 0 else "ölçülemedi",
+        )
+        k[2].metric("Delik sayısı", sf.hole_count)
+        k[3].metric("Seçilen gövde", ", ".join(map(str, sf.solids)))
+        st.caption(
+            f"Ölçüm: seçili yüzlerden {sf.n_rays} noktadan içeri ışın atılıp karşı yüzeye ulaşan "
+            f"{sf.n_hits} ışının budanmış ortalaması (kalınlık); delik = seçimin iç sınırlarından "
+            f"içinden geçen {sf.hole_count} tanesi. Tahmindir, teklifte 'incelenmeli' işaretiyle "
+            "taşınır. " + "; ".join(sf.notes)
+        )
     trim_all = (lib.thresholds.trim.trim_all_openings.value or 0) >= 0.5
     trim_sel = sel.trim_m(trim_all) if sel else 0.0
     rule = "tüm dış kenar, boşluk ve delikler" if trim_all else "yalnız dış kenar"
@@ -257,8 +276,12 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
     core_cost = 0.0
     core_reason = ""
     sys_choice: str | None = None
+    rec_choice: str | None = None  # the system's own recommendation (not the table pick)
     if sel and sel.assessment is not None and sel.assessment.solution is not Solution.SINGLE:
         sys_choice = CORE_CHOICE_OF.get(sel.assessment.solution)
+    if sel and sel.assessment is not None and sel.assessment.recommended is not None:
+        rec_sol = sel.assessment.recommended.solution
+        rec_choice = CORE_CHOICE_OF.get(rec_sol) if rec_sol is not Solution.SINGLE else None
     if sel and (sel.undercut_ratio > 0 or sys_choice):
         a = sel.assessment
         st.warning(
@@ -271,7 +294,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
             key=f"pq_core_{sys_choice}",
             index=CORE_CHOICES.index(sys_choice) if sys_choice in CORE_CHOICES else None,
         )
-        if core_choice and sys_choice and core_choice != sys_choice:
+        if core_choice and (rec_choice or sys_choice) and core_choice != (rec_choice or sys_choice):
             core_reason = st.text_input(
                 "Sistem önerisinden farklı seçim gerekçesi", key="pq_core_reason"
             )
@@ -354,7 +377,7 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
         help="Sandviçte ölçülen kalınlık çekirdeği de içerir, bu yüzden kabuk kalınlığını girin."
         if sandwich
         else "Varsayılan: STEP'ten ölçülen ortalama kalınlık.",
-        key=f"pq_lamt_{process}_{upload.name}_{upload.size}",
+        key=f"pq_lamt_{process}_{upload.name}_{upload.size}_{lam_default}",
     )
     skins = int(
         k3.number_input(
@@ -619,9 +642,14 @@ def render(lib: Library, store: Store, show_result: Any) -> None:
                 notes.append(
                     f"ters açı ({ratio}): {core_choice.lower()}, ek maliyet {core_cost:,.0f}"
                 )
-            if core_choice and sys_choice and core_choice != sys_choice:
+            if (
+                core_choice
+                and (rec_choice or sys_choice)
+                and core_choice != (rec_choice or sys_choice)
+            ):
                 notes.append(
-                    f"kalıp kararı ezildi: sistem '{sys_choice}', seçilen '{core_choice}'; "
+                    f"kalıp kararı ezildi: sistem '{rec_choice or sys_choice}', "
+                    f"seçilen '{core_choice}'; "
                     f"gerekçe: {core_reason.strip() or 'GİRİLMEDİ (incelenmeli)'}"
                 )
     if (
