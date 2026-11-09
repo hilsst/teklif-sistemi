@@ -115,8 +115,8 @@ def test_split_analysis_colours_pieces_and_builds_parting_walls(tmp_path: Path) 
     a = ps.assess(ts, np.array([0.0, 0.0, 1.0]), s)
     ch = a.chosen
     assert a.solution is ps.Solution.SPLIT and ch is not None and ch.n_pieces == 2
-    nrm = ch.planes[0].normal
-    assert abs(nrm[2]) < 0.3 and abs(nrm[0]) > 0.6  # a vertical plane cutting left from right
+    d0, d1 = (np.array(p.pull.direction) for p in ch.pieces)
+    assert float(d0 @ d1) < -0.5  # the two tool halves open away from each other
     colors = piece_colors(view, ids, ts, ch)
     assert len(colors) == sum(len(f.triangles) for f in view.faces)
     used = {c for c in colors if c >= PIECE_COLOR_IDX0}

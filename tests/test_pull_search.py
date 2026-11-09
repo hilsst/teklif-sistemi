@@ -206,18 +206,25 @@ def test_piece_limit_is_respected() -> None:
     assert two.solution is Solution.SPLIT
 
 
-def test_split_and_core_together() -> None:
-    # a small lip facing up and to +Y: the closed ends keep every piece from releasing it. Only a
-    # pull grazing base, ends and lip at exactly 0 deg would, so this test asks for 0.5 deg draft
+def test_lip_is_released_by_a_split_with_at_most_one_core() -> None:
+    # a separate small lip facing up and to +Y next to the hood: still a split, never unresolved
     h = math.radians(30)
     up_y = [0, math.sin(h), math.cos(h)]
     lip: Quad = ([-10, 40, 30], [10, 40, 30], [10, 60, 30], [-10, 60, 30], up_y)
     ts = _soup([*_dovetail(), lip])
-    a = assess(ts, np.array([0, 0, 1.0]), Settings(warn_min_deg=0.5))
-    assert a.solution is Solution.SPLIT_CORE
-    assert a.n_cores == 1
-    assert a.plan is not None and len(a.plan.pieces) == 2
-    assert "ikisi birlikte" in a.label
+    a = assess(ts, np.array([0, 0, 1.0]), Settings(warn_min_deg=0.5, max_split_pieces=3))
+    assert a.solution in (Solution.SPLIT, Solution.SPLIT_CORE)
+    assert a.chosen is not None and a.chosen.n_unresolved == 0 and a.n_cores <= 1
+
+
+def test_split_and_core_together_is_its_own_solution() -> None:
+    ts = _soup(_dovetail())
+    a = assess(ts, np.array([0, 0, 1.0]), S)
+    ch = a.chosen
+    assert ch is not None
+    both = replace(ch, pieces=ch.pieces[:2], n_cores=1)
+    assert both.solution is Solution.SPLIT_CORE
+    assert replace(ch, n_cores=0).solution is Solution.SPLIT
 
 
 def test_small_regions_on_opposite_sides_add_up_to_a_split() -> None:
@@ -258,3 +265,23 @@ def test_settings_come_from_the_library() -> None:
     assert s.core_max_area_ratio == lib.thresholds.undercut.core_max_area_ratio.value
     assert s.max_split_pieces == 3
     assert s.samples == int(lib.thresholds.pull_search.samples.value or 0)
+
+
+def test_view_describes_the_method_the_user_picked() -> None:
+    ts = _soup(_dovetail())
+    a = assess(ts, np.array([0, 0, 1.0]), S)
+    assert a.recommended is a.methods[0] and a.shown == 0
+    k = next(i for i, m in enumerate(a.methods) if m.kind == "single")
+    v = a.view(k)
+    assert v.chosen is a.methods[k] and v.recommended is a.methods[0]
+    assert v.solution is a.methods[k].solution and v.solution is not a.solution
+    assert v.n_cores == a.methods[k].n_cores and v.plan is None
+    assert v.reasons[0].startswith("Bu yöntemi tablodan siz seçtiniz")
+    assert not any(f.code == "split_parting_line" for f in v.flags)
+    assert not any(f.code == "method_close" for f in v.flags)
+    assert all(not al.startswith(a.methods[k].label + ":") for al in v.alternatives)
+    assert v.methods is a.methods  # the comparison itself is unchanged
+    assert a.view(0) is a and a.view(99) is a
+    back = v.view(0)
+    assert back.chosen is a.methods[0] and back.solution is a.solution
+    assert any(f.code == "split_parting_line" for f in back.flags)

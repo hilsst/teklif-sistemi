@@ -633,6 +633,9 @@ class PartingPlane:
     offset: float  # mm: the plane is n . x = offset
 
 
+UNVERIFIED_KINDS = ("region", "direction")  # pieces not checked to slide apart from each other
+
+
 @dataclass(frozen=True)
 class Method:
     """One way to build the tool: pieces (each with a pull direction and its cores) and cost."""
@@ -845,6 +848,114 @@ def _plane_methods(
     return methods
 
 
+def _direction_methods(ts: TriSet, s: Settings) -> list[Method]:
+    """Direction partitions (2 .. max pieces): choose k pull directions that together release as
+    much of the surface as possible (greedy cover, then Lloyd iterations), give every triangle to
+    the direction that releases it best (smoothed so the pieces are coherent patches), and count
+    what is still locked. The parting lines run on the surface where the release switches, so a
+    hood whose two sides lean in gets a left and a right piece without any core."""
+    if s.max_split_pieces < 2 or not len(ts.areas):
+        return []
+    qs = _quick_settings(s)
+    nn, aa = _aggregate(ts.normals, ts.areas)
+    cand = _fibonacci(max(250, qs.samples * 2))
+    dd = np.degrees(np.arcsin(np.clip(-(nn @ cand.T), -1.0, 1.0)))
+    wgt = np.where(dd >= s.min_ok_deg, 1.0, np.where(dd >= s.warn_min_deg, 0.5, 0.0))
+    out: list[Method] = []
+    for k in range(2, s.max_split_pieces + 1):
+        cov = np.zeros(len(nn))
+        dirs: list[F64] = []
+        for _ in range(k):
+            gain = (aa[:, None] * np.maximum(wgt - cov[:, None], 0.0)).sum(axis=0)
+            j = int(np.argmax(gain))
+            dirs.append(cand[j])
+            cov = np.maximum(cov, wgt[:, j])
+        lab = _assign(ts, np.array(dirs), s)
+        for _ in range(3):  # Lloyd: re-optimise every direction on its own triangles
+            new = []
+            for i in range(len(dirs)):
+                g = np.flatnonzero(lab == i)
+                if not len(g):
+                    new.append(dirs[i])
+                    continue
+                nq, aq = _aggregate(ts.normals[g], ts.areas[g])
+                f = search_directions(nq, aq, qs, (dirs[i],), keep=1, max_tilt_deg=180.0)
+                new.append(np.array(f[0].direction) if f else dirs[i])
+            relab = _assign(ts, np.array(new), s)
+            same = bool((relab == lab).all())
+            dirs, lab = new, relab
+            if same:
+                break
+        # a piece must be one connected patch: a label with several significant patches is
+        # several pieces (interleaved strips would be a comb of pieces, not two halves)
+        groups: list[I64] = []
+        for i in range(len(dirs)):
+            mine = lab == i
+            if not mine.any():
+                continue
+            comp = components(ts, mine)
+            ids, inv = np.unique(comp[mine], return_inverse=True)
+            share = np.bincount(inv, weights=ts.areas[mine]) / float(ts.areas.sum())
+            tris_i = np.flatnonzero(mine)
+            big = [int(c) for c, sh in zip(ids, share, strict=True) if sh >= s.noise_area_ratio]
+            if len(big) <= 1:
+                groups.append(tris_i)
+                continue
+            keep = int(ids[int(np.argmax(share))])
+            for c in big:
+                g = tris_i[comp[tris_i] == c]
+                if c == keep:  # small leftovers stay with the largest patch
+                    g = tris_i[(comp[tris_i] == c) | ~np.isin(comp[tris_i], big)]
+                groups.append(g)
+        if len(groups) < 2 or len(groups) > s.max_split_pieces:
+            continue
+        pieces = _exact_pieces(ts, groups, [[] for _ in groups], s, 180.0)
+        if pieces is None:
+            continue
+        pieces.sort(key=lambda p: -p.area_ratio)
+        out.append(
+            _make_method(
+                "direction",
+                f"{len(pieces)} parçalı bölünmüş kalıp (yüzey yönlerine göre bölme; ayrılabilirlik "
+                "doğrulanmadı)",
+                ts,
+                pieces,
+                [],
+                s,
+            )
+        )
+    return out
+
+
+def _assign(ts: TriSet, dirs: NDArray[np.float64], s: Settings, passes: int = 6) -> I64:
+    """Piece of every triangle for the pull ``dirs``: the direction that releases it best; where
+    several release it (draft >= warn_min_deg) the one most neighbours already use."""
+    dr = np.degrees(np.arcsin(np.clip(-(ts.normals @ dirs.T), -1.0, 1.0)))
+    lab = np.argmax(dr, axis=1).astype(np.int64)
+    elig = dr >= s.warn_min_deg
+    multi = elig.sum(axis=1) >= 2
+    if not multi.any() or not len(ts.pairs):
+        return lab
+    pa, pb = ts.pairs[:, 0], ts.pairs[:, 1]
+    for _ in range(passes):
+        nd = len(dirs)
+        cnt = (
+            (
+                np.bincount(pa * nd + lab[pb], minlength=len(lab) * nd)
+                + np.bincount(pb * nd + lab[pa], minlength=len(lab) * nd)
+            )
+            .reshape(len(lab), nd)
+            .astype(float)
+        )
+        cnt = np.where(elig, cnt + 0.01 * (np.arange(len(dirs)) == lab[:, None]), -1.0)
+        best = np.argmax(cnt, axis=1)
+        new = np.where(multi, best, lab)
+        if (new == lab).all():
+            break
+        lab = new
+    return lab
+
+
 def parting_walls(ts: TriSet, piece_of: I64, length_mm: float) -> NDArray[np.float64]:
     """Triangles of the parting walls: along every edge between two pieces, a strip standing
     perpendicular to the tool surface (along the mean normal, into the tool) ``length_mm`` deep."""
@@ -882,10 +993,52 @@ class ToolingAssessment:
     trace: list[CostLine]
     methods: list[Method] = field(default_factory=list)  # every method tried, cheapest first
     settings: Settings = field(default_factory=Settings)
+    shown: int = 0  # index in ``methods`` of the method this assessment describes
+    base_flags: list[ReviewFlag] = field(default_factory=list)  # flags of the baseline pull
+    single: Method | None = None  # the one-piece method with the pull the user looked at
 
     @property
     def chosen(self) -> Method | None:
+        return self.methods[self.shown] if self.methods else None
+
+    @property
+    def recommended(self) -> Method | None:
+        """The system's own pick (cheapest method), whichever one is shown."""
         return self.methods[0] if self.methods else None
+
+    def view(self, index: int) -> ToolingAssessment:
+        """The same comparison, described for another method: its decision, pieces, cores,
+        reasons and flags (the user picked it in the table)."""
+        if not self.methods or not 0 <= index < len(self.methods) or index == self.shown:
+            return self
+        m = self.methods[index]
+        single = self.single or self.methods[0]
+        solution, reasons, alts, mflags = _decide(self.methods, m, single, self.settings)
+        if index != 0:
+            rec = self.methods[0]
+            reasons.insert(
+                0,
+                f"Bu yöntemi tablodan siz seçtiniz; sistemin önerisi '{rec.label}' "
+                f"(puan {rec.cost:.1f}, bu yöntem {m.cost:.1f}).",
+            )
+        title = f"Kalıp kararı (kullanıcının seçtiği yöntem): {SOLUTION_LABEL[solution]}"
+        trace = [
+            ln.model_copy(update={"description": title, "result": float(m.n_pieces)})
+            if ln.key == "tooling.decision"
+            else ln
+            for ln in self.trace
+        ]
+        return replace(
+            self,
+            trace=trace,
+            solution=solution,
+            plan=SplitPlan(m.pieces) if m.n_pieces > 1 else None,
+            n_cores=m.n_cores,
+            reasons=reasons,
+            alternatives=alts,
+            flags=[*self.base_flags, *mflags],
+            shown=index,
+        )
 
     @property
     def max_pieces(self) -> int:
@@ -941,6 +1094,94 @@ def _method_line(i: int, m: Method, s: Settings) -> CostLine:
         unit="puan",
         category="tooling",
     )
+
+
+def _decide(
+    methods: list[Method], best: Method, single: Method, s: Settings
+) -> tuple[Solution, list[str], list[str], list[ReviewFlag]]:
+    """Decision text and flags that belong to ``best`` among the compared ``methods``."""
+    solution = best.solution
+    reasons: list[str] = []
+    alts: list[str] = []
+    flags: list[ReviewFlag] = []
+    reasons.append(
+        f"seçilen yöntem: {best.label}: {best.n_pieces} parça, {best.n_cores} maça, "
+        f"maliyet puanı {best.cost:.1f}"
+    )
+    if single is not best:
+        reasons.append(
+            f"tek parça kalıp: {single.n_cores} maça"
+            + (f" + {single.n_unresolved} çözülemeyen bölge" if single.n_unresolved else "")
+            + f", puan {single.cost:.1f}"
+        )
+    others = [x for x in methods if x is not best]
+    for m in others[:4]:
+        if m is single:
+            continue
+        alts.append(
+            f"{m.label}: {m.n_cores} maça"
+            + (f", {m.n_unresolved} çözülemeyen" if m.n_unresolved else "")
+            + f", puan {m.cost:.1f}"
+        )
+    for k, p in enumerate(best.pieces, 1):
+        reasons.append(
+            f"parça {k}: yüzeyin %{p.area_ratio * 100:.0f}'i, çekme {_fmt(p.pull.direction)}, "
+            f"en küçük açı {p.pull.min_draft_deg:.1f}°"
+            + (f", {len(p.cores)} maça" if p.cores else "")
+            + (f", {len(p.unresolved)} çözülemeyen bölge" if p.unresolved else "")
+        )
+    if s.max_split_pieces < 2:
+        reasons.append("kalıp parça sınırı 1: bölünmüş kalıp denenmedi")
+    warn_share = best.warn_share
+    if warn_share >= s.warn_review_ratio:
+        flags.append(
+            ReviewFlag(
+                code="low_draft",
+                reason=f"yüzeyin %{warn_share * 100:.0f}'i {s.warn_min_deg:g}–{s.min_ok_deg:g}° "
+                "arasında: çıkar ama zor; farklı çekme yönlerini/yöntemleri de karşılaştırın.",
+                path=f"{LIB}:draft.warn_review_ratio",
+            )
+        )
+    if best.n_unresolved:
+        flags.append(
+            ReviewFlag(
+                code="tooling_unresolved",
+                reason=f"{best.n_unresolved} ters açı bölgesi izin verilen en fazla "
+                f"{s.max_split_pieces} parçayla ve maçayla çözülemiyor (kapalı kesit → mandrel "
+                "olabilir)",
+                path=f"{LIB}:undercut.max_split_pieces",
+            )
+        )
+    if best.kind in UNVERIFIED_KINDS and best.n_pieces > 1:
+        flags.append(
+            ReviewFlag(
+                code="separation_unverified",
+                reason="Kalıp parçalarının birbirinden ayrılması (çarpışma, çıkış sırası) "
+                "kontrol edilmedi; yalnız her parçanın kendi çekme açısı doğrulandı.",
+                path=f"{LIB}:undercut.max_split_pieces",
+            )
+        )
+    if best.n_pieces > 1:
+        flags.append(
+            ReviewFlag(
+                code="split_parting_line",
+                reason="Ayırma düzlemi/hattı otomatik seçildi; parça sayısı, hattı ve parçaların "
+                "çıkış sırası mühendis tarafından onaylanmalı.",
+                path=f"{LIB}:undercut.max_split_pieces",
+            )
+        )
+    rivals = [m for m in others if m.n_pieces != best.n_pieces and not m.n_unresolved]
+    rivals.sort(key=lambda m: abs(m.cost - best.cost))
+    if rivals and abs(rivals[0].cost - best.cost) <= s.threshold_margin_ratio * max(best.cost, 1.0):
+        flags.append(
+            ReviewFlag(
+                code="method_close",
+                reason=f"'{rivals[0].label}' maliyet puanı ({rivals[0].cost:.1f}) seçilene "
+                f"({best.cost:.1f}) çok yakın: iki yöntemi karşılaştırın.",
+                path=f"{LIB}:undercut.split_cost_weight",
+            )
+        )
+    return solution, reasons, alts, flags
 
 
 def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
@@ -1050,6 +1291,7 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
     # one when a single piece is already that cheap
     if s.max_split_pieces >= 2 and cheapest_single > s.split_cost_weight:
         methods += _plane_methods(ts, pull, regions, s)
+        methods += _direction_methods(ts, s)
         if large:
             rp = split_plan(ts, large, pull, s)
             covered = sum(len(p.tris) for p in rp.pieces) == len(ts.areas)
@@ -1064,7 +1306,9 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
                         s,
                     )
                 )
-    methods.sort(key=lambda m: (round(m.cost, 6), m.n_pieces, m.n_cores, m.kind == "region"))
+    methods.sort(
+        key=lambda m: (round(m.cost, 6), m.n_pieces, m.n_cores, m.kind in UNVERIFIED_KINDS)
+    )
     seen: set[tuple[str, int, float]] = set()
     uniq: list[Method] = []
     for m in methods:
@@ -1073,77 +1317,10 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
             seen.add(sig_key)
             uniq.append(m)
     methods = uniq
+    base_flags = list(flags)
     best = methods[0]
-    solution = best.solution
-
-    reasons: list[str] = []
-    alts: list[str] = []
-    reasons.append(
-        f"seçilen yöntem: {best.label}: {best.n_pieces} parça, {best.n_cores} maça, "
-        f"maliyet puanı {best.cost:.1f}"
-    )
-    if single is not best:
-        reasons.append(
-            f"tek parça kalıp: {single.n_cores} maça"
-            + (f" + {single.n_unresolved} çözülemeyen bölge" if single.n_unresolved else "")
-            + f", puan {single.cost:.1f}"
-        )
-    for m in methods[1:5]:
-        if m is single:
-            continue
-        alts.append(
-            f"{m.label}: {m.n_cores} maça"
-            + (f", {m.n_unresolved} çözülemeyen" if m.n_unresolved else "")
-            + f", puan {m.cost:.1f}"
-        )
-    for k, p in enumerate(best.pieces, 1):
-        reasons.append(
-            f"parça {k}: yüzeyin %{p.area_ratio * 100:.0f}'i, çekme {_fmt(p.pull.direction)}, "
-            f"en küçük açı {p.pull.min_draft_deg:.1f}°"
-            + (f", {len(p.cores)} maça" if p.cores else "")
-            + (f", {len(p.unresolved)} çözülemeyen bölge" if p.unresolved else "")
-        )
-    if s.max_split_pieces < 2:
-        reasons.append("kalıp parça sınırı 1: bölünmüş kalıp denenmedi")
-    warn_share = best.warn_share
-    if warn_share >= s.warn_review_ratio:
-        flags.append(
-            ReviewFlag(
-                code="low_draft",
-                reason=f"yüzeyin %{warn_share * 100:.0f}'i {s.warn_min_deg:g}–{s.min_ok_deg:g}° "
-                "arasında: çıkar ama zor; farklı çekme yönlerini/yöntemleri de karşılaştırın.",
-                path=f"{LIB}:draft.warn_review_ratio",
-            )
-        )
-    if best.n_unresolved:
-        flags.append(
-            ReviewFlag(
-                code="tooling_unresolved",
-                reason=f"{best.n_unresolved} ters açı bölgesi izin verilen en fazla "
-                f"{s.max_split_pieces} parçayla ve maçayla çözülemiyor (kapalı kesit → mandrel "
-                "olabilir)",
-                path=f"{LIB}:undercut.max_split_pieces",
-            )
-        )
-    if best.n_pieces > 1:
-        flags.append(
-            ReviewFlag(
-                code="split_parting_line",
-                reason="Ayırma düzlemi/hattı otomatik seçildi; parça sayısı, hattı ve parçaların "
-                "çıkış sırası mühendis tarafından onaylanmalı.",
-                path=f"{LIB}:undercut.max_split_pieces",
-            )
-        )
-    rivals = [m for m in methods[1:] if m.n_pieces != best.n_pieces and not m.n_unresolved]
-    if rivals and rivals[0].cost - best.cost <= s.threshold_margin_ratio * max(best.cost, 1.0):
-        flags.append(
-            ReviewFlag(
-                code="method_close",
-                reason=f"'{rivals[0].label}' maliyet puanı ({rivals[0].cost:.1f}) seçilene "
-                f"({best.cost:.1f}) çok yakın: iki yöntemi karşılaştırın.",
-                path=f"{LIB}:undercut.split_cost_weight",
-            )
-        )
+    solution, reasons, alts, mflags = _decide(methods, best, single, s)
+    flags.extend(mflags)
     for i, m in enumerate(methods[:6], 1):
         trace.append(_method_line(i, m, s))
     trace.append(
@@ -1175,6 +1352,9 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
         trace,
         methods,
         s,
+        0,
+        list(base_flags),
+        single,
     )
 
 
