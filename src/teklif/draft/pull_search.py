@@ -410,6 +410,12 @@ class UndercutRegion:
     faces: tuple[int, ...]
     kind: RegionKind
     why: str
+    center: tuple[float, float, float] = (0.0, 0.0, 0.0)  # area-weighted centre, mm
+    outward: tuple[float, float, float] = (0.0, 0.0, 0.0)  # mean normal (out of the part)
+
+
+def _tup(v: F64) -> tuple[float, float, float]:
+    return (float(v[0]), float(v[1]), float(v[2]))
 
 
 def undercut_regions(ts: TriSet, sel: I64, d: F64, s: Settings) -> list[UndercutRegion]:
@@ -453,6 +459,8 @@ def undercut_regions(ts: TriSet, sel: I64, d: F64, s: Settings) -> list[Undercut
                 tuple(sorted({int(x) for x in ts.face[idx]})),
                 kind,
                 why,
+                _tup(np.average(ts.centroids[idx], axis=0, weights=ts.areas[idx])),
+                _tup(n / (float(np.linalg.norm(n)) or 1.0)),
             )
         )
     out.sort(key=lambda r: -r.area_mm2)
@@ -484,6 +492,8 @@ def _mark_opposite(regions: list[UndercutRegion], s: Settings) -> list[UndercutR
                 r.faces,
                 RegionKind.SPLIT,
                 r.why + "; karşılıklı yandaki bölgeyle toplamı maça eşiğini aşıyor",
+                r.center,
+                r.outward,
             )
         out.append(r)
     return out

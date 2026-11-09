@@ -23,6 +23,10 @@ pull_search:
   piece_max_tilt_deg: {value: 120.0, unit: deg, source: default, desc: "Bölünmüş kalıp parçalarının çekme yönü, parçanın ortalama iç normalinden en fazla bu kadar sapar"}
   refine_min_step_deg: {value: 0.1, unit: deg, source: default, desc: "Yerel optimizasyonun en küçük adımı"}
   robust_min_quantile: {value: 0.01, unit: ratio, source: default, desc: "En küçük çekme açısı üçgenlerin bu payı dışarıda bırakılarak okunur (tessellation gürültüsü)"}
+viewer:
+  # 3B görüntüleyicide yüz seçerken bu kadar saniye ara verince seçimler tek seferde işlenir.
+  # Daha hızlı tepki için küçült (ör. 0.6), uzun seçim serileri için büyüt.
+  select_pause_s: {value: 2.0, unit: s, source: user, desc: "Yüz seçerken bu kadar ara verince tek güncelleme yapılır (seçimler ekranda anında boyanır)"}
 trim:
   trim_all_openings: {value: 1, unit: ratio, source: user, desc: "1: parça üzerindeki tüm boşluk, delik ve kenarlar trimlenir (trim çevresi = kalıp yüzeyinin tüm sınırı); 0: yalnız dış kenar"}
 tessellation:

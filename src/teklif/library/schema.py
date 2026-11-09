@@ -334,10 +334,20 @@ class AcceptanceThresholds(_Strict):
     cost_tolerance: Param
 
 
+class ViewerSettings(_Strict):
+    select_pause_s: Param = Param(
+        value=2.0,
+        unit="s",
+        source=Source.USER,
+        desc="Yüz seçerken bu kadar ara verince tek güncelleme yapılır",
+    )
+
+
 class Thresholds(_Strict):
     draft: DraftThresholds
     undercut: UndercutThresholds
     pull_search: PullSearchSettings = Field(default_factory=PullSearchSettings)
+    viewer: ViewerSettings = Field(default_factory=ViewerSettings)
     trim: TrimRules
     tessellation: TessellationThresholds
     costing: CostingDefaults
