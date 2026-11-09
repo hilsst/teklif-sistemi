@@ -13,7 +13,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f4f5f7;font-family:sa
 <script>
 const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728,0xf0b27a,0x9ecae1,0xc7e9c0,
   0x3b82f6,0xf97316,0xa855f7,0x14b8a6,0xca8a04,0xec4899,0x1f2937,0xcbd5e1]; // grey, blue, green, yellow, red, flange, fill, extension; 8-13 mold pieces, 14 core, 15 parting wall
-let geomRev='',lineGroup=null,axesGroup=null,pullArrow=null,scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={};
+let geomRev='',lineGroup=null,axesGroup=null,pullArrow=null,scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={},localSel=new Set(),syncTimer=null,faceTris={};
 const canvas=document.getElementById('c'),tip=document.getElementById('tip');
 function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data),'*');}
 // Free trackball: no pole limit like OrbitControls, so a part can be turned a full 360 deg in
@@ -62,9 +62,15 @@ function init(){
   canvas.addEventListener('pointerdown',e=>{down=[e.clientX,e.clientY];});
   canvas.addEventListener('pointerup',e=>{
     if(!down||(e.button!==0&&e.button!==2))return; const moved=Math.hypot(e.clientX-down[0],e.clientY-down[1]); down=null;
-    if(moved>4||args.readonly)return; const f=pick(e); if(f===null||f<0)return; clickN++;
-    // left click: select/release the face; right click (no drag): hide that element of the assembly
-    send('streamlit:setComponentValue',{value:e.button===2?{hide:f,n:clickN,t:Date.now()}:{face:f,n:clickN,t:Date.now()},dataType:'json'});
+    if(moved>4||args.readonly)return; const f=pick(e); if(f===null||f<0)return;
+    if(e.button===2){clickN++; send('streamlit:setComponentValue',{value:{hide:f,n:clickN,t:Date.now()},dataType:'json'}); return;}
+    // left click: toggle the face on the screen at once and report the whole selection once the
+    // clicking pauses, so many clicks cost one server run instead of one each
+    if(localSel.has(f))localSel.delete(f); else localSel.add(f);
+    paintFace(f, localSel.has(f)?1:0);
+    if(syncTimer)clearTimeout(syncTimer);
+    syncTimer=setTimeout(()=>{syncTimer=null; clickN++;
+      send('streamlit:setComponentValue',{value:{sel:Array.from(localSel),n:clickN,t:Date.now()},dataType:'json'});},SYNC_MS);
   });
   canvas.addEventListener('pointermove',e=>{
     if(args.readonly)return; const f=pick(e); if(f===null){tip.style.display='none';return;}
@@ -72,6 +78,12 @@ function init(){
     tip.style.left=(e.offsetX+12)+'px'; tip.style.top=(e.offsetY+12)+'px';});
   canvas.addEventListener('pointerleave',()=>{tip.style.display='none';});
   (function loop(){requestAnimationFrame(loop);controls.update();renderer.render(scene,camera);})();
+}
+const SYNC_MS=600;
+function paintFace(f,idx){
+  if(!geo)return; const col=geo.attributes.color.array, c=new THREE.Color(PALETTE[idx]);
+  for(const t of (faceTris[f]||[])){for(let v=0;v<3;v++){const o=(t*3+v)*3;col[o]=c.r;col[o+1]=c.g;col[o+2]=c.b;}}
+  geo.attributes.color.needsUpdate=true;
 }
 const ray=new THREE.Raycaster(),ndc=new THREE.Vector2();
 function pick(e){
@@ -131,7 +143,10 @@ function build(a){
   }
   const col=geo.attributes.color.array, c=new THREE.Color();
   for(let t=0;t<a.tri_color.length;t++){c.setHex(PALETTE[a.tri_color[t]]);for(let v=0;v<3;v++){const o=(t*3+v)*3;col[o]=c.r;col[o+1]=c.g;col[o+2]=c.b;}}
-  geo.attributes.color.needsUpdate=true; overlays(a); faceInfo={}; for(const [i,ar] of a.faces)faceInfo[i]=ar;
+  geo.attributes.color.needsUpdate=true; overlays(a);
+  faceTris={}; for(let t=0;t<a.tri_face.length;t++){const f=a.tri_face[t]; if(f<0)continue; (faceTris[f]||(faceTris[f]=[])).push(t);}
+  if(!syncTimer)localSel=new Set(a.selected||[]);
+  faceInfo={}; for(const [i,ar] of a.faces)faceInfo[i]=ar;
 }
 window.addEventListener('message',ev=>{
   if(ev.data.type!=='streamlit:render')return; args=ev.data.args; if(!renderer)init();

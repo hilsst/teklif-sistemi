@@ -299,6 +299,7 @@ def viewer_payload(
     pull: tuple[float, float, float] | None = None,
     extra: Extra | None = None,
     hidden: frozenset[int] = frozenset(),
+    selected: Sequence[int] = (),
 ) -> dict[str, Any]:
     """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index.
     ``hidden``: solids of an assembly left out of the picture (right click in the viewer)."""
@@ -327,6 +328,7 @@ def viewer_payload(
     return {
         "lines": lines,
         "mesh_key": key,
+        "selected": [int(i) for i in selected],
         "pull": list(pull) if pull else None,
         "pos": pos.ravel().tolist(),
         "tri_face": tri_face,
@@ -416,7 +418,22 @@ def render_surface_panel(
     base_hidden: frozenset[int] = (
         frozenset(f.solid for f in view.faces) - only_solids if only_solids else frozenset()
     )
-    hide_face = st.session_state.pop(f"{key}_hide_pending", None)
+    sk = f"{key}_sel"
+    vkey = f"{key}_viewer"
+    last = f"{key}_lastclick"
+    hide_face: int | None = st.session_state.pop(f"{key}_hide_pending", None)
+    # The viewer reports a click as its component value. Its latest value is already in the
+    # session state when the script starts, so it is applied here, before the widgets are built:
+    # one run per click (applying it after the viewer call needed a second st.rerun()).
+    click_in = st.session_state.pop(f"{key}_pendclick", None) or st.session_state.get(vkey)
+    if isinstance(click_in, dict):
+        ident_in = (click_in.get("n"), click_in.get("t"))
+        if ident_in != st.session_state.get(last):  # n restarts when the iframe is rebuilt
+            st.session_state[last] = ident_in
+            if "hide" in click_in:
+                hide_face = int(click_in["hide"])
+            elif "sel" in click_in:  # the whole selection as the viewer shows it
+                st.session_state[sk] = sorted({int(i) for i in click_in["sel"]})
     if hide_face is not None and 0 <= hide_face < len(view.faces):
         # right click on an element of an assembly hides its whole solid (never the last one)
         solids = {f.solid for f in view.faces}
@@ -426,12 +443,8 @@ def render_surface_panel(
     user_hidden = frozenset(st.session_state.get(hk, ()))
     hidden = user_hidden | base_hidden
     visible_ids = {f.id for f in view.faces if f.solid not in hidden}
-    sk = f"{key}_sel"
     st.session_state.setdefault(sk, [])
     st.session_state[sk] = [i for i in st.session_state[sk] if i in visible_ids]
-    pending = st.session_state.pop(f"{key}_pending", None)
-    if pending is not None:  # a click in the 3D view toggles the face
-        st.session_state[sk] = sorted(set(st.session_state[sk]) ^ {pending})
     min_ok = float(thresholds.draft.min_ok_deg.value)
     warn_min = float(thresholds.draft.warn_min_deg.value)
 
@@ -599,23 +612,19 @@ def render_surface_panel(
     left, right = st.columns(2) if show_side else (st.container(), None)
     with left:
         click = _VIEWER(
-            **viewer_payload(view, colors, key, pull, extra, hidden=hidden),
+            **viewer_payload(view, colors, key, pull, extra, hidden=hidden, selected=selected),
             height=560,
-            key=f"{key}_viewer",
+            key=vkey,
             default=None,
         )
     if right is not None and assessment is not None:
         with right:
             render_assessment(assessment, pull_label, table_key)
-    last = f"{key}_lastclick"
     ident = (click.get("n"), click.get("t")) if click else None
-    if click and ident != st.session_state.get(last):  # n restarts when the iframe is rebuilt
-        st.session_state[last] = ident
-        # the multiselect already exists in this run: apply the toggle at the top of the next one
-        if "hide" in click:
-            st.session_state[f"{key}_hide_pending"] = int(click["hide"])
-        else:
-            st.session_state[f"{key}_pending"] = int(click["face"])
+    if click and ident != st.session_state.get(last):
+        # not seen at the top of the run (the component value was not in the session state):
+        # keep it for the next run, as before
+        st.session_state[f"{key}_pendclick"] = click
         st.rerun()
     if user_hidden and st.button(
         f"Gizlenen {len(user_hidden)} elemanı geri getir", key=f"{key}_unhide"
