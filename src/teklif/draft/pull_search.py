@@ -60,11 +60,12 @@ class Settings:
     warn_review_ratio: float = 0.25
     core_max_area_ratio: float = 0.10
     noise_area_ratio: float = 0.002
-    noise_draft_deg: float = 0.5
+    noise_draft_deg: float = 10.0
     opposite_cos: float = -0.5
     max_split_pieces: int = 3
     threshold_margin_ratio: float = 0.2
     core_cost_weight: float = 1.0
+    core_area_cost_weight: float = 100.0
     split_cost_weight: float = 3.0
     unresolved_cost_weight: float = 100.0
     warn_cost_weight: float = 2.0
@@ -91,6 +92,7 @@ _PATHS = {
     "max_split_pieces": "undercut.max_split_pieces",
     "threshold_margin_ratio": "undercut.threshold_margin_ratio",
     "core_cost_weight": "undercut.core_cost_weight",
+    "core_area_cost_weight": "undercut.core_area_cost_weight",
     "split_cost_weight": "undercut.split_cost_weight",
     "unresolved_cost_weight": "undercut.unresolved_cost_weight",
     "warn_cost_weight": "undercut.warn_cost_weight",
@@ -624,6 +626,7 @@ _Q2 = (0.35, 0.5, 0.65)
 _Q3 = ((0.25, 0.5), (0.33, 0.67), (0.5, 0.75), (0.25, 0.75))
 _N_NORMALS = 10  # most plane normals tried
 _N_EXACT = 3  # best quick candidates per piece count that are evaluated exactly
+_N_AXIS_SPLITS = 4  # most axes tried for the two-piece visibility split
 _MERGE_COS = math.cos(math.radians(10.0))  # plane normals closer than this count as one
 
 
@@ -640,7 +643,7 @@ UNVERIFIED_KINDS = ("region", "direction")  # pieces not checked to slide apart 
 class Method:
     """One way to build the tool: pieces (each with a pull direction and its cores) and cost."""
 
-    kind: str  # "single" | "plane" | "region"
+    kind: str  # "single" | "plane" | "visibility" | "direction" | "region"
     label: str
     pieces: list[MoldPiece]
     planes: list[PartingPlane]
@@ -649,6 +652,7 @@ class Method:
     n_unresolved: int
     cost: float
     warn_share: float = 0.0  # area share released with only warn_min_deg..min_ok_deg of draft
+    core_share: float = 0.0  # share of the tool surface that the cores cover
 
     @property
     def n_pieces(self) -> int:
@@ -664,11 +668,17 @@ class Method:
 
 
 def method_cost(
-    n_pieces: int, n_cores: int, n_unresolved: int, warn_share: float, s: Settings
+    n_pieces: int,
+    n_cores: int,
+    n_unresolved: int,
+    warn_share: float,
+    s: Settings,
+    core_share: float = 0.0,
 ) -> float:
     return (
         s.split_cost_weight * (n_pieces - 1)
         + s.core_cost_weight * n_cores
+        + s.core_area_cost_weight * core_share
         + s.unresolved_cost_weight * n_unresolved
         + s.warn_cost_weight * warn_share
     )
@@ -688,8 +698,9 @@ def _make_method(
     n_cores = sum(len(p.cores) for p in pieces)
     n_unres = sum(len(p.unresolved) for p in pieces)
     warn = sum(p.pull.warn_ratio * p.area_ratio for p in pieces)
-    cost = method_cost(len(pieces), n_cores, n_unres, warn, s)
-    return Method(kind, label, pieces, planes, piece_of, n_cores, n_unres, cost, warn)
+    core_share = sum(r.area_ratio for p in pieces for r in p.cores)
+    cost = method_cost(len(pieces), n_cores, n_unres, warn, s, core_share)
+    return Method(kind, label, pieces, planes, piece_of, n_cores, n_unres, cost, warn, core_share)
 
 
 def _aggregate(normals: F64, areas: F64, cell: float = 0.01) -> tuple[F64, F64]:
@@ -886,27 +897,7 @@ def _direction_methods(ts: TriSet, s: Settings) -> list[Method]:
             dirs, lab = new, relab
             if same:
                 break
-        # a piece must be one connected patch: a label with several significant patches is
-        # several pieces (interleaved strips would be a comb of pieces, not two halves)
-        groups: list[I64] = []
-        for i in range(len(dirs)):
-            mine = lab == i
-            if not mine.any():
-                continue
-            comp = components(ts, mine)
-            ids, inv = np.unique(comp[mine], return_inverse=True)
-            share = np.bincount(inv, weights=ts.areas[mine]) / float(ts.areas.sum())
-            tris_i = np.flatnonzero(mine)
-            big = [int(c) for c, sh in zip(ids, share, strict=True) if sh >= s.noise_area_ratio]
-            if len(big) <= 1:
-                groups.append(tris_i)
-                continue
-            keep = int(ids[int(np.argmax(share))])
-            for c in big:
-                g = tris_i[comp[tris_i] == c]
-                if c == keep:  # small leftovers stay with the largest patch
-                    g = tris_i[(comp[tris_i] == c) | ~np.isin(comp[tris_i], big)]
-                groups.append(g)
+        groups = _connected_groups(ts, lab, len(dirs), s)
         if len(groups) < 2 or len(groups) > s.max_split_pieces:
             continue
         pieces = _exact_pieces(ts, groups, [[] for _ in groups], s, 180.0)
@@ -918,6 +909,102 @@ def _direction_methods(ts: TriSet, s: Settings) -> list[Method]:
                 "direction",
                 f"{len(pieces)} parçalı bölünmüş kalıp (yüzey yönlerine göre bölme; ayrılabilirlik "
                 "doğrulanmadı)",
+                ts,
+                pieces,
+                [],
+                s,
+            )
+        )
+    return out
+
+
+def _connected_groups(ts: TriSet, lab: I64, n_labels: int, s: Settings) -> list[I64]:
+    """Triangle groups of a labelling where every piece is one connected patch. A small patch
+    (< core_max_area_ratio of the surface) cut off from its label's large patch is given to the
+    label around it, so that piece's own undercut analysis counts it (as a core if nothing
+    releases it); a label with no large patch dissolves into its surroundings. A label with
+    several large patches becomes several pieces (interleaved strips would be a comb of pieces,
+    not two halves)."""
+    lab = lab.copy()
+    total = float(ts.areas.sum()) or 1.0
+    pa, pb = ts.pairs[:, 0], ts.pairs[:, 1]
+    for _ in range(3):  # reassigning an island can leave another one behind: a few rounds
+        changed = False
+        for i in range(n_labels):
+            mine = lab == i
+            if not mine.any():
+                continue
+            comp = components(ts, mine)
+            ids, inv = np.unique(comp[mine], return_inverse=True)
+            share = np.bincount(inv, weights=ts.areas[mine]) / total
+            for c, sh in zip(ids, share, strict=True):
+                if sh >= s.core_max_area_ratio:  # a main patch of this label stays
+                    continue
+                isl = comp == c
+                cross = isl[pa] != isl[pb]
+                out = np.where(isl[pa[cross]], pb[cross], pa[cross])
+                around = lab[out]
+                around = around[around != i]
+                if len(around):
+                    lab[isl] = int(np.bincount(around).argmax())
+                    changed = True
+        if not changed:
+            break
+    groups: list[I64] = []
+    for i in range(n_labels):
+        mine = lab == i
+        if not mine.any():
+            continue
+        comp = components(ts, mine)
+        ids, inv = np.unique(comp[mine], return_inverse=True)
+        share = np.bincount(inv, weights=ts.areas[mine]) / total
+        tris_i = np.flatnonzero(mine)
+        big = [int(c) for c, sh in zip(ids, share, strict=True) if sh >= s.core_max_area_ratio]
+        if len(big) <= 1:
+            groups.append(tris_i)
+            continue
+        keep = int(ids[int(np.argmax(share))])
+        for c in big:
+            g = tris_i[comp[tris_i] == c]
+            if c == keep:
+                g = tris_i[(comp[tris_i] == c) | ~np.isin(comp[tris_i], big)]
+            groups.append(g)
+    return groups
+
+
+def _visibility_methods(
+    ts: TriSet, pull: F64, regions: list[UndercutRegion], s: Settings
+) -> list[Method]:
+    """Two pieces that open straight away from each other along a candidate axis (the part moves
+    +n relative to one piece and -n relative to the other): every triangle goes to the piece it
+    is visible from, so the parting line runs on the surface where the release switches. A
+    hood whose two sides lean in is released by both halves with no core."""
+    if s.max_split_pieces < 2 or not len(ts.areas):
+        return []
+    out: list[Method] = []
+    for n in _plane_normals(ts, pull, regions)[:_N_AXIS_SPLITS]:
+        lab = _assign(ts, np.array([n, -n]), s)
+        groups = _connected_groups(ts, lab, 2, s)
+        if len(groups) != 2:
+            continue
+        # the piece that is released along +n is the first (negative side of the plane)
+        groups.sort(key=lambda g: float(np.mean(ts.normals[g] @ n)))
+        # the pieces open straight away from each other: pulls stay within sandwich_tol_deg of +-n
+        tol = math.cos(math.radians(s.sandwich_tol_deg))
+        cons: list[list[Constraint]] = [[(n, tol, 1.0)], [(n, -1.0, -tol)]]
+        pieces = _exact_pieces(ts, groups, cons, s, 180.0)
+        if pieces is None:
+            continue
+        axis = "XYZ"[int(np.argmax(np.abs(n)))] if float(np.abs(n).max()) > 0.98 else None
+        where = (
+            f"{axis} ekseni boyunca"
+            if axis
+            else f"yön {_fmt((float(n[0]), float(n[1]), float(n[2])))}"
+        )
+        out.append(
+            _make_method(
+                "visibility",
+                f"2 parçalı bölünmüş kalıp ({where} ± çekme, ayırma hattı yüzeyde)",
                 ts,
                 pieces,
                 [],
@@ -1069,10 +1156,12 @@ def _method_line(i: int, m: Method, s: Settings) -> CostLine:
         description=f"Yöntem {i}: {m.label}: {m.n_pieces} parça, {m.n_cores} maça, "
         f"{m.n_unresolved} çözülemeyen bölge",
         formula="split_cost_weight × (parça − 1) + core_cost_weight × maça "
+        "+ core_area_cost_weight × maçaların alan payı "
         "+ unresolved_cost_weight × çözülemeyen bölge + warn_cost_weight × düşük çekmeli alan payı",
         inputs=[
             _inp(s, "split_cost_weight"),
             _inp(s, "core_cost_weight"),
+            _inp(s, "core_area_cost_weight"),
             _inp(s, "unresolved_cost_weight"),
             _inp(s, "warn_cost_weight"),
             CostInput(
@@ -1080,6 +1169,9 @@ def _method_line(i: int, m: Method, s: Settings) -> CostLine:
                 value=m.warn_share,
                 unit="ratio",
                 source=Source.DERIVED,
+            ),
+            CostInput(
+                name="maçaların alan payı", value=m.core_share, unit="ratio", source=Source.DERIVED
             ),
             CostInput(name="parça", value=float(m.n_pieces), unit="count", source=Source.DERIVED),
             CostInput(name="maça", value=float(m.n_cores), unit="count", source=Source.DERIVED),
@@ -1113,6 +1205,7 @@ def _decide(
             f"tek parça kalıp: {single.n_cores} maça"
             + (f" + {single.n_unresolved} çözülemeyen bölge" if single.n_unresolved else "")
             + f", puan {single.cost:.1f}"
+            + (f", maçalar yüzeyin %{single.core_share * 100:.1f}'i" if single.core_share else "")
         )
     others = [x for x in methods if x is not best]
     for m in others[:4]:
@@ -1252,8 +1345,10 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
         flags.append(
             ReviewFlag(
                 code="undercut_noise",
-                reason=f"{len(noise)} küçük ve sığ ters açı lekesi karar dışı bırakıldı "
-                "(tessellation gürültüsü varsayımı); 3B ekranda kırmızı lekeleri kontrol edin.",
+                reason=f"{len(noise)} küçük ve sığ ters açı lekesi maça sayılmadı (toplam yüzey "
+                f"payı %{sum(r.area_ratio for r in noise) * 100:.2f}, en derin "
+                f"{min(r.min_draft_deg for r in noise):.1f}°; tessellation gürültüsü ya da küçük "
+                "kaburga/çıkıntı olabilir); 3B ekranda kırmızı lekeleri kontrol edin.",
                 path=f"{LIB}:undercut.noise_area_ratio",
             )
         )
@@ -1291,6 +1386,7 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
     # one when a single piece is already that cheap
     if s.max_split_pieces >= 2 and cheapest_single > s.split_cost_weight:
         methods += _plane_methods(ts, pull, regions, s)
+        methods += _visibility_methods(ts, pull, regions, s)
         methods += _direction_methods(ts, s)
         if large:
             rp = split_plan(ts, large, pull, s)

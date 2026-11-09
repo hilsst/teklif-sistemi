@@ -728,6 +728,7 @@ def render_assessment(
                     "parça": m.n_pieces,
                     "maça": m.n_cores,
                     "çözülemeyen": m.n_unresolved,
+                    "maça alan payı [%]": round(m.core_share * 100, 1),
                     "puan": round(m.cost, 1),
                     "durum": ("▶ gösterilen" if m is ch else "")
                     + (" ★ sistem önerisi" if m is a.recommended else ""),
@@ -740,8 +741,9 @@ def render_assessment(
             selection_mode="single-row",
         )
         st.caption(
-            "Puan = bölme ağırlığı × (parça − 1) + maça ağırlığı × maça + ceza × çözülemeyen "
-            "bölge + düşük çekme ağırlığı × 0–2° alan payı; ağırlıklar thresholds.yaml → "
+            "Puan = bölme ağırlığı × (parça − 1) + maça ağırlığı × maça + maça alan ağırlığı × "
+            "maçaların yüzey payı + ceza × çözülemeyen bölge + düşük çekme ağırlığı × 0–2° alan "
+            "payı; ağırlıklar thresholds.yaml → "
             "undercut.*_cost_weight (varsayılan, TODO: gerçek maliyet oranlarıyla kalibre "
             "edilmeli)."
         )

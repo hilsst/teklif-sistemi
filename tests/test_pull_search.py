@@ -285,3 +285,60 @@ def test_view_describes_the_method_the_user_picked() -> None:
     back = v.view(0)
     assert back.chosen is a.methods[0] and back.solution is a.solution
     assert any(f.code == "split_parting_line" for f in back.flags)
+
+
+def test_tiny_shallow_undercuts_are_noise_not_cores() -> None:
+    # a 10 x 10 mm patch leaning back by 3 deg on a 200 x 200 tray: far below the noise area
+    # and shallower than noise_draft_deg, so it must not cost a core
+    a = math.radians(3)
+    sliver: Quad = (
+        [90, 90, 10],
+        [100, 90, 10],
+        [100, 100, 20],
+        [90, 100, 20],
+        [math.cos(a), 0, math.sin(a)],
+    )
+    ts = _soup([*_tray(), sliver])
+    out = assess(ts, np.array([0, 0, 1.0]), S)
+    assert out.n_cores == 0
+    assert [r.kind for r in out.regions] == [RegionKind.NOISE]
+    assert any(f.code == "undercut_noise" for f in out.flags)
+
+
+def test_big_cores_cost_more_than_small_ones() -> None:
+    from teklif.draft.pull_search import method_cost
+
+    small = method_cost(1, 2, 0, 0.0, S, core_share=0.01)
+    big = method_cost(1, 2, 0, 0.0, S, core_share=0.09)
+    assert big - small == pytest.approx(S.core_area_cost_weight * 0.08)
+    assert method_cost(2, 0, 0, 0.0, S) < method_cost(1, 2, 0, 0.0, S, core_share=0.09)
+
+
+def test_two_piece_visibility_split_needs_no_core() -> None:
+    # a hood with leaning sides plus a small step: every triangle is visible from one of the two
+    # pieces that open away from each other along X, so the split needs no core at all
+    ts = _soup([*_dovetail(), _hook(-30, -1, 20.0)])
+    a = assess(ts, np.array([0, 0, 1.0]), S)
+    vis = [m for m in a.methods if m.kind == "visibility" and m.n_pieces == 2]
+    assert vis, "the visibility split must be among the compared methods"
+    best = min(vis, key=lambda m: m.cost)
+    assert best.n_cores == 0 and best.n_unresolved == 0
+    d0, d1 = (np.array(p.pull.direction) for p in best.pieces)
+    assert float(d0 @ d1) < -0.9  # the pieces open straight away from each other
+    assert not any(f.code == "separation_unverified" for f in a.view(a.methods.index(best)).flags)
+
+
+def test_island_inside_the_other_piece_is_given_to_it() -> None:
+    # one connected 200 x 200 plate; a few triangles of the middle carry the other label: that
+    # island is cut off from its label's main patch, so it belongs to the piece around it (its
+    # own undercut analysis then decides whether it needs a core)
+    from teklif.draft.pull_search import _connected_groups
+
+    plate: Quad = ([0, 0, 0], [200, 0, 0], [200, 200, 0], [0, 200, 0], [0, 0, -1])
+    ts = _soup([plate])
+    lab = np.zeros(len(ts.areas), dtype=np.int64)
+    centre = np.flatnonzero(np.linalg.norm(ts.centroids - [100, 100, 0], axis=1) < 30)
+    assert 0 < len(centre) < len(lab) // 4
+    lab[centre] = 1
+    groups = _connected_groups(ts, lab, 2, S)
+    assert len(groups) == 1 and len(groups[0]) == len(lab)

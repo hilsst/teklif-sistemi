@@ -201,7 +201,7 @@ class UndercutThresholds(_Strict):
         desc="Bu orandan küçük VE noise_draft_deg'den sığ ters açı lekesi gürültü sayılır",
     )
     noise_draft_deg: Param = Param(
-        value=0.5,
+        value=10.0,
         unit="deg",
         source=Source.DEFAULT,
         desc="Gürültü sayılabilecek en derin ters açı (0 ile -bu değer arası)",
@@ -223,6 +223,13 @@ class UndercutThresholds(_Strict):
         unit="ratio",
         source=Source.DEFAULT,
         desc="Yöntem karşılaştırması: bir maçanın göreli maliyet puanı (TODO Kemal: kalibre et)",
+    )
+    core_area_cost_weight: Param = Param(
+        value=100.0,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="Yöntem karşılaştırması: maçaların kalıp yüzeyindeki toplam alan payı başına puan "
+        "(100: yüzeyin %1'i maçalıysa +1 maça kadar; büyük maça pahalı, TODO Kemal: kalibre et)",
     )
     split_cost_weight: Param = Param(
         value=3.0,
