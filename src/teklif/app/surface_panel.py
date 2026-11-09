@@ -15,7 +15,8 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import tempfile
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +65,8 @@ class SurfaceSelection:
     flange_mm: float = 150.0
     solids: tuple[int, ...] = ()  # solids of an assembly that the selected faces belong to
     assessment: ps.ToolingAssessment | None = None  # tooling decision for this pull
+    max_pieces: int = 3  # most mold pieces allowed in this analysis (user input)
+    max_pieces_library: int = 3  # the library default it started from
 
     def trim_m(self, all_openings: bool) -> float:
         """Trim length: whole boundary when every opening is trimmed, else the outer rim only."""
@@ -76,6 +79,16 @@ class SurfaceSelection:
             f"{self.pull_label} {tuple(round(x, 3) for x in self.pull)}; ters açı payı "
             f"%{self.undercut_ratio * 100:.1f}"
             + (f"; sistem kalıp kararı: {self.assessment.label}" if self.assessment else "")
+            + (
+                f"; kalıp en fazla {self.max_pieces} parça"
+                + (
+                    ""
+                    if self.max_pieces == self.max_pieces_library
+                    else f" (kullanıcı girişi, kütüphane {self.max_pieces_library})"
+                )
+                if self.assessment
+                else ""
+            )
         )
 
 
@@ -118,6 +131,99 @@ def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
 
 Extra = tuple[NDArray[np.float64], list[int], list[dict[str, Any]]]
 
+# colours of the analysis view (indices into the viewer's PALETTE): one per mold piece, one for the
+# core regions, one for the parting walls
+PIECE_COLOR_IDX0 = 8
+PIECE_HEX = ("#3b82f6", "#f97316", "#a855f7", "#14b8a6", "#ca8a04", "#ec4899")
+CORE_COLOR_IDX, WALL_COLOR_IDX = 14, 15
+CORE_HEX = "#1f2937"
+RED_IDX = 4  # a region nothing releases (unresolved)
+PARTING_WALL_RATIO = 0.06  # wall depth as a share of the tool surface's bounding-box diagonal
+
+
+def _nearest(src: NDArray[np.float64], dst: NDArray[np.float64]) -> NDArray[np.int64]:
+    """Index of the nearest ``dst`` point for every ``src`` point (chunked brute force)."""
+    out = np.empty(len(src), dtype=np.int64)
+    for lo in range(0, len(src), 256):
+        d = ((src[lo : lo + 256, None, :] - dst[None, :, :]) ** 2).sum(axis=2)
+        out[lo : lo + 256] = d.argmin(axis=1)
+    return out
+
+
+def piece_colors(
+    view: FaceMesh, selected: list[int], ts: ps.TriSet, method: ps.Method
+) -> list[int]:
+    """Palette index per view triangle: each mold piece its own colour, core regions dark, regions
+    nothing releases red. The view mesh is coarser than the analysis mesh, so every view triangle
+    takes the label of the nearest analysis triangle on the same B-rep face."""
+    label = PIECE_COLOR_IDX0 + method.piece_of % len(PIECE_HEX)
+    label = np.asarray(label, dtype=np.int64)
+    for p in method.pieces:
+        for r in p.cores:
+            label[r.tris] = CORE_COLOR_IDX
+        for r in p.unresolved:
+            label[r.tris] = RED_IDX
+    order = np.argsort(ts.face, kind="stable")
+    faces_sorted = ts.face[order]
+    chosen = set(selected)
+    out: list[int] = []
+    for f in view.faces:
+        n = len(f.triangles)
+        if f.id not in chosen or not n:
+            out += [_PALETTE_IDX[GREY]] * n
+            continue
+        lo, hi = np.searchsorted(faces_sorted, [f.id, f.id + 1])
+        idx = order[lo:hi]
+        if not len(idx):
+            out += [_PALETTE_IDX[BLUE]] * n
+            continue
+        near = _nearest(f.vertices[f.triangles].mean(axis=1), ts.centroids[idx])
+        out += label[idx[near]].tolist()
+    return out
+
+
+def analysis_extra(ts: ps.TriSet, method: ps.Method) -> Extra:
+    """Parting walls (strips perpendicular to the tool surface along every cut between two
+    pieces) and, for a split tool, one arrow per piece in the piece's colour."""
+    diag = float(np.linalg.norm(np.ptp(ts.centroids, axis=0))) or 1.0
+    walls = ps.parting_walls(ts, method.piece_of, PARTING_WALL_RATIO * diag)
+    lines: list[dict[str, Any]] = []
+    if method.n_pieces > 1:
+        for k, p in enumerate(method.pieces):
+            d = np.asarray(p.pull.direction, dtype=float)
+            c = np.average(ts.centroids[p.tris], axis=0, weights=ts.areas[p.tris])
+            ln = 0.3 * diag
+            a, _ = ps._basis(d)
+            tip, tail = c, c - d * ln
+            hex_ = int(PIECE_HEX[k % len(PIECE_HEX)][1:], 16)
+            back = tip - d * 0.15 * ln
+            segs = [(tail, tip), (tip, back + a * 0.07 * ln), (tip, back - a * 0.07 * ln)]
+            for j, (p0, p1) in enumerate(segs):
+                lines.append(
+                    {
+                        "hex": hex_,
+                        "label": f"{k + 1}" if j == 0 else "",
+                        "pts": np.concatenate([p0, p1]).round(1).tolist(),
+                    }
+                )
+    return walls, [WALL_COLOR_IDX] * len(walls), lines
+
+
+def piece_legend(method: ps.Method) -> str:
+    """HTML legend: a colour swatch per mold piece, the core colour and the parting wall."""
+    sw = "<span style='color:{c};font-size:1.2em'>■</span> {t}"
+    items = [
+        sw.format(c=PIECE_HEX[k % len(PIECE_HEX)], t=f"kalıp parça {k + 1}")
+        for k in range(method.n_pieces)
+    ]
+    if method.n_cores:
+        items.append(sw.format(c=CORE_HEX, t="maça bölgesi"))
+    if method.n_unresolved:
+        items.append(sw.format(c=RED, t="çözülemeyen ters açı"))
+    if method.n_pieces > 1:
+        items.append(sw.format(c="#cbd5e1", t="ayırma yüzeyi (yüzeye dik)"))
+    return " &nbsp; ".join(items)
+
 
 @dataclass(frozen=True)
 class ToolProfile:
@@ -149,7 +255,7 @@ def profile_rings(
 
 def viewer_payload(
     mesh: FaceMesh,
-    colors: list[str],
+    colors: Sequence[str | int],
     key: str,
     pull: tuple[float, float, float] | None = None,
     extra: Extra | None = None,
@@ -162,7 +268,7 @@ def viewer_payload(
         1,
     )
     tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
-    color_idx = [_PALETTE_IDX[c] for c in colors]
+    color_idx = [c if isinstance(c, int) else _PALETTE_IDX[c] for c in colors]
     if hidden:
         keep = np.array(
             [f.solid not in hidden for f in mesh.faces for _ in range(len(f.triangles))]
@@ -171,8 +277,10 @@ def viewer_payload(
         tri_face = [t for t, k in zip(tri_face, keep, strict=True) if k]
         color_idx = [c for c, k in zip(color_idx, keep, strict=True) if k]
     lines: list[dict[str, Any]] = []
+    extra_sig = 0
     if extra is not None:
         ftris, fcolors, lines = extra
+        extra_sig = len(ftris) * 1000 + int(abs(float(np.round(ftris.sum(), 1))) * 10) % 1000
         if len(ftris):
             pos = np.vstack([pos, np.round(ftris.reshape(-1, 3), 1)])
             tri_face += [-1] * len(ftris)
@@ -185,7 +293,7 @@ def viewer_payload(
         "tri_face": tri_face,
         "tri_color": color_idx,
         "faces": [[f.id, round(f.area_mm2 / 1e6, 4)] for f in mesh.faces if f.solid not in hidden],
-        "geom_rev": sorted(hidden),
+        "geom_rev": [*sorted(hidden), *([extra_sig] if extra_sig else [])],
     }
 
 
@@ -322,6 +430,7 @@ def render_surface_panel(
     pull: tuple[float, float, float] | None = None
     pull_label = ""
     settings = ps.settings_from_thresholds(thresholds)
+    lib_max_pieces = settings.max_split_pieces
     tris: ps.TriSet | None = None
     # the analysis (fine mesh, pull search, tooling decision) is slow, so it runs only when the
     # user presses the button for the current selection; any change of the selection stops showing
@@ -329,21 +438,44 @@ def render_surface_panel(
     run_key = f"{key}_analysed"
 
     def _start() -> None:
-        st.session_state[run_key] = tuple(sorted(st.session_state.get(sk, [])))
+        st.session_state[run_key] = (
+            tuple(sorted(st.session_state.get(sk, []))),
+            int(st.session_state.get(f"{key}_maxp", lib_max_pieces)),
+        )
 
-    analysed = bool(selected) and st.session_state.get(run_key) == tuple(sorted(selected))
+    max_pieces = min(max(lib_max_pieces, 1), 6)
     if selected:
-        st.button(
+        b1, b2 = st.columns([2, 3])
+        max_pieces = int(
+            b1.number_input(
+                "Kalıp en fazla kaç parçadan oluşabilir?",
+                1,
+                6,
+                min(max(lib_max_pieces, 1), 6),
+                key=f"{key}_maxp",
+                help="1: kalıp bölünmez (yalnız maça). Varsayılan kütüphaneden "
+                "(thresholds.yaml → undercut.max_split_pieces); burada değiştirirseniz yalnız bu "
+                "analiz için geçerli olur ve teklif notuna yazılır.",
+            )
+        )
+    settings = replace(settings, max_split_pieces=max_pieces)
+    analysed = bool(selected) and st.session_state.get(run_key) == (
+        tuple(sorted(selected)),
+        max_pieces,
+    )
+    if selected:
+        b2.button(
             "Analizi yeniden başlat" if analysed else "Analizi başlat",
             on_click=_start,
             key=f"{key}_run",
             type="secondary" if analysed else "primary",
-            help="Çekme yönünü arar, ters açı bölgelerini ve maça/bölünme kararını hesaplar.",
+            help="Çekme yönünü arar, bölme yöntemlerini karşılaştırır, kalıp kararını verir.",
         )
         if not analysed:
             st.info(
-                "Yüzeyleri seçmeyi bitirince **Analizi başlat**'a basın; çekme yönü, trim "
-                "çevresi ve kalıp kararı o zaman hesaplanır."
+                "Yüzeyleri seçmeyi ve parça sınırını girmeyi bitirince **Analizi başlat**'a "
+                "basın; çekme yönü, trim çevresi, bölme yöntemleri ve kalıp kararı o zaman "
+                "hesaplanır."
             )
     if analysed:
         if mk not in st.session_state:
@@ -351,7 +483,7 @@ def render_surface_panel(
                 st.session_state[mk] = _load(data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG)
         mesh = st.session_state[mk]
         tris = ps.triset_from_mesh(mesh, selected)
-        sk_search = f"{key}_ps_{hash((tuple(selected), settings))}"
+        sk_search = f"{key}_ps_{hash((tuple(selected), replace(settings, max_split_pieces=0)))}"
         if sk_search not in st.session_state:
             with st.spinner("En uygun çekme yönü aranıyor..."):
                 st.session_state[sk_search] = ps.search_directions(
@@ -364,7 +496,8 @@ def render_surface_panel(
         for c in suggest_pull_directions(mesh, selected, warn_min, min_ok):
             options.setdefault(c.label, c.direction)
         st.caption(
-            "Optimize edilen yönler (ters açı payı / yeterli çekme payı / en küçük açı): "
+            "Tek parça için optimize edilen yönler (ters açı payı / yeterli çekme payı / en "
+            "küçük açı): "
             + "; ".join(
                 f"#{k + 1} %{f.undercut_ratio * 100:.1f} / %{f.ok_ratio * 100:.0f} / "
                 f"{f.min_draft_deg:.1f}°"
@@ -372,7 +505,9 @@ def render_surface_panel(
             )
         )
         pick = st.selectbox(
-            "Çekme yönü (en uygun başta)", [*options, "Elle gir"], key=f"{key}_pull"
+            "Tek parça için çekme yönü (en uygun başta)",
+            [*options, "Elle gir"],
+            key=f"{key}_pull",
         )
         if pick == "Elle gir":
             x, y, z = (
@@ -386,23 +521,43 @@ def render_surface_panel(
                 pull, pull_label = (float(u[0]), float(u[1]), float(u[2])), "elle"
         else:
             pull, pull_label = options[pick], pick
-    colors = triangle_colors(view, selected, pull, min_ok, warn_min)
-    show_side = bool(selected) and pull is not None
+    assessment: ps.ToolingAssessment | None = None
+    if pull is not None and tris is not None:
+        ak = f"{key}_assess_{hash((tuple(selected), tuple(round(x, 6) for x in pull), settings))}"
+        if ak not in st.session_state:
+            with st.spinner("Bölme yöntemleri karşılaştırılıyor ve kalıp kararı veriliyor..."):
+                st.session_state[ak] = ps.assess(tris, np.array(pull), settings)
+        assessment = st.session_state[ak]
+    paint = "draft"
+    if assessment is not None and assessment.chosen is not None:
+        paint = (
+            "pieces"
+            if st.radio(
+                "Boyama",
+                ["Kalıp parçaları ve maça bölgeleri", "Çekme açısı (tek parça çekme yönü)"],
+                horizontal=True,
+                key=f"{key}_paint",
+            ).startswith("Kalıp")
+            else "draft"
+        )
+    colors: Sequence[str | int]
+    extra: Extra | None = None
+    if paint == "pieces" and assessment is not None and assessment.chosen is not None:
+        assert tris is not None
+        colors = piece_colors(view, selected, tris, assessment.chosen)
+        extra = analysis_extra(tris, assessment.chosen)
+    else:
+        colors = triangle_colors(view, selected, pull, min_ok, warn_min)
+    show_side = assessment is not None
     left, right = st.columns(2) if show_side else (st.container(), None)
     with left:
         click = _VIEWER(
-            **viewer_payload(view, colors, key, pull, hidden=hidden),
+            **viewer_payload(view, colors, key, pull, extra, hidden=hidden),
             height=560,
             key=f"{key}_viewer",
             default=None,
         )
-    assessment: ps.ToolingAssessment | None = None
-    if right is not None and pull is not None and tris is not None:
-        ak = f"{key}_assess_{hash((tuple(selected), tuple(round(x, 6) for x in pull), settings))}"
-        if ak not in st.session_state:
-            with st.spinner("Ters açı bölgeleri ve kalıp kararı hesaplanıyor..."):
-                st.session_state[ak] = ps.assess(tris, np.array(pull), settings)
-        assessment = st.session_state[ak]
+    if right is not None and assessment is not None:
         with right:
             render_assessment(assessment, pull_label)
     last = f"{key}_lastclick"
@@ -421,7 +576,11 @@ def render_surface_panel(
         st.session_state[hk] = []
         st.rerun()
     if st.checkbox("Eski görünüm (Plotly)", False, key=f"{key}_plotly"):
-        st.plotly_chart(build_figure(view, colors), width="stretch", key=f"{key}_fig")
+        st.plotly_chart(
+            build_figure(view, triangle_colors(view, selected, pull, min_ok, warn_min)),
+            width="stretch",
+            key=f"{key}_fig",
+        )
     st.caption(
         f"Renkler (seçili yüzler): yeşil ≥ {min_ok:g}° çekme açısı, sarı {warn_min:g}–{min_ok:g}°, "
         "kırmızı ters açı; mavi: çekme yönü henüz yok; gri: seçili değil. "
@@ -449,21 +608,14 @@ def render_surface_panel(
         flange_mm=prof.flange_mm,
         solids=tuple(sorted({f.solid for f in mesh.faces if f.id in set(selected)})),
         assessment=assessment,
+        max_pieces=settings.max_split_pieces,
+        max_pieces_library=lib_max_pieces,
     )
 
 
 def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
-    """Side panel: the pull direction, its draft figures and the tooling decision with its trace."""
-    ang = ps.pull_angles_deg(a.pull.direction)
-    st.markdown(
-        f"**Çekme yönü** ({pull_label}): "
-        + ", ".join(f"{x:+.3f}" for x in a.pull.direction)
-        + f"  \nEksenlere açı: X {ang['X']:.1f}°, Y {ang['Y']:.1f}°, Z {ang['Z']:.1f}°"
-    )
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Ters açı payı", f"%{a.pull.undercut_ratio * 100:.1f}")
-    m2.metric("Yeterli açı payı", f"%{a.pull.ok_ratio * 100:.0f}")
-    m3.metric("En küçük açı", f"{a.pull.min_draft_deg:.1f}°")
+    """Side panel: the tooling decision, the mold pieces (colour, pull direction, cores), the
+    methods compared and the trace of every number."""
     box = {
         ps.Solution.SINGLE: st.success,
         ps.Solution.CORE: st.info,
@@ -472,11 +624,64 @@ def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
         ps.Solution.REVIEW: st.error,
     }[a.solution]
     box(f"**Kalıp kararı: {a.label}**\n\n" + "\n".join(f"- {r}" for r in a.reasons))
-    for alt in a.alternatives:
-        st.caption(f"Alternatif: {alt}")
+    ch = a.chosen
+    if ch is not None:
+        st.markdown(piece_legend(ch), unsafe_allow_html=True)
+        rows = []
+        for k, p in enumerate(ch.pieces, 1):
+            ang = ps.pull_angles_deg(p.pull.direction)
+            rows.append(
+                {
+                    "parça": k,
+                    "alan payı [%]": round(p.area_ratio * 100, 1),
+                    "çekme yönü": ", ".join(f"{x:+.2f}" for x in p.pull.direction),
+                    "eksenlere açı X/Y/Z [°]": f"{ang['X']:.0f}/{ang['Y']:.0f}/{ang['Z']:.0f}",
+                    "en küçük açı [°]": round(p.pull.min_draft_deg, 1),
+                    "maça": len(p.cores),
+                    "çözülemeyen": len(p.unresolved),
+                }
+            )
+        st.dataframe(rows, hide_index=True)
+        for pl in ch.planes:
+            st.caption(
+                f"Ayırma düzlemi: normal {', '.join(f'{x:+.2f}' for x in pl.normal)}, "
+                f"n·x = {pl.offset:.1f} mm (yüzeye dik ayırma yüzeyi 3B'de açık gri)."
+            )
+        st.caption(
+            "Çekme yönü: parçanın kalıp parçasına göre hareket yönü; kalıp parçası ters yöne "
+            "kayar. Parça rengindeki oklar bu yönü gösterir."
+        )
     for fl in a.flags:
         st.warning(f"manual_review ({fl.code}): {fl.reason}")
+    if len(a.methods) > 1:
+        st.markdown(f"**Karşılaştırılan yöntemler** (en fazla {a.max_pieces} parça)")
+        st.dataframe(
+            [
+                {
+                    "yöntem": m.label,
+                    "parça": m.n_pieces,
+                    "maça": m.n_cores,
+                    "çözülemeyen": m.n_unresolved,
+                    "puan": round(m.cost, 1),
+                    "seçilen": "✓" if m is ch else "",
+                }
+                for m in a.methods
+            ],
+            hide_index=True,
+        )
+        st.caption(
+            "Puan = bölme ağırlığı × (parça − 1) + maça ağırlığı × maça + ceza × çözülemeyen "
+            "bölge + düşük çekme ağırlığı × 0–2° alan payı; ağırlıklar thresholds.yaml → "
+            "undercut.*_cost_weight (varsayılan, TODO: gerçek maliyet oranlarıyla kalibre "
+            "edilmeli)."
+        )
     if a.regions:
+        ang = ps.pull_angles_deg(a.pull.direction)
+        st.markdown(
+            f"**Tek parça çekme yönündeki ters açı bölgeleri** ({pull_label}: "
+            + ", ".join(f"{x:+.3f}" for x in a.pull.direction)
+            + f"; X {ang['X']:.1f}°, Y {ang['Y']:.1f}°, Z {ang['Z']:.1f}°)"
+        )
         st.dataframe(
             [
                 {
@@ -491,6 +696,10 @@ def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
             ],
             hide_index=True,
         )
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Tek parça: ters açı payı", f"%{a.pull.undercut_ratio * 100:.1f}")
+    m2.metric("Yeterli açı payı", f"%{a.pull.ok_ratio * 100:.0f}")
+    m3.metric("En küçük açı", f"{a.pull.min_draft_deg:.1f}°")
     with st.expander("Karar gerekçesi (formül, girdi, kaynak)"):
         for line in a.trace:
             st.markdown(f"**{line.description}** = {line.result:.4g} {line.unit}")
@@ -504,6 +713,5 @@ def render_assessment(a: ps.ToolingAssessment, pull_label: str) -> None:
                 )
             )
     st.caption(
-        "Kalıp yüzeyi ekranda kırmızı görünen yerler seçili yöndeki ters açılardır. Eşikler "
-        "kütüphanede (thresholds.yaml: draft, undercut, pull_search) değiştirilebilir."
+        "Eşikler kütüphanede (thresholds.yaml: draft, undercut, pull_search) değiştirilebilir."
     )

@@ -10,10 +10,16 @@ undercut:
   noise_draft_deg: {value: 0.5, unit: deg, source: default, desc: "Gürültü sayılabilecek en derin ters açı (0 ile -bu değer arası)"}
   opposite_cos: {value: -0.5, unit: ratio, source: default, desc: "İki ters açı bölgesinin yanal normalleri arasındaki kosinüs bunun altındaysa karşılıklı iki yan sayılır"}
   max_split_pieces: {value: 3, unit: count, source: user, desc: "Bölünmüş kalıpta önerilecek en fazla parça sayısı (1, 2, 3 parçalı seçenek)"}
+  core_cost_weight: {value: 1.0, unit: ratio, source: default, desc: "Yöntem karşılaştırması: bir maçanın göreli maliyet puanı (TODO Kemal: kalibre et)"}
+  split_cost_weight: {value: 3.0, unit: ratio, source: default, desc: "Yöntem karşılaştırması: kalıbın her ek parçasının göreli maliyet puanı (TODO Kemal: kalibre et)"}
+  unresolved_cost_weight: {value: 100.0, unit: ratio, source: default, desc: "Yöntem karşılaştırması: çözülemeyen her ters açı bölgesi için ceza puanı"}
+  warn_cost_weight: {value: 2.0, unit: ratio, source: default, desc: "Yöntem karşılaştırması: yüzeyin tamamı warn_min–min_ok arası (düşük çekme) çıkarsa eklenen puan; kısmi pay oranlanır"}
+  sandwich_tol_deg: {value: 10.0, unit: deg, source: default, desc: "İki ayırma düzlemi arasındaki parçanın düzleme paralel çıkışındaki izin verilen sapma"}
   threshold_margin_ratio: {value: 0.2, unit: ratio, source: default, desc: "Bölge alan oranı maça eşiğine bu bağıl pay kadar yakınsa karar manual_review"}
 pull_search:
   max_tilt_deg: {value: 90.0, unit: deg, source: default, desc: "Aday çekme yönleri seçili yüzeyin ortalama iç normalinden en fazla bu kadar sapar"}
   samples: {value: 600, unit: count, source: default, desc: "Küre üzerinde taranan aday yön sayısı (tam küre için; koni dışı atılır)"}
+  piece_max_tilt_deg: {value: 120.0, unit: deg, source: default, desc: "Bölünmüş kalıp parçalarının çekme yönü, parçanın ortalama iç normalinden en fazla bu kadar sapar"}
   refine_min_step_deg: {value: 0.1, unit: deg, source: default, desc: "Yerel optimizasyonun en küçük adımı"}
   robust_min_quantile: {value: 0.01, unit: ratio, source: default, desc: "En küçük çekme açısı üçgenlerin bu payı dışarıda bırakılarak okunur (tessellation gürültüsü)"}
 trim:
