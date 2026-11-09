@@ -184,10 +184,73 @@ class Autoclaves(_Strict):
 class DraftThresholds(_Strict):
     min_ok_deg: Param
     warn_min_deg: Param
+    warn_review_ratio: Param = Param(
+        value=0.25,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="0-2° (uyarı) bölgesi kalıp yüzeyinin bu payını aşarsa çekme yönü manual_review",
+    )
 
 
 class UndercutThresholds(_Strict):
     core_max_area_ratio: Param
+    noise_area_ratio: Param = Param(
+        value=0.002,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="Bu orandan küçük VE noise_draft_deg'den sığ ters açı lekesi gürültü sayılır",
+    )
+    noise_draft_deg: Param = Param(
+        value=0.5,
+        unit="deg",
+        source=Source.DEFAULT,
+        desc="Gürültü sayılabilecek en derin ters açı (0 ile -bu değer arası)",
+    )
+    opposite_cos: Param = Param(
+        value=-0.5,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="İki ters açı bölgesinin yanal normal kosinüsü bunun altındaysa karşılıklı",
+    )
+    max_split_pieces: Param = Param(
+        value=3,
+        unit="count",
+        source=Source.USER,
+        desc="Bölünmüş kalıpta önerilecek en fazla parça sayısı (1, 2, 3 parçalı seçenek)",
+    )
+    threshold_margin_ratio: Param = Param(
+        value=0.2,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="Bölge alan oranı maça eşiğine bu bağıl pay kadar yakınsa karar manual_review",
+    )
+
+
+class PullSearchSettings(_Strict):
+    max_tilt_deg: Param = Param(
+        value=90.0,
+        unit="deg",
+        source=Source.DEFAULT,
+        desc="Aday çekme yönleri seçili yüzeyin ortalama iç normalinden en fazla bu kadar sapar",
+    )
+    samples: Param = Param(
+        value=600,
+        unit="count",
+        source=Source.DEFAULT,
+        desc="Küre üzerinde taranan aday yön sayısı (tam küre için; koni dışı atılır)",
+    )
+    refine_min_step_deg: Param = Param(
+        value=0.1,
+        unit="deg",
+        source=Source.DEFAULT,
+        desc="Yerel optimizasyonun en küçük adımı",
+    )
+    robust_min_quantile: Param = Param(
+        value=0.01,
+        unit="ratio",
+        source=Source.DEFAULT,
+        desc="En küçük çekme açısı üçgenlerin bu payı dışarıda bırakılarak okunur (gürültü)",
+    )
 
 
 class TrimRules(_Strict):
@@ -228,6 +291,7 @@ class AcceptanceThresholds(_Strict):
 class Thresholds(_Strict):
     draft: DraftThresholds
     undercut: UndercutThresholds
+    pull_search: PullSearchSettings = Field(default_factory=PullSearchSettings)
     trim: TrimRules
     tessellation: TessellationThresholds
     costing: CostingDefaults

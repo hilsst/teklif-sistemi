@@ -32,6 +32,7 @@ BASE_UNITS: frozenset[str] = frozenset(
         # counts and dimensionless
         "ratio",
         "pcs",
+        "count",
         "part",
         "ply",
         "hole",
