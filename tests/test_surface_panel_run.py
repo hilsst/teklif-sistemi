@@ -190,16 +190,16 @@ def test_viewer_click_is_applied_in_the_same_run(
     at = AppTest.from_function(_app).run(timeout=120)
     assert not at.exception
     vkey = next(k for k in at.session_state if str(k).endswith("_sel")).replace("_sel", "_viewer")
-    at.session_state[vkey] = {"sel": [1, 2], "n": 1, "t": 1}
+    at.session_state[vkey] = {"toggles": [1, 2], "n": 1, "t": 1}
     at.run(timeout=120)
     assert not at.exception
     sel_key = next(k for k in at.session_state if str(k).endswith("_sel"))
-    assert at.session_state[sel_key] == [1, 2]
+    assert at.session_state[sel_key] == [0, 1, 2]  # relative: the face 0 stays
     # the same click value arriving again (a later run) changes nothing
     at.session_state[sel_key] = [3]
     at.run(timeout=120)
     assert at.session_state[sel_key] == [3]
     # a right click hides nothing on a single solid, and a new click number is taken over
-    at.session_state[vkey] = {"sel": [4], "n": 2, "t": 2}
+    at.session_state[vkey] = {"toggles": [3, 4], "n": 2, "t": 2}
     at.run(timeout=120)
     assert at.session_state[sel_key] == [4]

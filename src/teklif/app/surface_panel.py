@@ -292,6 +292,16 @@ def profile_rings(
     )
 
 
+def _ack(key: str) -> int:
+    """Time (ms) of the last viewer click the panel has taken over: the viewer drops the toggles it
+    sent up to then from its pending list."""
+    last = st.session_state.get(f"{key}_lastclick")
+    try:
+        return int(last[1]) if last and last[1] is not None else 0
+    except (TypeError, ValueError, IndexError):
+        return 0
+
+
 def viewer_payload(
     mesh: FaceMesh,
     colors: Sequence[str | int],
@@ -300,6 +310,7 @@ def viewer_payload(
     extra: Extra | None = None,
     hidden: frozenset[int] = frozenset(),
     selected: Sequence[int] = (),
+    ack: int = 0,
 ) -> dict[str, Any]:
     """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index.
     ``hidden``: solids of an assembly left out of the picture (right click in the viewer)."""
@@ -329,6 +340,7 @@ def viewer_payload(
         "lines": lines,
         "mesh_key": key,
         "selected": [int(i) for i in selected],
+        "ack": int(ack),
         "pull": list(pull) if pull else None,
         "pos": pos.ravel().tolist(),
         "tri_face": tri_face,
@@ -430,10 +442,12 @@ def render_surface_panel(
         ident_in = (click_in.get("n"), click_in.get("t"))
         if ident_in != st.session_state.get(last):  # n restarts when the iframe is rebuilt
             st.session_state[last] = ident_in
+            if "toggles" in click_in:  # faces the user clicked; relative, so nothing is overwritten
+                st.session_state[sk] = sorted(
+                    set(st.session_state.get(sk, ())) ^ {int(i) for i in click_in["toggles"]}
+                )
             if "hide" in click_in:
                 hide_face = int(click_in["hide"])
-            elif "sel" in click_in:  # the whole selection as the viewer shows it
-                st.session_state[sk] = sorted({int(i) for i in click_in["sel"]})
     if hide_face is not None and 0 <= hide_face < len(view.faces):
         # right click on an element of an assembly hides its whole solid (never the last one)
         solids = {f.solid for f in view.faces}
@@ -612,7 +626,9 @@ def render_surface_panel(
     left, right = st.columns(2) if show_side else (st.container(), None)
     with left:
         click = _VIEWER(
-            **viewer_payload(view, colors, key, pull, extra, hidden=hidden, selected=selected),
+            **viewer_payload(
+                view, colors, key, pull, extra, hidden=hidden, selected=selected, ack=_ack(key)
+            ),
             height=560,
             key=vkey,
             default=None,
