@@ -476,13 +476,15 @@ def mesh_from_arrays(
     triangles: NDArray[np.int64],
     face_of_triangle: NDArray[np.int64] | None = None,
     normals: NDArray[np.float64] | None = None,
+    with_edges: bool = True,
 ) -> FaceMesh:
     """A ``FaceMesh`` from a plain triangle mesh (no OCP needed).
 
     ``triangles`` must be wound so that ``(b - a) x (c - a)`` points out of the part (or pass
     ``normals``). ``face_of_triangle`` groups triangles into selectable faces (ids 0..n-1);
     without it every triangle is its own face. Face boundary edges are taken from the mesh, so
-    boundary loops and trim lengths work too.
+    boundary loops and trim lengths work too; ``with_edges=False`` skips them (the pull-direction
+    and split/core analysis does not need edges and large meshes load much faster).
     """
     v = np.asarray(vertices, dtype=float)
     t = np.asarray(triangles, dtype=np.int64)
@@ -500,22 +502,24 @@ def mesh_from_arrays(
     vid = inv.ravel()
     n_faces = int(fo.max()) + 1 if len(fo) else 0
     faces: list[MeshFace] = []
+    first = {int(vid[i]): i for i in range(len(v))} if with_edges else {}
+    order = np.argsort(fo, kind="stable")
+    bounds = np.searchsorted(fo[order], np.arange(n_faces + 1))
     for fid in range(n_faces):
-        sel = np.flatnonzero(fo == fid)
+        sel = order[bounds[fid] : bounds[fid + 1]]
         if not len(sel):
             faces.append(_empty_face(fid))
             continue
         used, local = np.unique(t[sel], return_inverse=True)
         ft = local.reshape(-1, 3).astype(np.int64)
         count: dict[tuple[int, int], int] = {}
-        for tri in t[sel]:
+        for tri in t[sel] if with_edges else ():
             for i in range(3):
                 p, q = int(vid[tri[i]]), int(vid[tri[(i + 1) % 3]])
                 k = (min(p, q), max(p, q))
                 count[k] = count.get(k, 0) + 1
         edges: list[tuple[int, float]] = []
         polys: dict[int, NDArray[np.float64]] = {}
-        first = {int(vid[i]): i for i in range(len(v))}
         for (p, q), n in count.items():
             if n != 1:  # interior edge of the face
                 continue

@@ -44,6 +44,14 @@ CORE_HEXES = ("#ff2d95", "#22d3ee", "#84cc16", "#facc15", "#e11d48", "#0ea5e9")
 RED_IDX = 4  # a region nothing releases (unresolved)
 UNRESOLVED_HEX = 0xD62728
 
+# the viewer's PALETTE (static/index.html), by index: 0 grey, 1 blue, 2 green, 3 yellow, 4 red,
+# 5-7 spare, 8-13 mold pieces, 14 spare, 15 parting wall, 16-21 cores
+PALETTE_HEX = (
+    "#b0b0b0", "#4a78c2", "#2e9e4f", "#e6b800", "#d62728", "#f0b27a", "#9ecae1", "#c7e9c0",
+    "#3b82f6", "#f97316", "#a855f7", "#14b8a6", "#ca8a04", "#ec4899", "#1f2937", "#cbd5e1",
+    "#ff2d95", "#22d3ee", "#84cc16", "#facc15", "#e11d48", "#0ea5e9",
+)  # fmt: skip
+
 Extra = tuple[NDArray[np.float64], list[int], list[dict[str, Any]]]
 
 

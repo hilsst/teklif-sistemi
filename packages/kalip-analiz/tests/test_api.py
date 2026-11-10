@@ -85,3 +85,14 @@ def test_export_html_is_self_contained(tmp_path: Path) -> None:
     assert 'src="three.min.js"' not in html
     payload = r.viewer_payload(paint="draft")
     assert len(payload["tri_color"]) == len(payload["pos"]) // 9
+
+
+def test_to_dict_is_json_and_edges_optional() -> None:
+    import json
+
+    v, t, f = _box_mold(5.0)
+    mesh = mesh_from_arrays(v, _outward_ok(v, t), f, with_edges=False)
+    assert all(not face.edges for face in mesh.faces)
+    d = analyze(mesh).to_dict()
+    json.dumps(d)
+    assert d["methods"] and d["trace"] and "solution" in d

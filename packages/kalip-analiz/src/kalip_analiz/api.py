@@ -56,6 +56,53 @@ class AnalysisResult:
         m = self.method
         return vw.core_rows(m) if m is not None else []
 
+    def to_dict(self) -> dict[str, Any]:
+        """JSON-ready result for a web host: decision, reasons, flags, compared methods, pieces,
+        cores and the traceable calculation lines (formula, inputs, sources)."""
+        a = self.assessment
+        m = self.method
+        return {
+            "solution": a.solution.value,
+            "label": a.label,
+            "manual_review": a.manual_review,
+            "pull": list(self.pull),
+            "reasons": list(a.reasons),
+            "alternatives": list(a.alternatives),
+            "flags": [fl.model_dump() for fl in a.flags],
+            "max_pieces": a.max_pieces,
+            "shown": a.shown,
+            "recommended": 0,
+            "methods": [
+                {
+                    "label": x.label,
+                    "kind": x.kind,
+                    "pieces": x.n_pieces,
+                    "cores": x.n_cores,
+                    "unresolved": x.n_unresolved,
+                    "core_share": x.core_share,
+                    "cost": x.cost,
+                }
+                for x in a.methods
+            ],
+            "pieces": [
+                {
+                    "area_ratio": p.area_ratio,
+                    "pull": list(p.pull.direction),
+                    "min_draft_deg": p.pull.min_draft_deg,
+                    "cores": len(p.cores),
+                    "unresolved": len(p.unresolved),
+                }
+                for p in (m.pieces if m is not None else [])
+            ],
+            "planes": [
+                {"normal": list(pl.normal), "offset": pl.offset}
+                for pl in (m.planes if m is not None else [])
+            ],
+            "cores": self.cores,
+            "legend_html": vw.piece_legend(m) if m is not None else "",
+            "trace": [ln.model_dump(mode="json") for ln in a.trace],
+        }
+
     def summary(self) -> str:
         a = self.assessment
         return "\n".join([a.label, *(f"- {r}" for r in a.reasons)])
