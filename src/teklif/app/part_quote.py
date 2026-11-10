@@ -12,6 +12,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+from kalip_analiz.pull_search import Solution
 from teklif.app.assembly_panel import render_assembly_panel
 from teklif.app.surface_panel import render_surface_panel
 from teklif.common.models import Param, Price, Source
@@ -20,7 +21,6 @@ from teklif.costing.consumable_suggest import suggest as suggest_consumables
 from teklif.costing.engine import QuoteInputError, QuoteResult, compute_quote
 from teklif.costing.inputs import PartGeometry, PlyGroup, QuoteInput
 from teklif.costing.partial import fill_missing
-from teklif.draft.pull_search import Solution
 from teklif.geometry.plate_features import PlateFeatures, extract_plate_features
 from teklif.ingest.step_props import StepProps, StepUnavailableError, extract_step_props
 from teklif.library import Library

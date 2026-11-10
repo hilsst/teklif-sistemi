@@ -7,7 +7,7 @@ length (full boundary: outer edge, cut-outs and holes are all trimmed) and the p
 
 Kemal (2026-11-09): the side screen no longer builds a mold (surface extension and flange). It
 shows the best pull direction for the selected tool surface and the tooling decision (single
-piece, core, split, split + core) from ``teklif.draft.pull_search``.
+piece, core, split, split + core) from ``kalip_analiz.pull_search``.
 """
 
 from __future__ import annotations
@@ -22,27 +22,31 @@ from typing import Any
 
 import numpy as np
 import streamlit as st
-import streamlit.components.v1 as components
 from numpy.typing import NDArray
 
-from teklif.draft import pull_search as ps
+from kalip_analiz import pull_search as ps
+from kalip_analiz.settings import load_settings
+from kalip_analiz.viewer import (
+    Extra,
+    analysis_extra,
+    core_rows,
+    piece_colors,
+    piece_legend,
+    streamlit_component,
+    triangle_colors,
+    viewer_payload,
+)
 from teklif.geometry import mold_profile
 from teklif.geometry.plate_features import PlateFeatures
 from teklif.geometry.selection_features import SelectionFeatures, selection_features
 from teklif.geometry.surface_select import (
-    ANGULAR_DEFLECTION_DEG,
-    LINEAR_DEFLECTION_MM,
-    VIEW_ANGLE_DEG,
-    VIEW_DEFLECTION_MM,
     FaceMesh,
     Outline,
-    draft_angles_deg,
     faces_facing,
     load_face_mesh,
     suggest_pull_directions,
 )
 
-GREEN, YELLOW, RED, GREY, BLUE = "#2e9e4f", "#e6b800", "#d62728", "#b0b0b0", "#4a78c2"
 AXES = {
     "+Z": (0.0, 0.0, 1.0),
     "-Z": (0.0, 0.0, -1.0),
@@ -131,30 +135,7 @@ class SurfaceSelection:
         )
 
 
-def triangle_colors(
-    mesh: FaceMesh,
-    selected: list[int],
-    pull: tuple[float, float, float] | None,
-    min_ok: float,
-    warn_min: float,
-) -> list[str]:
-    """One colour per triangle, in face order. Selected faces: green >= min_ok, yellow, red < 0."""
-    chosen = set(selected)
-    angles = draft_angles_deg(mesh, selected, np.array(pull)) if pull and selected else {}
-    out: list[str] = []
-    for f in mesh.faces:
-        if f.id not in chosen:
-            out += [GREY] * len(f.triangles)
-        elif f.id in angles:
-            a = angles[f.id]
-            out += [GREEN if x >= min_ok else (YELLOW if x >= warn_min else RED) for x in a]
-        else:
-            out += [BLUE] * len(f.triangles)
-    return out
-
-
-_VIEWER = components.declare_component("face_viewer", path=str(Path(__file__).parent / "viewer"))
-_PALETTE_IDX = {GREY: 0, BLUE: 1, GREEN: 2, YELLOW: 3, RED: 4}
+_VIEWER = streamlit_component("face_viewer")
 
 
 def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
@@ -166,177 +147,6 @@ def mold_submesh(mesh: FaceMesh, selected: list[int]) -> FaceMesh:
             for i, f in enumerate(f for f in mesh.faces if f.id in chosen)
         ]
     )
-
-
-Extra = tuple[NDArray[np.float64], list[int], list[dict[str, Any]]]
-
-# colours of the analysis view (indices into the viewer's PALETTE): one per mold piece, one for the
-# core regions, one for the parting walls
-PIECE_COLOR_IDX0 = 8
-PIECE_HEX = ("#3b82f6", "#f97316", "#a855f7", "#14b8a6", "#ca8a04", "#ec4899")
-WALL_COLOR_IDX = 15
-# every core its own colour (palette indices 16..21), shared by its triangles, its pin and the table
-CORE_COLOR_IDX0 = 16
-CORE_NAMES = ("pembe", "turkuaz", "yeşil", "sarı", "gül kırmızısı", "gök mavisi")
-CORE_HEXES = ("#ff2d95", "#22d3ee", "#84cc16", "#facc15", "#e11d48", "#0ea5e9")
-RED_IDX = 4  # a region nothing releases (unresolved)
-PARTING_WALL_RATIO = 0.06  # wall depth as a share of the tool surface's bounding-box diagonal
-
-
-def _nearest(src: NDArray[np.float64], dst: NDArray[np.float64]) -> NDArray[np.int64]:
-    """Index of the nearest ``dst`` point for every ``src`` point (chunked brute force)."""
-    out = np.empty(len(src), dtype=np.int64)
-    for lo in range(0, len(src), 256):
-        d = ((src[lo : lo + 256, None, :] - dst[None, :, :]) ** 2).sum(axis=2)
-        out[lo : lo + 256] = d.argmin(axis=1)
-    return out
-
-
-def piece_colors(
-    view: FaceMesh, selected: list[int], ts: ps.TriSet, method: ps.Method
-) -> list[int]:
-    """Palette index per view triangle: each mold piece its own colour, core regions dark, regions
-    nothing releases red. The view mesh is coarser than the analysis mesh, so every view triangle
-    takes the label of the nearest analysis triangle on the same B-rep face."""
-    label = PIECE_COLOR_IDX0 + method.piece_of % len(PIECE_HEX)
-    label = np.asarray(label, dtype=np.int64)
-    for tag, _, r in core_regions(method):
-        if tag.startswith("Ç"):
-            label[r.tris] = RED_IDX
-        else:
-            label[r.tris] = CORE_COLOR_IDX0 + (int(tag[1:]) - 1) % len(CORE_HEXES)
-    order = np.argsort(ts.face, kind="stable")
-    faces_sorted = ts.face[order]
-    chosen = set(selected)
-    out: list[int] = []
-    for f in view.faces:
-        n = len(f.triangles)
-        if f.id not in chosen or not n:
-            out += [_PALETTE_IDX[GREY]] * n
-            continue
-        lo, hi = np.searchsorted(faces_sorted, [f.id, f.id + 1])
-        idx = order[lo:hi]
-        if not len(idx):
-            out += [_PALETTE_IDX[BLUE]] * n
-            continue
-        near = _nearest(f.vertices[f.triangles].mean(axis=1), ts.centroids[idx])
-        out += label[idx[near]].tolist()
-    return out
-
-
-def analysis_extra(ts: ps.TriSet, method: ps.Method) -> Extra:
-    """Parting walls (strips perpendicular to the tool surface along every cut between two
-    pieces) and, for a split tool, one arrow per piece in the piece's colour."""
-    diag = float(np.linalg.norm(np.ptp(ts.centroids, axis=0))) or 1.0
-    walls = ps.parting_walls(ts, method.piece_of, PARTING_WALL_RATIO * diag)
-    lines: list[dict[str, Any]] = []
-    if method.n_pieces > 1:
-        for k, p in enumerate(method.pieces):
-            d = np.asarray(p.pull.direction, dtype=float)
-            c = np.average(ts.centroids[p.tris], axis=0, weights=ts.areas[p.tris])
-            ln = 0.3 * diag
-            a, _ = ps._basis(d)
-            tip, tail = c, c - d * ln
-            hex_ = int(PIECE_HEX[k % len(PIECE_HEX)][1:], 16)
-            back = tip - d * 0.15 * ln
-            segs = [(tail, tip), (tip, back + a * 0.07 * ln), (tip, back - a * 0.07 * ln)]
-            for p0, p1 in segs:
-                lines.append(
-                    {
-                        "hex": hex_,
-                        "label": "",
-                        "pts": np.concatenate([p0, p1]).round(1).tolist(),
-                    }
-                )
-    lines += core_markers(method, diag)
-    return walls, [WALL_COLOR_IDX] * len(walls), lines
-
-
-UNRESOLVED_HEX = 0xD62728
-
-
-def core_hex(tag: str) -> int:
-    """Colour of core ``M<n>`` as an int (the same colour paints its triangles in the viewer)."""
-    return int(CORE_HEXES[(int(tag[1:]) - 1) % len(CORE_HEXES)][1:], 16)
-
-
-def core_regions(method: ps.Method) -> list[tuple[str, int, ps.UndercutRegion]]:
-    """Every core (M1, M2, ...) and unresolved region (Ç1, ...) of a method with its piece number,
-    in the order the markers and the table use."""
-    out: list[tuple[str, int, ps.UndercutRegion]] = []
-    for k, p in enumerate(method.pieces, 1):
-        for r in p.cores:
-            out.append((f"M{len(out) + 1}", k, r))
-    n_core = len(out)
-    for k, p in enumerate(method.pieces, 1):
-        for r in p.unresolved:
-            out.append((f"Ç{len(out) - n_core + 1}", k, r))
-    return out
-
-
-def core_markers(method: ps.Method, diag: float) -> list[dict[str, Any]]:
-    """A numbered pin per core: a cross at the region's centre (never smaller than 1.2 % of the
-    part size, so a tiny region is still seen) and a leader line out of the surface that ends in
-    the label. The region's own triangles are drawn in the core colour as before."""
-    lines: list[dict[str, Any]] = []
-    arm = 0.012 * diag  # cross half size, mm
-    for tag, _, r in core_regions(method):
-        c = np.array(r.center, dtype=float)
-        n = np.array(r.outward, dtype=float)
-        n = n / (float(np.linalg.norm(n)) or 1.0)
-        hex_ = UNRESOLVED_HEX if tag.startswith("Ç") else core_hex(tag)
-        tip = c + n * 0.10 * diag
-        for d in np.eye(3):
-            lines.append(
-                {
-                    "hex": hex_,
-                    "label": "",
-                    "pts": np.concatenate([c - d * arm, c + d * arm]).round(1).tolist(),
-                }
-            )
-        lines.append({"hex": hex_, "label": tag, "pts": np.concatenate([c, tip]).round(1).tolist()})
-    return lines
-
-
-def core_rows(method: ps.Method) -> list[dict[str, Any]]:
-    """Table of the cores: where they are and how big (the numbers the markers carry)."""
-    rows = []
-    for tag, k, r in core_regions(method):
-        rows.append(
-            {
-                "no": tag,
-                "renk": "kırmızı"
-                if tag.startswith("Ç")
-                else CORE_NAMES[(int(tag[1:]) - 1) % len(CORE_NAMES)],
-                "kalıp parçası": k,
-                "alan [mm²]": round(r.area_mm2),
-                "yüzey payı [%]": round(r.area_ratio * 100, 3),
-                "en derin açı [°]": round(r.min_draft_deg, 1),
-                "konum X/Y/Z [mm]": " / ".join(f"{x:.0f}" for x in r.center),
-                "yüz no": ", ".join(map(str, r.faces[:6])) + ("…" if len(r.faces) > 6 else ""),
-            }
-        )
-    return rows
-
-
-def piece_legend(method: ps.Method) -> str:
-    """HTML legend: a colour swatch per mold piece, the core colour and the parting wall."""
-    sw = "<span style='color:{c};font-size:1.2em'>■</span> {t}"
-    items = [
-        sw.format(c=PIECE_HEX[k % len(PIECE_HEX)], t=f"kalıp parça {k + 1}")
-        for k in range(method.n_pieces)
-    ]
-    if method.n_cores:
-        items += [
-            sw.format(c=CORE_HEXES[i % len(CORE_HEXES)], t=f"M{i + 1}")
-            for i in range(method.n_cores)
-        ]
-        items.append("M1, M2…: maçalar (kendi renginde yüzey + artı ve çizgi işareti)")
-    if method.n_unresolved:
-        items.append(sw.format(c=RED, t="çözülemeyen ters açı"))
-    if method.n_pieces > 1:
-        items.append(sw.format(c="#cbd5e1", t="ayırma yüzeyi (yüzeye dik)"))
-    return " &nbsp; ".join(items)
 
 
 @dataclass(frozen=True)
@@ -375,56 +185,6 @@ def _ack(key: str) -> int:
         return int(last[1]) if last and last[1] is not None else 0
     except (TypeError, ValueError, IndexError):
         return 0
-
-
-def viewer_payload(
-    mesh: FaceMesh,
-    colors: Sequence[str | int],
-    key: str,
-    pull: tuple[float, float, float] | None = None,
-    extra: Extra | None = None,
-    hidden: frozenset[int] = frozenset(),
-    selected: Sequence[int] = (),
-    ack: int = 0,
-    sync_ms: int = 2000,
-) -> dict[str, Any]:
-    """Arrays for the three.js viewer: triangle soup, owning face per triangle, colour index.
-    ``hidden``: solids of an assembly left out of the picture (right click in the viewer)."""
-    pos = np.round(
-        np.vstack([f.vertices[f.triangles].reshape(-1, 3) for f in mesh.faces if len(f.triangles)]),
-        1,
-    )
-    tri_face = [f.id for f in mesh.faces for _ in range(len(f.triangles))]
-    color_idx = [c if isinstance(c, int) else _PALETTE_IDX[c] for c in colors]
-    if hidden:
-        keep = np.array(
-            [f.solid not in hidden for f in mesh.faces for _ in range(len(f.triangles))]
-        )
-        pos = pos.reshape(-1, 9)[keep].reshape(-1, 3)
-        tri_face = [t for t, k in zip(tri_face, keep, strict=True) if k]
-        color_idx = [c for c, k in zip(color_idx, keep, strict=True) if k]
-    lines: list[dict[str, Any]] = []
-    extra_sig = 0
-    if extra is not None:
-        ftris, fcolors, lines = extra
-        extra_sig = len(ftris) * 1000 + int(abs(float(np.round(ftris.sum(), 1))) * 10) % 1000
-        if len(ftris):
-            pos = np.vstack([pos, np.round(ftris.reshape(-1, 3), 1)])
-            tri_face += [-1] * len(ftris)
-            color_idx += fcolors
-    return {
-        "lines": lines,
-        "mesh_key": key,
-        "selected": [int(i) for i in selected],
-        "ack": int(ack),
-        "sync_ms": int(sync_ms),
-        "pull": list(pull) if pull else None,
-        "pos": pos.ravel().tolist(),
-        "tri_face": tri_face,
-        "tri_color": color_idx,
-        "faces": [[f.id, round(f.area_mm2 / 1e6, 4)] for f in mesh.faces if f.solid not in hidden],
-        "geom_rev": [*sorted(hidden), *([extra_sig] if extra_sig else [])],
-    }
 
 
 def build_figure(mesh: FaceMesh, colors: list[str]) -> Any:
@@ -491,13 +251,14 @@ def render_surface_panel(
     only_solids: frozenset[int] | None = None,
 ) -> SurfaceSelection | None:
     """``only_solids``: for an assembly, show and select only these solids (the chosen part)."""
+    mp_ = load_settings(thresholds).mesh
     key = f"{key}_{hashlib.sha256(data).hexdigest()[:16]}"  # new file -> new mesh and selection
     mk = f"{key}_mesh"
     vk = mk + "v"
     if vk not in st.session_state:
         try:
             with st.spinner("3B model hazırlanıyor (büyük parçada birkaç saniye sürer)..."):
-                st.session_state[vk] = _load(data, VIEW_DEFLECTION_MM, VIEW_ANGLE_DEG, True)
+                st.session_state[vk] = _load(data, mp_.view_deflection_mm, mp_.view_angle_deg, True)
         except Exception as exc:
             st.warning(f"3B ekran açılamadı ({exc}); trim çevresi elle girilebilir.")
             return None
@@ -624,7 +385,7 @@ def render_surface_panel(
         if mk not in st.session_state:
             with st.spinner("Seçim için ince analiz ağı hazırlanıyor..."):
                 st.session_state[mk] = _load(
-                    data, LINEAR_DEFLECTION_MM, ANGULAR_DEFLECTION_DEG, True
+                    data, mp_.linear_deflection_mm, mp_.angular_deflection_deg, True
                 )
         mesh = st.session_state[mk]
         tris = ps.triset_from_mesh(mesh, selected)
@@ -696,7 +457,7 @@ def render_surface_panel(
     if paint == "pieces" and assessment is not None and assessment.chosen is not None:
         assert tris is not None
         colors = piece_colors(view, selected, tris, assessment.chosen)
-        extra = analysis_extra(tris, assessment.chosen)
+        extra = analysis_extra(tris, assessment.chosen, load_settings(thresholds).viewer)
     else:
         colors = triangle_colors(view, selected, pull, min_ok, warn_min)
     show_side = assessment is not None

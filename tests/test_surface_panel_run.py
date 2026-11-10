@@ -89,14 +89,14 @@ def _side_faces(path: Path) -> list[int]:
 def test_split_analysis_colours_pieces_and_builds_parting_walls(tmp_path: Path) -> None:
     import numpy as np
 
-    from teklif.app.surface_panel import (
+    from kalip_analiz import pull_search as ps
+    from kalip_analiz.viewer import (
         CORE_COLOR_IDX0,
         PIECE_COLOR_IDX0,
         analysis_extra,
         piece_colors,
         piece_legend,
     )
-    from teklif.draft import pull_search as ps
     from teklif.geometry.surface_select import load_face_mesh
     from teklif.library import load_library
 
@@ -209,7 +209,7 @@ def test_viewer_click_is_applied_in_the_same_run(
 def _method_with_cores() -> Any:
     import numpy as np
 
-    from teklif.draft import pull_search as ps
+    from kalip_analiz import pull_search as ps
 
     def reg(
         c: tuple[float, float, float], n: tuple[float, float, float], faces: tuple[int, ...]
@@ -236,7 +236,7 @@ def _method_with_cores() -> Any:
 
 
 def test_core_markers_and_rows_locate_every_core() -> None:
-    from teklif.app import surface_panel as sp
+    from kalip_analiz import viewer as sp
 
     m = _method_with_cores()
     tags = [t for t, _, _ in sp.core_regions(m)]

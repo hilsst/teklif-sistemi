@@ -240,3 +240,10 @@ iş merkezi `SERIT_SARIM` hazır), su jeti proses şablonu.
 Her dosyada `Veri` (turuncu başlık zorunlu), `Aciklama` (kolon, birim, geçerli değerler) ve
 `Listeler` (açılır liste kaynakları, kütüphaneden üretilir) sayfaları vardır. Kütüphaneye yeni
 iş merkezi veya proses eklenince `teklif templates` ile şablonları yeniden üretin.
+
+
+## Bağımsız paket: kalip-analiz
+
+Otomatik çekme yönü, kalıp bölme ve maça işaretleme kodu (ve 3B görüntüleyici)
+`packages/kalip-analiz` altında ayrı bir Python paketidir; bu uygulama onu kullanır. Başka bir
+projede kullanmak için bkz. [packages/kalip-analiz/README.md](packages/kalip-analiz/README.md).

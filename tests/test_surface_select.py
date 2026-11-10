@@ -88,7 +88,8 @@ def test_tilted_wall_draft_is_the_tilt_angle() -> None:
 def test_panel_helpers(tmp_path: Path) -> None:
     import numpy as np
 
-    from teklif.app.surface_panel import GREEN, RED, build_figure, triangle_colors
+    from kalip_analiz.viewer import GREEN, RED, triangle_colors
+    from teklif.app.surface_panel import build_figure
     from teklif.geometry.surface_select import faces_facing
 
     mesh = load_face_mesh(_plate(tmp_path))
@@ -113,7 +114,7 @@ def test_outer_perimeter_ignores_holes_and_seams_not_boundary(tmp_path: Path) ->
 
 
 def test_viewer_payload_shapes(tmp_path: Path) -> None:
-    from teklif.app.surface_panel import GREY, viewer_payload
+    from kalip_analiz.viewer import GREY, viewer_payload
 
     mesh = load_face_mesh(_plate(tmp_path))
     n = sum(len(f.triangles) for f in mesh.faces)

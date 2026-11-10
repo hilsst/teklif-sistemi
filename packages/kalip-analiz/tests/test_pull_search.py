@@ -9,7 +9,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from teklif.draft.pull_search import (
+from kalip_analiz.pull_search import (
     RegionKind,
     Settings,
     Solution,
@@ -306,7 +306,7 @@ def test_tiny_shallow_undercuts_are_noise_not_cores() -> None:
 
 
 def test_big_cores_cost_more_than_small_ones() -> None:
-    from teklif.draft.pull_search import method_cost
+    from kalip_analiz.pull_search import method_cost
 
     small = method_cost(1, 2, 0, 0.0, S, core_share=0.01)
     big = method_cost(1, 2, 0, 0.0, S, core_share=0.09)
@@ -332,7 +332,7 @@ def test_island_inside_the_other_piece_is_given_to_it() -> None:
     # one connected 200 x 200 plate; a few triangles of the middle carry the other label: that
     # island is cut off from its label's main patch, so it belongs to the piece around it (its
     # own undercut analysis then decides whether it needs a core)
-    from teklif.draft.pull_search import _connected_groups
+    from kalip_analiz.pull_search import _connected_groups
 
     plate: Quad = ([0, 0, 0], [200, 0, 0], [200, 200, 0], [0, 200, 0], [0, 0, -1])
     ts = _soup([plate])
