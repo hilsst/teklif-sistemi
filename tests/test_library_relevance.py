@@ -287,7 +287,7 @@ def test_assembly_solids_can_be_hidden_in_the_payload(tmp_path: Path) -> None:
     from OCP.STEPControl import STEPControl_AsIs, STEPControl_Writer
     from OCP.TopoDS import TopoDS_Compound
 
-    from teklif.app.surface_panel import viewer_payload
+    from kalip_analiz.viewer import viewer_payload
     from teklif.geometry.surface_select import load_face_mesh
 
     comp = TopoDS_Compound()

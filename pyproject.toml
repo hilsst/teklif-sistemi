@@ -11,6 +11,7 @@ dependencies = [
     "sqlalchemy>=2.0",
     "fpdf2>=2.8.9",
     "ruamel-yaml>=0.19.1",
+    "kalip-analiz",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +31,12 @@ dev = [
     "pandas-stubs>=2.2",
 ]
 
+[tool.uv.sources]
+kalip-analiz = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/kalip-analiz"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -40,7 +47,7 @@ packages = ["src/teklif"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "packages/kalip-analiz/src", "packages/kalip-analiz/tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF"]
@@ -51,13 +58,13 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = "src"
-files = ["src", "tests"]
+mypy_path = "src:packages/kalip-analiz/src"
+files = ["src", "tests", "packages/kalip-analiz/src", "packages/kalip-analiz/tests"]
 
 [[tool.mypy.overrides]]
 module = ["OCP", "OCP.*", "plotly", "plotly.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packages/kalip-analiz/tests"]
 addopts = "-q"

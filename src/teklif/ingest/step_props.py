@@ -16,15 +16,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from kalip_analiz.step import StepUnavailableError as StepUnavailableError
+from kalip_analiz.step import load_step_shape as load_step_shape
 from teklif.common.models import Source
 
 EXTRACTOR_VERSION = "step_props-2"
 MM2_PER_M2 = 1_000_000.0
 MM3_PER_M3 = 1_000_000_000.0
-
-
-class StepUnavailableError(RuntimeError):
-    """OCP is not installed or the file cannot be read."""
 
 
 class StepValue(BaseModel):
@@ -54,28 +52,6 @@ def ocp_available() -> bool:
     except ImportError:
         return False
     return True
-
-
-def load_step_shape(path: Path | str) -> tuple[Any, list[str]]:
-    """Read a STEP file; return the OCCT shape and the file's length units."""
-    try:
-        from OCP.collections import Sequence_TCollection_AsciiString
-        from OCP.IFSelect import IFSelect_RetDone
-        from OCP.STEPControl import STEPControl_Reader
-    except ImportError as exc:
-        raise StepUnavailableError("OCP (cadquery-ocp) is not installed") from exc
-
-    reader = STEPControl_Reader()
-    if reader.ReadFile(str(path)) != IFSelect_RetDone:
-        raise StepUnavailableError(f"cannot read STEP file {path}")
-    length, angle, solid_angle = (Sequence_TCollection_AsciiString() for _ in range(3))
-    reader.FileUnits(length, angle, solid_angle)
-    units = [length.Value(i + 1).ToCString() for i in range(length.Length())]
-    reader.TransferRoots()
-    shape = reader.OneShape()
-    if shape.IsNull():
-        raise StepUnavailableError("STEP file contains no shape")
-    return shape, units
 
 
 def solid_list(shape: Any) -> list[Any]:

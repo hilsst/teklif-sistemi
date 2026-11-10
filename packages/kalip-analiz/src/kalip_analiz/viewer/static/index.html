@@ -5,9 +5,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:#f4f5f7;font-family:sa
 #c{width:100%;height:100%;display:block}
 #tip{position:absolute;pointer-events:none;background:#222;color:#fff;font-size:12px;padding:3px 7px;border-radius:4px;display:none}
 #hint{position:absolute;left:8px;bottom:6px;font-size:11px;color:#666}
+#side{position:absolute;top:8px;right:8px;max-width:min(460px,45vw);max-height:calc(100% - 40px);overflow:auto;background:rgba(255,255,255,.94);border:1px solid #ccd;border-radius:6px;padding:8px 12px;font-size:13px;display:none}
+#side table{border-collapse:collapse;font-size:12px}#side td,#side th{border-bottom:1px solid #e3e5ea;padding:2px 6px;text-align:left}
+#selbox{position:absolute;top:8px;left:8px;background:rgba(255,255,255,.94);border:1px solid #ccd;border-radius:6px;padding:4px 8px;font-size:12px;display:none;max-width:40vw}
 </style></head>
 <body>
-<canvas id="c"></canvas><div id="tip"></div>
+<canvas id="c"></canvas><div id="tip"></div><div id="side"></div><div id="selbox"></div>
 <div id="hint" style="display:block">Sürükle: her yöne 360° döndür · tekerlek: yakınlaştır · sağ tuş sürükle: kaydır · sağ tık: elemanı gizle · tıkla: yüzü seç/bırak</div>
 <script src="three.min.js"></script>
 <script>
@@ -16,7 +19,21 @@ const PALETTE=[0xb0b0b0,0x4a78c2,0x2e9e4f,0xe6b800,0xd62728,0xf0b27a,0x9ecae1,0x
   0xff2d95,0x22d3ee,0x84cc16,0xfacc15,0xe11d48,0x0ea5e9]; // 16-21 one colour per core // grey, blue, green, yellow, red, flange, fill, extension; 8-13 mold pieces, 14 core, 15 parting wall
 let geomRev='',lineGroup=null,axesGroup=null,pullArrow=null,scene,camera,renderer,controls,mesh,geo,args=null,fitted=null,clickN=0,faceInfo={},pendingT=new Set(),inflight=[],syncTimer=null,faceTris={};
 const canvas=document.getElementById('c'),tip=document.getElementById('tip');
-function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data),'*');}
+// Two hosts: a Streamlit component (data arrives as streamlit:render messages, clicks go back as
+// the component value) or a standalone page (kalip_analiz.viewer.export_html puts the data in
+// window.KALIP_VIEWER_DATA; clicks only toggle the face list shown in the corner).
+const STANDALONE=!!window.KALIP_VIEWER_DATA;
+function send(type,data){
+  if(STANDALONE){
+    if(type==='streamlit:setComponentValue'&&data.value&&data.value.toggles){
+      for(const f of data.value.toggles){if(serverSel.has(f))serverSel.delete(f);else serverSel.add(f);}
+      inflight=[]; showSel();}
+    return;}
+  window.parent.postMessage(Object.assign({isStreamlitMessage:true,type:type},data),'*');}
+function showSel(){
+  const b=document.getElementById('selbox'), ids=Array.from(serverSel).sort((a,b)=>a-b);
+  b.style.display=ids.length?'block':'none';
+  b.textContent='Seçili yüzler (analyze(..., faces=[...]) için): '+ids.join(', ');}
 // Free trackball: no pole limit like OrbitControls, so a part can be turned a full 360 deg in
 // any direction. Left drag rotates about the screen axes, right/middle drag pans, wheel zooms.
 function Trackball(camera,dom){
@@ -165,5 +182,9 @@ window.addEventListener('message',ev=>{
   document.getElementById('hint').textContent=args.readonly?'Sürükle: her yöne 360° döndür · tekerlek: yakınlaştır':document.getElementById('hint').textContent;
   resize(args.height||520); build(args);
 });
-send('streamlit:componentReady',{apiVersion:1});
+if(STANDALONE){
+  args=window.KALIP_VIEWER_DATA; init(); resize(window.innerHeight); build(args); showSel();
+  if(window.KALIP_SIDE_HTML){const sd=document.getElementById('side'); sd.innerHTML=window.KALIP_SIDE_HTML; sd.style.display='block';}
+  window.addEventListener('resize',()=>resize(window.innerHeight));
+}else send('streamlit:componentReady',{apiVersion:1});
 </script></body></html>

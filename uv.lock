@@ -7,6 +7,12 @@ resolution-markers = [
     "sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "kalip-analiz",
+    "teklif",
+]
+
 [[package]]
 name = "altair"
 version = "6.3.0"
@@ -344,6 +350,34 @@ sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
 ]
+
+[[package]]
+name = "kalip-analiz"
+version = "0.1.0"
+source = { editable = "packages/kalip-analiz" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+cad = [
+    { name = "cadquery-ocp" },
+]
+streamlit = [
+    { name = "streamlit" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cadquery-ocp", marker = "extra == 'cad'", specifier = ">=7.7" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "streamlit", marker = "extra == 'streamlit'", specifier = ">=1.38" },
+]
+provides-extras = ["cad", "streamlit"]
 
 [[package]]
 name = "kiwisolver"
@@ -949,6 +983,7 @@ version = "0.0.1"
 source = { editable = "." }
 dependencies = [
     { name = "fpdf2" },
+    { name = "kalip-analiz" },
     { name = "openpyxl" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -980,6 +1015,7 @@ dev = [
 requires-dist = [
     { name = "cadquery-ocp", marker = "extra == 'cad'", specifier = ">=7.7" },
     { name = "fpdf2", specifier = ">=2.8.9" },
+    { name = "kalip-analiz", editable = "packages/kalip-analiz" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pandas", marker = "extra == 'app'", specifier = ">=2.2" },
     { name = "plotly", marker = "extra == 'app'", specifier = ">=5.20" },

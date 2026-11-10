@@ -5,7 +5,7 @@ surface the user picked, searches the pull direction that releases it best (idea
 neither a split tool nor a loose core), and then says which solution the remaining undercuts need:
 single-piece tool, loose core(s) (maça), split tool (1/2/3 pieces), or split tool AND cores.
 
-Conventions (same as ``teklif.geometry.surface_select``): triangle normals point out of the part,
+Conventions (same as ``kalip_analiz.mesh``): triangle normals point out of the part,
 i.e. into the tool; for a pull direction d the draft angle is ``asin(-n . d)``; positive releases,
 below ``draft.warn_min_deg`` is an undercut.
 
@@ -33,76 +33,26 @@ import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
-from teklif.common.models import CostInput, CostLine, ReviewFlag, Source
+from kalip_analiz.settings import LIB, field_path
+from kalip_analiz.settings import Settings as Settings
+from kalip_analiz.settings import settings_from_thresholds as settings_from_thresholds
+from kalip_analiz.trace import CostInput, CostLine, ReviewFlag, Source
 
 if TYPE_CHECKING:
-    from teklif.geometry.surface_select import FaceMesh
+    from kalip_analiz.mesh import FaceMesh
 
 F64 = NDArray[np.float64]
 I64 = NDArray[np.int64]
-LIB = "thresholds.yaml"
 
 
-# --- settings -------------------------------------------------------------------------
+# --- settings (thresholds live in kalip_analiz.settings / thresholds.yaml) ---------------
 
 
-@dataclass(frozen=True)
-class Settings:
-    """Thresholds of the search and the decision, read from ``thresholds.yaml``."""
-
-    min_ok_deg: float = 2.0
-    warn_min_deg: float = 0.0
-    warn_review_ratio: float = 0.25
-    core_max_area_ratio: float = 0.10
-    noise_area_ratio: float = 0.002
-    noise_draft_deg: float = 10.0
-    opposite_cos: float = -0.5
-    max_split_pieces: int = 3
-    threshold_margin_ratio: float = 0.2
-    core_cost_weight: float = 1.0
-    core_area_cost_weight: float = 100.0
-    split_cost_weight: float = 3.0
-    unresolved_cost_weight: float = 100.0
-    warn_cost_weight: float = 2.0
-    sandwich_tol_deg: float = 10.0
-    max_tilt_deg: float = 90.0
-    piece_max_tilt_deg: float = 120.0
-    samples: int = 600
-    refine_min_step_deg: float = 0.1
-    robust_min_quantile: float = 0.01
-    sources: dict[str, Source] = field(default_factory=dict, compare=False)
-
-    def source(self, name: str) -> Source:
-        return self.sources.get(name, Source.DEFAULT)
-
-
-_PATHS = {
-    "min_ok_deg": "draft.min_ok_deg",
-    "warn_min_deg": "draft.warn_min_deg",
-    "warn_review_ratio": "draft.warn_review_ratio",
-    "core_max_area_ratio": "undercut.core_max_area_ratio",
-    "noise_area_ratio": "undercut.noise_area_ratio",
-    "noise_draft_deg": "undercut.noise_draft_deg",
-    "opposite_cos": "undercut.opposite_cos",
-    "max_split_pieces": "undercut.max_split_pieces",
-    "threshold_margin_ratio": "undercut.threshold_margin_ratio",
-    "core_cost_weight": "undercut.core_cost_weight",
-    "core_area_cost_weight": "undercut.core_area_cost_weight",
-    "split_cost_weight": "undercut.split_cost_weight",
-    "unresolved_cost_weight": "undercut.unresolved_cost_weight",
-    "warn_cost_weight": "undercut.warn_cost_weight",
-    "sandwich_tol_deg": "undercut.sandwich_tol_deg",
-    "max_tilt_deg": "pull_search.max_tilt_deg",
-    "piece_max_tilt_deg": "pull_search.piece_max_tilt_deg",
-    "samples": "pull_search.samples",
-    "refine_min_step_deg": "pull_search.refine_min_step_deg",
-    "robust_min_quantile": "pull_search.robust_min_quantile",
-}
 _UNITS = {
     "min_ok_deg": "deg",
     "warn_min_deg": "deg",
@@ -116,30 +66,13 @@ _UNITS = {
 }
 
 
-def settings_from_thresholds(thr: Any) -> Settings:
-    """Settings from a ``teklif.library.schema.Thresholds``; a TODO (None) value keeps the default
-    and is reported by the library TODO list, never invented here."""
-    vals: dict[str, Any] = {}
-    sources: dict[str, Source] = {}
-    for name, path in _PATHS.items():
-        node: Any = thr
-        for part in path.split("."):
-            node = getattr(node, part, None)
-        if node is None or node.value is None:
-            continue
-        v = node.value
-        vals[name] = int(v) if name in ("max_split_pieces", "samples") else float(v)
-        sources[name] = node.source
-    return Settings(**vals, sources=sources)
-
-
 def _inp(s: Settings, name: str) -> CostInput:
     return CostInput(
         name=name,
         value=float(getattr(s, name)),
         unit=_UNITS.get(name, "ratio"),
         source=s.source(name),
-        path=f"{LIB}:{_PATHS[name]}",
+        path=f"{LIB}:{field_path(Settings, name)}",
     )
 
 
