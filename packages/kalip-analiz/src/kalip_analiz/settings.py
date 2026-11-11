@@ -105,6 +105,10 @@ class Settings(_Group):
     samples: int = _i("pull_search.samples")
     refine_min_step_deg: float = _d("pull_search.refine_min_step_deg")
     robust_min_quantile: float = _d("pull_search.robust_min_quantile")
+    plane_normals: int = _i("pull_search.plane_normals")
+    exact_candidates: int = _i("pull_search.exact_candidates")
+    axis_splits: int = _i("pull_search.axis_splits")
+    axis_mid_plane: int = _i("pull_search.axis_mid_plane")
 
 
 @dataclass(frozen=True)

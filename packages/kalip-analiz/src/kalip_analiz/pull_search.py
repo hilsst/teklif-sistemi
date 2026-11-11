@@ -63,6 +63,10 @@ _UNITS = {
     "refine_min_step_deg": "deg",
     "max_split_pieces": "count",
     "samples": "count",
+    "plane_normals": "count",
+    "exact_candidates": "count",
+    "axis_splits": "count",
+    "axis_mid_plane": "count",
 }
 
 
@@ -567,9 +571,9 @@ SOLUTION_LABEL = {
 # discretisation of the search, not a company value.
 _Q2 = (0.35, 0.5, 0.65)
 _Q3 = ((0.25, 0.5), (0.33, 0.67), (0.5, 0.75), (0.25, 0.75))
-_N_NORMALS = 10  # most plane normals tried
-_N_EXACT = 3  # best quick candidates per piece count that are evaluated exactly
-_N_AXIS_SPLITS = 4  # most axes tried for the two-piece visibility split
+# plane normals tried, candidates evaluated exactly per piece count and axes tried for the
+# visibility split are thresholds: ``pull_search.plane_normals``, ``exact_candidates``,
+# ``axis_splits`` (``axis_mid_plane``: always evaluate the mid-part plane of every world axis)
 _MERGE_COS = math.cos(math.radians(10.0))  # plane normals closer than this count as one
 
 
@@ -686,7 +690,7 @@ def _weighted_quantiles(pos: F64, areas: F64, qs: Sequence[float]) -> list[float
     return [float(pos[order][i]) for i in idx]
 
 
-def _plane_normals(ts: TriSet, pull: F64, regions: list[UndercutRegion]) -> list[F64]:
+def _plane_normals(ts: TriSet, pull: F64, regions: list[UndercutRegion], s: Settings) -> list[F64]:
     """Candidate parting-plane normals, most informative first: the sides the undercuts face,
     the part's principal axes, the world axes, directions around the baseline pull."""
     cands: list[F64] = []
@@ -706,7 +710,7 @@ def _plane_normals(ts: TriSet, pull: F64, regions: list[UndercutRegion]) -> list
         v = v / np.linalg.norm(v)
         if all(abs(float(v @ o)) < _MERGE_COS for o in out):  # +n and -n are the same plane
             out.append(v)
-        if len(out) >= _N_NORMALS:
+        if len(out) >= s.plane_normals:
             break
     return out
 
@@ -766,7 +770,7 @@ def _plane_methods(
     evaluation of the best few."""
     qs = _quick_settings(s)
     quick: list[tuple[float, int, F64, list[float]]] = []  # (approximate cost, ...)
-    for n in _plane_normals(ts, pull, regions):
+    for n in _plane_normals(ts, pull, regions, s):
         pos = ts.centroids @ n
         options: list[list[float]] = [_weighted_quantiles(pos, ts.areas, (q,)) for q in _Q2]
         if s.max_split_pieces >= 3:
@@ -778,7 +782,17 @@ def _plane_methods(
                 quick.append((approx, len(offs) + 1, n, offs))
     methods: list[Method] = []
     for m in (2, 3):
-        best = sorted((q for q in quick if q[1] == m), key=lambda q: q[0])[:_N_EXACT]
+        ranked = sorted((q for q in quick if q[1] == m), key=lambda q: q[0])
+        best = ranked[: s.exact_candidates]
+        if s.axis_mid_plane and m == 2:
+            # the mid-part plane of each world axis is the plane an engineer tries first; the
+            # quick score must not drop it (a rank by approximate cost once did)
+            for q in ranked[s.exact_candidates :]:
+                n_q, offs_q = q[2], q[3]
+                if float(np.abs(n_q).max()) > 0.98 and offs_q == _weighted_quantiles(
+                    ts.centroids @ n_q, ts.areas, (_Q2[1],)
+                ):
+                    best.append(q)
         for _, _, n, offs in best:
             lab = np.digitize(ts.centroids @ n, offs)
             groups = [np.flatnonzero(lab == k) for k in range(m)]
@@ -925,7 +939,7 @@ def _visibility_methods(
     if s.max_split_pieces < 2 or not len(ts.areas):
         return []
     out: list[Method] = []
-    for n in _plane_normals(ts, pull, regions)[:_N_AXIS_SPLITS]:
+    for n in _plane_normals(ts, pull, regions, s)[: s.axis_splits]:
         lab = _assign(ts, np.array([n, -n]), s)
         groups = _connected_groups(ts, lab, 2, s)
         if len(groups) != 2:

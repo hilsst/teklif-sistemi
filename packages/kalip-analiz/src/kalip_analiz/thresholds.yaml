@@ -26,6 +26,10 @@ pull_search:
   piece_max_tilt_deg: {value: 120.0, unit: deg, source: default, desc: "Bölünmüş kalıp parçalarının çekme yönü, parçanın ortalama iç normalinden en fazla bu kadar sapar"}
   refine_min_step_deg: {value: 0.1, unit: deg, source: default, desc: "Yerel optimizasyonun en küçük adımı"}
   robust_min_quantile: {value: 0.01, unit: ratio, source: default, desc: "En küçük çekme açısı üçgenlerin bu payı dışarıda bırakılarak okunur"}
+  plane_normals: {value: 12, unit: count, source: default, desc: "Ayırma düzlemi için denenen en fazla normal sayısı (ayrıntılı hesaba giren adaylar buradan seçilir)"}
+  exact_candidates: {value: 8, unit: count, source: default, desc: "Parça sayısı başına, kaba puanla seçilip ayrıntılı hesaplanan en iyi düzlem adayı sayısı (az olursa iyi çözüm elenebilir; Cavity_Part_R1'de 3 iken ortadaki düzlem elendi)"}
+  axis_splits: {value: 4, unit: count, source: default, desc: "Yüzeyde ayırma hattı (görünürlük) yönteminde denenen en fazla eksen sayısı"}
+  axis_mid_plane: {value: 1, unit: count, source: default, desc: "1: dünya eksenlerine dik, parçanın ortasından geçen düzlem kaba sıralamada elense bile her zaman ayrıntılı hesaplanır; 0: kapalı"}
 mesh:
   # STEP tessellation. Analiz ağı inceliği karar doğruluğunu, görünüm ağı yalnız ekranı etkiler.
   linear_deflection_mm: {value: 2.0, unit: mm, source: default, desc: "Analiz ağı doğrusal sapması"}
