@@ -11,7 +11,13 @@ import numpy as np
 
 from kalip_analiz import pull_search as ps
 from kalip_analiz import viewer as vw
-from kalip_analiz.mesh import FaceMesh, faces_facing, load_face_mesh, mesh_from_arrays
+from kalip_analiz.mesh import (
+    FaceMesh,
+    cut_mesh_at_planes,
+    faces_facing,
+    load_face_mesh,
+    mesh_from_arrays,
+)
 from kalip_analiz.settings import AnalysisSettings, ThresholdSource, load_settings
 
 AXES: dict[str, tuple[float, float, float]] = {
@@ -195,6 +201,19 @@ def analyze(
         u = v / np.linalg.norm(v)
         d = (float(u[0]), float(u[1]), float(u[2]))
     a = ps.assess(tris, np.array(d), s)
+    chosen = a.methods[method] if a.methods and 0 <= method < len(a.methods) else None
+    if chosen is not None and chosen.kind == "plane" and chosen.planes:
+        # a triangle that straddles the parting plane would be given to one piece whole and the
+        # line would zigzag along its edges: cut the mesh along the planes and judge them again
+        # (only that split), so every piece ends exactly on the plane
+        mesh = cut_mesh_at_planes(
+            mesh, [(np.asarray(p.normal, dtype=float), p.offset) for p in chosen.planes]
+        )
+        tris = ps.triset_from_mesh(mesh, ids)
+        a2 = ps.assess(tris, np.array(d), s, fixed_planes=chosen.planes)
+        idx = next((i for i, m in enumerate(a2.methods) if m.kind == "plane"), None)
+        if idx is not None:
+            a, method = a2, idx
     if method:
         a = a.view(method)
     return AnalysisResult(mesh, ids, tris, d, found, a, replace(cfg, search=s))

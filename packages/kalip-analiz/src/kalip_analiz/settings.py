@@ -109,6 +109,7 @@ class Settings(_Group):
     exact_candidates: int = _i("pull_search.exact_candidates")
     axis_splits: int = _i("pull_search.axis_splits")
     axis_mid_plane: int = _i("pull_search.axis_mid_plane")
+    plane_snap_deg: float = _d("pull_search.plane_snap_deg")
 
 
 @dataclass(frozen=True)

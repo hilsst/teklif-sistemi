@@ -116,3 +116,28 @@ def test_mid_plane_survives_tight_candidate_limit() -> None:
     a = analyze(mesh, thresholds=loose, pull=(0, 0, 1)).assessment.methods
     b = analyze(mesh, thresholds=tight, pull=(0, 0, 1)).assessment.methods
     assert sum(m.kind == "plane" for m in a) >= sum(m.kind == "plane" for m in b)
+
+
+def test_cut_mesh_at_plane_leaves_no_straddling_triangle() -> None:
+    import numpy as np
+
+    from kalip_analiz.mesh import cut_mesh_at_planes, mesh_from_arrays, split_triangles_at_plane
+
+    v = np.array([[-100.0, 0, 0], [300.0, 0, 0], [0, 50.0, 0], [10.0, -50.0, 0]])
+    t = np.array([[0, 1, 2], [0, 3, 1]])
+    n = np.array([1.0, 0.0, 0.0])
+    nv, nt, parent = split_triangles_at_plane(v, t, n, 20.0)
+    pr = nv[nt] @ n
+    assert not ((pr.min(axis=1) < 20.0 - 1e-6) & (pr.max(axis=1) > 20.0 + 1e-6)).any()
+
+    # area and winding survive the cut
+    def area(vv: np.ndarray, tt: np.ndarray) -> np.ndarray:
+        c = np.cross(vv[tt[:, 1]] - vv[tt[:, 0]], vv[tt[:, 2]] - vv[tt[:, 0]])
+        return c[:, 2] / 2
+
+    assert np.isclose(area(nv, nt).sum(), area(v, t).sum())
+    assert (np.sign(area(nv, nt)) == np.sign(area(v, t))[parent]).all()
+    mesh = mesh_from_arrays(v, t, np.array([0, 0]), with_edges=False)
+    cut = cut_mesh_at_planes(mesh, [(n, 20.0)])
+    assert len(cut.faces[0].triangles) == len(nt)
+    assert np.isclose(cut.faces[0].tri_areas.sum(), mesh.faces[0].tri_areas.sum())

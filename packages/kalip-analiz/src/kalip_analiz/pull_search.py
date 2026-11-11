@@ -706,8 +706,12 @@ def _plane_normals(ts: TriSet, pull: F64, regions: list[UndercutRegion], s: Sett
     a, b = _basis(pull)
     cands += [math.cos(t) * a + math.sin(t) * b for t in np.radians([0, 45, 90, 135])]
     out: list[F64] = []
+    snap = math.cos(math.radians(s.plane_snap_deg))
     for v in cands:
         v = v / np.linalg.norm(v)
+        k = int(np.argmax(np.abs(v)))
+        if abs(float(v[k])) >= snap:  # nearly a world axis: make it exactly that axis
+            v = np.eye(3)[k] * math.copysign(1.0, float(v[k]))
         if all(abs(float(v @ o)) < _MERGE_COS for o in out):  # +n and -n are the same plane
             out.append(v)
         if len(out) >= s.plane_normals:
@@ -763,11 +767,42 @@ def _exact_pieces(
     return pieces
 
 
+def _plane_method(ts: TriSet, n: F64, offs: Sequence[float], s: Settings) -> Method | None:
+    """Exact evaluation of one plane split (normal ``n``, plane offsets ``offs``)."""
+    m = len(offs) + 1
+    lab = np.digitize(ts.centroids @ n, offs)
+    groups = [np.flatnonzero(lab == k) for k in range(m)]
+    cons = [_plane_cons(k, m, n, s) for k in range(m)]
+    pieces = _exact_pieces(ts, groups, cons, s, s.piece_max_tilt_deg)
+    if pieces is None:
+        return None
+    nt = (float(n[0]), float(n[1]), float(n[2]))
+    axis = "XYZ"[int(np.argmax(np.abs(n)))] if float(np.abs(n).max()) > 0.98 else None
+    where = f"{axis} eksenine dik" if axis else f"normal {_fmt(nt)}"
+    return _make_method(
+        "plane",
+        f"{m} parçalı bölünmüş kalıp ({where} ayırma düzlemi)",
+        ts,
+        pieces,
+        [PartingPlane(nt, float(o)) for o in offs],
+        s,
+    )
+
+
 def _plane_methods(
-    ts: TriSet, pull: F64, regions: list[UndercutRegion], s: Settings
+    ts: TriSet,
+    pull: F64,
+    regions: list[UndercutRegion],
+    s: Settings,
+    fixed: Sequence[PartingPlane] | None = None,
 ) -> list[Method]:
     """Plane splits (2 and, when allowed, 3 pieces): quick search of every normal/offset, exact
-    evaluation of the best few."""
+    evaluation of the best few. ``fixed``: evaluate only these planes (the mesh was cut along
+    them, so the pieces end exactly on the planes)."""
+    if fixed:
+        n = np.asarray(fixed[0].normal, dtype=float)
+        fm = _plane_method(ts, n, sorted(p.offset for p in fixed), s)
+        return [fm] if fm else []
     qs = _quick_settings(s)
     quick: list[tuple[float, int, F64, list[float]]] = []  # (approximate cost, ...)
     for n in _plane_normals(ts, pull, regions, s):
@@ -794,25 +829,9 @@ def _plane_methods(
                 ):
                     best.append(q)
         for _, _, n, offs in best:
-            lab = np.digitize(ts.centroids @ n, offs)
-            groups = [np.flatnonzero(lab == k) for k in range(m)]
-            cons = [_plane_cons(k, m, n, s) for k in range(m)]
-            pieces = _exact_pieces(ts, groups, cons, s, s.piece_max_tilt_deg)
-            if pieces is None:
-                continue
-            nt = (float(n[0]), float(n[1]), float(n[2]))
-            axis = "XYZ"[int(np.argmax(np.abs(n)))] if float(np.abs(n).max()) > 0.98 else None
-            where = f"{axis} eksenine dik" if axis else f"normal {_fmt(nt)}"
-            methods.append(
-                _make_method(
-                    "plane",
-                    f"{m} parçalı bölünmüş kalıp ({where} ayırma düzlemi)",
-                    ts,
-                    pieces,
-                    [PartingPlane(nt, o) for o in offs],
-                    s,
-                )
-            )
+            meth = _plane_method(ts, n, offs, s)
+            if meth is not None:
+                methods.append(meth)
     return methods
 
 
@@ -1234,7 +1253,9 @@ def _decide(
     return solution, reasons, alts, flags
 
 
-def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
+def assess(
+    ts: TriSet, pull: F64, s: Settings, fixed_planes: Sequence[PartingPlane] | None = None
+) -> ToolingAssessment:
     """Tooling decision for the tool surface ``ts``: the baseline pull is judged as one piece,
     then split methods are tried (up to ``s.max_split_pieces`` pieces) and the cheapest wins."""
     pull = np.asarray(pull, dtype=float) / np.linalg.norm(pull)
@@ -1341,7 +1362,9 @@ def assess(ts: TriSet, pull: F64, s: Settings) -> ToolingAssessment:
     cheapest_single = min(m.cost for m in methods)
     # a split costs at least one extra piece and ties go to fewer pieces: no need to search for
     # one when a single piece is already that cheap
-    if s.max_split_pieces >= 2 and cheapest_single > s.split_cost_weight:
+    if fixed_planes and s.max_split_pieces >= 2:
+        methods += _plane_methods(ts, pull, regions, s, fixed_planes)
+    elif s.max_split_pieces >= 2 and cheapest_single > s.split_cost_weight:
         methods += _plane_methods(ts, pull, regions, s)
         methods += _visibility_methods(ts, pull, regions, s)
         methods += _direction_methods(ts, s)
