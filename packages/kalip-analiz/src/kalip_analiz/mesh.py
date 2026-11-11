@@ -12,7 +12,8 @@ from a tessellation.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -541,3 +542,88 @@ def mesh_from_arrays(
             )
         )
     return FaceMesh(faces)
+
+
+def split_triangles_at_plane(
+    vertices: NDArray[np.float64],
+    triangles: NDArray[np.int64],
+    normal: NDArray[np.float64],
+    offset: float,
+    tol_mm: float = 1e-6,
+) -> tuple[NDArray[np.float64], NDArray[np.int64], NDArray[np.int64]]:
+    """Cut every triangle that crosses the plane ``normal . x = offset`` along it.
+
+    Returns ``(vertices, triangles, parent)``: the new vertex array (cut points appended), the
+    new triangles (winding kept; none crosses the plane any more) and the index of the original
+    triangle each one came from. Triangles that only touch the plane stay as they are.
+    """
+    v = np.asarray(vertices, dtype=float)
+    t = np.asarray(triangles, dtype=np.int64)
+    d = v @ np.asarray(normal, dtype=float) - offset
+    d = np.where(np.abs(d) < tol_mm, 0.0, d)
+    dt = d[t]
+    cross = (dt.min(axis=1) < 0) & (dt.max(axis=1) > 0)
+    if not cross.any():
+        return v, t, np.arange(len(t), dtype=np.int64)
+    new_v = [v]
+    n_v = len(v)
+    out_t: list[NDArray[np.int64]] = [t[~cross]]
+    out_p: list[NDArray[np.int64]] = [np.flatnonzero(~cross).astype(np.int64)]
+    extra_t: list[tuple[int, int, int]] = []
+    extra_p: list[int] = []
+    cut_cache: dict[tuple[int, int], int] = {}
+
+    def cut(a: int, b: int) -> int:
+        nonlocal n_v
+        key = (a, b) if a < b else (b, a)
+        if key not in cut_cache:
+            da, db = d[a], d[b]
+            new_v.append((v[a] + (v[b] - v[a]) * (da / (da - db)))[None, :])
+            cut_cache[key] = n_v
+            n_v += 1
+        return cut_cache[key]
+
+    for i in np.flatnonzero(cross):
+        tri = [int(x) for x in t[i]]
+        sg = [0 if d[x] == 0 else (1 if d[x] > 0 else -1) for x in tri]
+        # rotate so that the apex (alone on its side, or the vertex on the plane) comes first
+        if 0 in sg:
+            k = sg.index(0)
+        else:
+            k = next(j for j in range(3) if sg[j] != sg[(j + 1) % 3] and sg[j] != sg[(j + 2) % 3])
+        a, b, c = tri[k], tri[(k + 1) % 3], tri[(k + 2) % 3]
+        if sg[k] == 0:  # a on the plane, b and c on opposite sides: cut the edge b-c
+            q = cut(b, c)
+            extra_t += [(a, b, q), (a, q, c)]
+            extra_p += [int(i), int(i)]
+        else:  # a alone on its side: cut a-b and a-c
+            p0, q = cut(a, b), cut(a, c)
+            extra_t += [(a, p0, q), (p0, b, c), (p0, c, q)]
+            extra_p += [int(i)] * 3
+    out_t.append(np.asarray(extra_t, dtype=np.int64).reshape(-1, 3))
+    out_p.append(np.asarray(extra_p, dtype=np.int64))
+    return np.vstack(new_v), np.vstack(out_t), np.concatenate(out_p)
+
+
+def cut_mesh_at_planes(
+    mesh: FaceMesh, planes: Sequence[tuple[NDArray[np.float64], float]]
+) -> FaceMesh:
+    """A copy of ``mesh`` whose triangles are cut along the planes ``(normal, offset)``, so a
+    parting line between two mold pieces is a straight line in its plane, not a zigzag along
+    long triangle edges. Face ids, normals and the face edges are kept."""
+    faces: list[MeshFace] = []
+    for f in mesh.faces:
+        if not len(f.triangles):
+            faces.append(f)
+            continue
+        vv, tt, par = f.vertices, f.triangles, np.arange(len(f.triangles), dtype=np.int64)
+        for n, off in planes:
+            vv, tt, p2 = split_triangles_at_plane(vv, tt, n, off)
+            par = par[p2]
+        if len(tt) == len(f.triangles):
+            faces.append(f)
+            continue
+        a, b, c = vv[tt[:, 0]], vv[tt[:, 1]], vv[tt[:, 2]]
+        area = np.linalg.norm(np.cross(b - a, c - a), axis=1) / 2
+        faces.append(replace(f, vertices=vv, triangles=tt, normals=f.normals[par], tri_areas=area))
+    return replace(mesh, faces=faces)
