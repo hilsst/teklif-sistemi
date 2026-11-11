@@ -96,3 +96,23 @@ def test_to_dict_is_json_and_edges_optional() -> None:
     d = analyze(mesh).to_dict()
     json.dumps(d)
     assert d["methods"] and d["trace"] and "solution" in d
+
+
+def test_plane_search_limits_come_from_yaml() -> None:
+    cfg = load_settings(
+        {"pull_search": {"exact_candidates": {"value": 3}, "axis_mid_plane": {"value": 0}}}
+    ).search
+    assert (cfg.exact_candidates, cfg.axis_mid_plane) == (3, 0)
+    d = load_settings(None).search
+    assert (d.plane_normals, d.exact_candidates, d.axis_mid_plane, d.axis_splits) == (12, 8, 1, 4)
+
+
+def test_mid_plane_survives_tight_candidate_limit() -> None:
+    """With only one exact candidate the mid-part axis plane must still be evaluated."""
+    v, t, f = _box_mold(0.0)
+    mesh = mesh_from_arrays(v, _outward_ok(v, t), f, with_edges=False)
+    loose = {"pull_search": {"exact_candidates": {"value": 1}, "axis_mid_plane": {"value": 1}}}
+    tight = {"pull_search": {"exact_candidates": {"value": 1}, "axis_mid_plane": {"value": 0}}}
+    a = analyze(mesh, thresholds=loose, pull=(0, 0, 1)).assessment.methods
+    b = analyze(mesh, thresholds=tight, pull=(0, 0, 1)).assessment.methods
+    assert sum(m.kind == "plane" for m in a) >= sum(m.kind == "plane" for m in b)
