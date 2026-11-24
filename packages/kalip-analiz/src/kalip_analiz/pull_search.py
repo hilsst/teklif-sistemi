@@ -959,7 +959,7 @@ def _visibility_methods(
         return []
     out: list[Method] = []
     for n in _plane_normals(ts, pull, regions, s)[: s.axis_splits]:
-        lab = _assign(ts, np.array([n, -n]), s)
+        lab = _side_ties(ts, _assign(ts, np.array([n, -n]), s), n, s)
         groups = _connected_groups(ts, lab, 2, s)
         if len(groups) != 2:
             continue
@@ -987,6 +987,58 @@ def _visibility_methods(
                 s,
             )
         )
+    return out
+
+
+def _best_cut(pos: F64, areas: F64, lab: I64, tol: float = 0.0) -> tuple[float, float]:
+    """Plane offset along ``pos`` that best separates label 0 (below) from label 1 (above) and
+    the area share it leaves on the wrong side (0: one plane parts them cleanly, 0.5: fully
+    mixed). Among the offsets within ``tol`` (area share) of the best, the middle of the widest
+    gap is taken, so a mirror symmetric part is cut on its symmetry plane and a speck of
+    surface does not drag the cut aside."""
+    tot = float(areas.sum()) or 1.0
+    if len(pos) < 2:
+        return (float(pos[0]) if len(pos) else 0.0), 0.0
+    o = np.argsort(pos, kind="stable")
+    p, a, lo = pos[o], areas[o], lab[o]
+    # cut after sorted index i: wrong = label 1 at or below + label 0 above
+    ones_below = np.cumsum(np.where(lo == 1, a, 0.0))[:-1]
+    zeros_above = float(a[lo == 0].sum()) - np.cumsum(np.where(lo == 0, a, 0.0))[:-1]
+    wrong = (ones_below + zeros_above) / tot
+    wrong = np.minimum(wrong, 1.0 - wrong)  # the labels may sit the other way round
+    gap = p[1:] - p[:-1]
+    best = float(wrong.min())
+    ok = np.flatnonzero(wrong <= best + tol + 1e-9)
+    i = int(ok[np.argmax(gap[ok])])
+    return float(0.5 * (p[i] + p[i + 1])), best
+
+
+def _side_ties(ts: TriSet, lab: I64, n: F64, s: Settings) -> I64:
+    """Triangles that run (nearly) along the axis ``n`` are released equally by +n and -n, so
+    the visibility test cannot place them and a tie used to put a whole face (both mirror halves
+    of a symmetric part) into one piece. They go to the side of the parting plane that best
+    separates the triangles the visibility test did place: the part's flat top is cut where the
+    two halves meet, as an engineer would cut it. Only when the placed triangles are two halves
+    (at most ``visibility_max_interlock`` of them on the wrong side of that plane): the core and
+    cavity sides of a shell interleave along the axis, and there the walls between them stay
+    with the side they are joined to."""
+    tie = np.abs(ts.normals @ n) < math.sin(math.radians(s.visibility_tie_deg))
+    if not tie.any():
+        return lab
+    pos = ts.centroids @ n
+    clear = ~tie
+    if clear.sum() >= 2:
+        off, wrong = _best_cut(pos[clear], ts.areas[clear], lab[clear], s.noise_area_ratio)
+        if wrong > s.visibility_max_interlock:
+            return lab
+        below = clear & (pos < off)
+        # which label sits below the cut (lab 0 is released along +n: it lies on the -n side)
+        a0 = float(ts.areas[below & (lab == 0)].sum())
+        low = 0 if a0 >= float(ts.areas[below].sum()) - a0 else 1
+    else:
+        off, low = _weighted_quantiles(pos, ts.areas, (0.5,))[0], 0
+    out = lab.copy()
+    out[tie] = np.where(pos[tie] < off, low, 1 - low)
     return out
 
 
