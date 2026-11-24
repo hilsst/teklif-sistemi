@@ -31,6 +31,8 @@ pull_search:
   axis_splits: {value: 4, unit: count, source: default, desc: "Yüzeyde ayırma hattı (görünürlük) yönteminde denenen en fazla eksen sayısı"}
   axis_mid_plane: {value: 1, unit: count, source: default, desc: "1: dünya eksenlerine dik, parçanın ortasından geçen düzlem kaba sıralamada elense bile her zaman ayrıntılı hesaplanır; 0: kapalı"}
   plane_snap_deg: {value: 3.0, unit: deg, source: default, desc: "Ayırma düzleminin normali bir dünya eksenine bu kadar derecede yakınsa tam eksene oturtulur (düzlem çekme eksenine tam dik, eğik olmaz)"}
+  visibility_tie_deg: {value: 1.0, unit: deg, source: default, desc: "Yüzeyde ayırma hattı yönteminde ekseni bu açıdan daha az kesen (eksene neredeyse paralel) üçgenler iki yönden eşit çıkar; görünürlükle değil, iki yarıyı en iyi ayıran düzlemin hangi yanında olduklarına göre parçaya verilir (simetrik parçanın üst yüzeyi ortadan bölünür)"}
+  visibility_max_interlock: {value: 0.05, unit: ratio, source: default, desc: "Yüzeyde ayırma hattı yönteminde görünürlükle yerleşen üçgenler tek bir düzlemle en fazla bu alan payı kadar yanlış yana düşüyorsa iki yarı sayılır ve eksene paralel yüzeyler o düzlemin yanına göre bölünür; daha karışıksa (kabuk parçanın maça/dişi tarafları gibi) paralel yüzeyler bağlı oldukları tarafta kalır"}
 mesh:
   # STEP tessellation. Analiz ağı inceliği karar doğruluğunu, görünüm ağı yalnız ekranı etkiler.
   linear_deflection_mm: {value: 2.0, unit: mm, source: default, desc: "Analiz ağı doğrusal sapması"}

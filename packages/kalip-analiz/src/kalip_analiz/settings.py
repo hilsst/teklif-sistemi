@@ -110,6 +110,8 @@ class Settings(_Group):
     axis_splits: int = _i("pull_search.axis_splits")
     axis_mid_plane: int = _i("pull_search.axis_mid_plane")
     plane_snap_deg: float = _d("pull_search.plane_snap_deg")
+    visibility_tie_deg: float = _d("pull_search.visibility_tie_deg")
+    visibility_max_interlock: float = _d("pull_search.visibility_max_interlock")
 
 
 @dataclass(frozen=True)

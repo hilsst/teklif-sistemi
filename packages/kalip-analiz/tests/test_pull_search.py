@@ -187,7 +187,7 @@ def test_two_sided_undercut_is_a_two_piece_split() -> None:
 def test_methods_are_ranked_by_cost_and_listed() -> None:
     ts = _soup(_dovetail())
     a = assess(ts, np.array([0, 0, 1.0]), S)
-    costs = [m.cost for m in a.methods]
+    costs = [round(m.cost, 6) for m in a.methods]  # the ranking rounds cost to 6 decimals
     assert costs == sorted(costs)
     kinds = {m.kind for m in a.methods}
     assert {"single", "plane"} <= kinds
@@ -342,3 +342,48 @@ def test_island_inside_the_other_piece_is_given_to_it() -> None:
     lab[centre] = 1
     groups = _connected_groups(ts, lab, 2, S)
     assert len(groups) == 1 and len(groups[0]) == len(lab)
+
+
+def _channel(lean_deg: float = 3.0) -> list[Quad]:
+    """Outer (tool-side) surface of a mirror symmetric channel lying upside down: a flat top
+    200 wide (x = -100..100) and 400 long, two side walls 80 high leaning back over the part
+    (an undercut for the -Z pull) and flat ends. The top and the ends run along X."""
+    s, c = math.sin(math.radians(lean_deg)), math.cos(math.radians(lean_deg))
+    return [
+        ([-100, 0, 80], [100, 0, 80], [100, 400, 80], [-100, 400, 80], [0, 0, 1]),
+        ([100, 0, 0], [100, 400, 0], [100, 400, 80], [100, 0, 80], [c, 0, -s]),
+        ([-100, 0, 0], [-100, 400, 0], [-100, 400, 80], [-100, 0, 80], [-c, 0, -s]),
+        ([-100, 0, 0], [100, 0, 0], [100, 0, 80], [-100, 0, 80], [0, -1, 0]),
+        ([-100, 400, 0], [100, 400, 0], [100, 400, 80], [-100, 400, 80], [0, 1, 0]),
+    ]
+
+
+def test_visibility_split_cuts_a_symmetric_part_on_its_symmetry_plane() -> None:
+    # the top and the ends run along the split axis, so both pulls release them equally; they
+    # used to go whole to one piece (both mirror halves the same colour, the pieces wrapped
+    # around each other). They are cut where the two halves meet instead.
+    from kalip_analiz.pull_search import _best_cut
+
+    ts = _soup(_channel())
+    a = assess(ts, np.array([0, 0, -1.0]), replace(S, max_split_pieces=2))
+    vis = [m for m in a.methods if m.kind == "visibility" and "X ekseni" in m.label]
+    assert vis, "the visibility split along X must be among the compared methods"
+    m = vis[0]
+    x = ts.centroids[:, 0]
+    along = np.abs(ts.normals[:, 0]) < 0.5  # top and ends
+    left = set(m.piece_of[along & (x < 0)].tolist())
+    right = set(m.piece_of[along & (x > 0)].tolist())
+    assert len(left) == 1 and len(right) == 1 and left != right
+    _, wrong = _best_cut(x, ts.areas, m.piece_of)
+    assert wrong < 1e-9  # one plane (x = 0) parts the two pieces
+
+
+def test_best_cut_takes_the_middle_of_the_gap() -> None:
+    from kalip_analiz.pull_search import _best_cut
+
+    pos = np.array([-100.0, -99.0, 99.0, 100.0])
+    off, wrong = _best_cut(pos, np.ones(4), np.array([0, 0, 1, 1]))
+    assert off == pytest.approx(0.0) and wrong == 0.0
+    # fully mixed labels cannot be parted by any plane
+    _, wrong = _best_cut(pos, np.ones(4), np.array([0, 1, 0, 1]))
+    assert wrong == pytest.approx(0.25)
